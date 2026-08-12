@@ -1,0 +1,32 @@
+# Environment & secrets
+.env
+backend/.env
+*.env.local
+
+# Database
+*.db
+*.db-journal
+backend/agent_demo.db
+
+# Build artifacts
+frontend/dist/
+frontend/node_modules/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log

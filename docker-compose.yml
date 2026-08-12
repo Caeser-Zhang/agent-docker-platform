@@ -1,0 +1,87 @@
+# Agent Docker Platform — Full Stack Orchestration
+#
+# Architecture (design section 2.1):
+#   Browser Layer (nginx + React) → Platform Control Layer (FastAPI)
+#     → Container Runtime Layer (per-user Docker containers)
+#     → Shared Services Layer
+#
+# Prerequisites:
+#   - Docker Engine installed and running
+#   - The agent image must be built first: docker build -t agent-demo:1.0.0 ./agent-image
+#
+# Usage:
+#   docker-compose up -d
+#   Open http://localhost:3000
+#
+# Note: The backend mounts the Docker socket to manage per-user containers.
+#   In production, this should be replaced with a Docker API proxy or
+#   remote Docker daemon for better security isolation.
+
+services:
+  # --- Browser Layer ---
+  frontend:
+    build: ./frontend
+    # Auto-recover after a Docker daemon / WSL VM restart.
+    # Without this, the WSL VM idle-shutdown leaves the stack down while the
+    # per-user agent containers (restart=unless-stopped) come back alone.
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - platform-net
+
+  # --- Platform Control Layer ---
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "9123:8000"
+    environment:
+      - AGENT_SECRET_KEY=change-this-in-production
+      - AGENT_DATABASE_URL=sqlite+aiosqlite:///./agent_demo.db
+      - AGENT_AGENT_IMAGE=agent-demo:1.0.0
+      - AGENT_AGENT_NETWORK=agent-net
+      - AGENT_AGENT_PORT=4096
+      - AGENT_AGENT_WORKDIR=/workspace
+      - AGENT_CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
+      # Where the backend finds the developer's opencode.json (see volumes)
+      - AGENT_OPENCODE_CONFIG_SOURCE=/host-opencode/opencode.json
+      - AGENT_CONTAINER_HOST_ALIAS=host.docker.internal
+    volumes:
+      # Mount Docker socket so the backend can manage containers
+      # WARNING: In production, use a Docker API proxy instead
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist the SQLite database
+      - backend-data:/app/data
+      # Mount the entire opencode config directory (read-write) so the backend
+      # can manage opencode.json AND skill files via the config API.
+      # Override the host path with OPENCODE_CONFIG_DIR in .env
+      - ${OPENCODE_CONFIG_DIR:-~/.config/opencode}:/host-opencode:rw
+    networks:
+      - platform-net
+      - agent-net  # Must be on agent-net to reach user containers
+
+  # --- Shared Services Layer (extensible) ---
+  # Add FastDB, Ollama, PostgreSQL, etc. here as needed
+
+networks:
+  # Platform network — frontend ↔ backend
+  # Fixed name so the backend container joins exactly this network.
+  platform-net:
+    name: platform-net
+    driver: bridge
+
+  # Agent network — backend ↔ user containers (design section 2.3)
+  # This is the isolated bridge network that all per-user containers join.
+  # Fixed name "agent-net" matches the network the ContainerManager creates
+  # via the Docker SDK, so DNS resolution between backend and agent containers works.
+  agent-net:
+    name: agent-net
+    driver: bridge
+    labels:
+      managed-by: agent-platform
+
+volumes:
+  backend-data:
