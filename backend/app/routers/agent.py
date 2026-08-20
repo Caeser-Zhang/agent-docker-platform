@@ -5,7 +5,8 @@ Endpoints:
   POST /api/agent/start    — start the agent container
   POST /api/agent/stop     — stop the agent container
   GET  /api/agent/logs     — fetch container logs
-  GET  /api/agent/containers — list all containers (admin/debug)
+
+(Platform-wide container listing moved to /api/admin/containers — admin only.)
 """
 import logging
 
@@ -73,10 +74,3 @@ async def agent_logs(user: User = Depends(get_current_user)):
     """Fetch recent container logs for debugging."""
     logs = container_manager.get_container_logs(user.id, tail=100)
     return {"logs": logs}
-
-
-@router.get("/containers")
-async def list_containers(user: User = Depends(get_current_user)):
-    """List all agent containers (for admin/debug purposes)."""
-    containers = container_manager.list_all_containers()
-    return {"containers": containers}

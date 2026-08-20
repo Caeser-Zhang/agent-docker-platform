@@ -186,6 +186,51 @@ class AgentController:
         await self._update_status(user_id, "destroyed")
 
     # ------------------------------------------------------------------
+    #  Restart — in-place container restart with pump re-attach
+    # ------------------------------------------------------------------
+
+    async def restart_for_user(self, user_id: str) -> dict:
+        """Restart the user's container and re-attach the SSE pump.
+
+        Used by the admin panel: docker restart preserves the container
+        object (env/mounts/labels), then we re-probe health and rebuild the
+        pump because the upstream /api/event connection dies with the old
+        process. Manual restarts are counted in restart_count.
+        """
+        record = await self._get_container_record(user_id)
+        if not record:
+            return {"ok": False, "message": "No container record for this user"}
+
+        await sse_pump_manager.stop_pump(user_id)
+        await self._update_status(user_id, "starting")
+
+        restarted = await container_manager.restart_container(user_id)
+
+        async with async_session() as db:
+            await db.execute(
+                update(AgentContainer)
+                .where(AgentContainer.user_id == user_id)
+                .values(restart_count=AgentContainer.restart_count + 1)
+            )
+            await db.commit()
+
+        if not restarted:
+            await self._update_status(user_id, "failed", error="Docker restart failed")
+            return {"ok": False, "message": "Docker restart failed (container absent?)"}
+
+        if not await self._health_probe(user_id, record.password_enc):
+            await self._update_status(user_id, "failed", error="Health probe failed after restart")
+            return {"ok": False, "message": "Restarted, but health probe failed"}
+
+        await sse_pump_manager.start_pump(
+            user_id,
+            container_manager.get_container_url(user_id),
+            ("opencode", record.password_enc),
+        )
+        await self._update_status(user_id, "running", error=None)
+        return {"ok": True, "message": "Container restarted"}
+
+    # ------------------------------------------------------------------
     #  Pump re-attach — after an out-of-band container restart
     # ------------------------------------------------------------------
 

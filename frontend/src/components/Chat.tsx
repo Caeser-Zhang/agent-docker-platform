@@ -51,7 +51,17 @@ const collectAtTokens = (text: string): string[] => {
   return [...out];
 };
 
-export function Chat({ username, onLogout }: { username: string; onLogout: () => void }) {
+export function Chat({
+  username,
+  role,
+  onOpenAdmin,
+  onLogout,
+}: {
+  username: string;
+  role?: string;
+  onOpenAdmin?: () => void;
+  onLogout: () => void;
+}) {
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [runtime, setRuntime] = useState<AgentRuntime | null>(null);
   const [providers, setProviders] = useState<ProvidersResponse | null>(null);
@@ -740,6 +750,11 @@ export function Chat({ username, onLogout }: { username: string; onLogout: () =>
           <div style={styles.userInfo}>
             <span style={styles.userAvatar}>{username[0]?.toUpperCase()}</span>
             <span style={styles.userName}>{username}</span>
+            {role === "admin" && onOpenAdmin && (
+              <button style={styles.logoutBtn} onClick={onOpenAdmin} title="Docker 容器管理（仅管理员）">
+                管理
+              </button>
+            )}
             <button style={styles.logoutBtn} onClick={onLogout}>退出</button>
           </div>
         </div>

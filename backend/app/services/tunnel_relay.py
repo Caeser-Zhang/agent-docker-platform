@@ -83,19 +83,22 @@ class TunnelRelay:
 
         try:
             client = await self._get_client()
+            # Per-request timeout (the client default is 300s, far too long
+            # for health probes and interactive tunnelled calls).
+            req_timeout = httpx.Timeout(timeout, connect=min(10.0, timeout))
 
             # Use content= for raw bytes, NOT json= — this is the key fix.
             # json= would re-serialize and potentially alter the body.
             if method == "GET":
-                r = await client.get(url, auth=auth)
+                r = await client.get(url, auth=auth, timeout=req_timeout)
             elif method == "POST":
-                r = await client.post(url, content=raw_body, headers=fwd_headers, auth=auth)
+                r = await client.post(url, content=raw_body, headers=fwd_headers, auth=auth, timeout=req_timeout)
             elif method == "DELETE":
-                r = await client.delete(url, auth=auth)
+                r = await client.delete(url, auth=auth, timeout=req_timeout)
             elif method == "PATCH":
-                r = await client.patch(url, content=raw_body, headers=fwd_headers, auth=auth)
+                r = await client.patch(url, content=raw_body, headers=fwd_headers, auth=auth, timeout=req_timeout)
             elif method == "PUT":
-                r = await client.put(url, content=raw_body, headers=fwd_headers, auth=auth)
+                r = await client.put(url, content=raw_body, headers=fwd_headers, auth=auth, timeout=req_timeout)
             else:
                 return {"status": 405, "body": {"error": f"Method {method} not allowed"}, "headers": {}, "raw": b""}
 

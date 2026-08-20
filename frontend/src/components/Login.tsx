@@ -20,6 +20,7 @@ export function Login({ onLogin }: { onLogin: (t: TokenResponse) => void }) {
       localStorage.setItem("token", result.access_token);
       localStorage.setItem("userId", result.user_id);
       localStorage.setItem("username", result.username);
+      localStorage.setItem("role", result.role || "user");
       onLogin(result);
     } catch (err: any) {
       setError(err.message || "Authentication failed");

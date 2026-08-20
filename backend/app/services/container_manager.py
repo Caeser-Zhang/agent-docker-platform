@@ -423,6 +423,28 @@ class ContainerManager:
             pass
         return None
 
+    async def restart_container(self, user_id: str, timeout: int = 10) -> bool:
+        """Restart a user's container in place via `docker restart`.
+
+        Unlike stop+start this preserves the container object (env, mounts,
+        labels), so the opencode password embedded in the env stays valid.
+        """
+        async with self._lock:
+            client = self._get_client()
+            container_name = f"agent-{user_id}"
+            try:
+                container = client.containers.get(container_name)
+                container.restart(timeout=timeout)
+                container.reload()
+                logger.info("Container %s restarted", container_name)
+                return True
+            except NotFound:
+                logger.info("Container %s not found — nothing to restart", container_name)
+                return False
+            except Exception as e:
+                logger.error("Failed to restart container %s: %s", container_name, e)
+                return False
+
     async def stop_container(self, user_id: str, timeout: int = 10):
         """Gracefully stop a user's container (preserves volumes)."""
         async with self._lock:
@@ -510,6 +532,47 @@ class ContainerManager:
         if container is None:
             return "absent"
         return container.status  # 'created', 'running', 'paused', 'exited', etc.
+
+    def get_container_stats(self, user_id: str) -> dict | None:
+        """One-shot CPU/memory sample for a running container.
+
+        Blocking (~1-2s — the daemon takes two samples to compute CPU%), so
+        callers in async context should wrap it in asyncio.to_thread.
+        Returns None when the container is missing or not running.
+        """
+        container = self.get_container(user_id)
+        if container is None or container.status != "running":
+            return None
+        try:
+            stats = container.stats(stream=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Stats sampling failed for agent-%s: %s", user_id, exc)
+            return None
+
+        cpu = stats.get("cpu_stats", {})
+        pre = stats.get("precpu_stats", {})
+        cpu_delta = cpu.get("cpu_usage", {}).get("total_usage", 0) - pre.get(
+            "cpu_usage", {}
+        ).get("total_usage", 0)
+        sys_delta = cpu.get("system_cpu_usage", 0) - pre.get("system_cpu_usage", 0)
+        online = cpu.get("online_cpus") or len(
+            cpu.get("cpu_usage", {}).get("percpu_usage") or [1]
+        )
+        cpu_percent = 0.0
+        if sys_delta > 0 and cpu_delta >= 0:
+            cpu_percent = round((cpu_delta / sys_delta) * online * 100, 2)
+
+        mem = stats.get("memory_stats", {})
+        mem_usage = mem.get("usage", 0)
+        mem_limit = mem.get("limit", 0)
+
+        return {
+            "cpu_percent": cpu_percent,
+            "mem_usage_mb": round(mem_usage / 1024 / 1024, 1) if mem_usage else 0.0,
+            "mem_limit_mb": round(mem_limit / 1024 / 1024, 1) if mem_limit else 0.0,
+            "mem_percent": round(mem_usage / mem_limit * 100, 1) if mem_limit else 0.0,
+            "pids": stats.get("pids_stats", {}).get("current"),
+        }
 
     # ------------------------------------------------------------------
     #  Workspace file primitives (project-scope config & skills)
@@ -748,21 +811,50 @@ class ContainerManager:
             return ""
 
     def list_all_containers(self) -> list[dict]:
-        """List all agent containers managed by the platform."""
+        """List all agent containers managed by the platform (any state).
+
+        Returns one row per Docker container labelled managed-by=agent-platform,
+        with live state (status, health, start time) straight from the daemon.
+        """
         client = self._get_client()
-        containers = client.containers.list(
-            all=True,
-            filters={"label": "managed-by=agent-platform"},
-        )
+        try:
+            containers = client.containers.list(
+                all=True,
+                filters={"label": "managed-by=agent-platform"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Docker container listing failed: %s", exc)
+            return []
+
         result = []
         for c in containers:
+            state = c.attrs.get("State", {})
+            # Read the image name from attrs: `c.image` issues an extra API
+            # call that 404s when the image has been pruned while the
+            # container still references it.
+            image = (c.attrs.get("Config") or {}).get("Image") or settings.agent_image
             result.append({
                 "name": c.name,
                 "user_id": c.labels.get("user-id", ""),
                 "status": c.status,
-                "image": c.image.tags[0] if c.image.tags else str(c.image.id),
+                "health": (state.get("Health") or {}).get("Status"),
+                "image": image,
+                "started_at": self._normalize_docker_ts(state.get("StartedAt")),
             })
         return result
+
+    @staticmethod
+    def _normalize_docker_ts(ts: str | None) -> str | None:
+        """Trim Docker's nanosecond timestamps to ISO-8601 microseconds."""
+        if not ts:
+            return None
+        # e.g. "2026-08-20T03:14:59.123456789Z" → "...T03:14:59.123456Z"
+        if "." in ts:
+            head, rest = ts.split(".", 1)
+            digits = "".join(ch for ch in rest if ch.isdigit())
+            suffix = rest.lstrip("0123456789") or "Z"
+            return f"{head}.{digits[:6]}{suffix}"
+        return ts
 
 
 # Global singleton — replaces the old OpencodeManager

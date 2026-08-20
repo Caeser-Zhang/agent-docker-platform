@@ -1,6 +1,6 @@
 # Agent Docker Platform — API 文档
 
-平台控制层（FastAPI）的全部 HTTP 接口契约。opencode 原生接口经透明代理透传，见 [§7 隧道 API](#7-透明代理隧道) 与 [§8 opencode 常用透传端点](#8-opencode-常用透传端点)。
+平台控制层（FastAPI）的全部 HTTP 接口契约。opencode 原生接口经透明代理透传，见 [§8 隧道 API](#8-透明代理隧道) 与 [§9 opencode 常用透传端点](#9-opencode-常用透传端点)。
 
 ## 目录
 
@@ -8,12 +8,13 @@
 - [1. 健康检查](#1-健康检查)
 - [2. 认证 API](#2-认证-api)
 - [3. Agent 生命周期 API](#3-agent-生命周期-api)
-- [4. 全局配置 API](#4-全局配置-api)
-- [5. 工作区 API](#5-工作区-api)
-- [6. SSE 事件流](#6-sse-事件流)
-- [7. 透明代理（隧道）](#7-透明代理隧道)
-- [8. opencode 常用透传端点](#8-opencode-常用透传端点)
-- [9. 错误码汇总](#9-错误码汇总)
+- [4. 管理员 API](#4-管理员-api)
+- [5. 全局配置 API](#5-全局配置-api)
+- [6. 工作区 API](#6-工作区-api)
+- [7. SSE 事件流](#7-sse-事件流)
+- [8. 透明代理（隧道）](#8-透明代理隧道)
+- [9. opencode 常用透传端点](#9-opencode-常用透传端点)
+- [10. 错误码汇总](#10-错误码汇总)
 
 ---
 
@@ -99,9 +100,12 @@ Authorization: Bearer <access_token>
   "access_token": "eyJhbGciOi...",
   "token_type": "bearer",
   "user_id": "usr_xxx",
-  "username": "alice"
+  "username": "alice",
+  "role": "user"                  // "user" | "admin"
 }
 ```
+
+`role` 决定能否进入前端 Docker 管理面板（见 [§4 管理员 API](#4-管理员-api)）。数据库为空时注册的首个用户自动获得 `admin`；用户名命中 `AGENT_ADMIN_USERNAMES` 环境变量也会获得 `admin`。
 
 **错误**
 
@@ -113,7 +117,7 @@ Authorization: Bearer <access_token>
 
 **请求体** 同注册。
 
-**成功响应** `200` 同注册。
+**成功响应** `200` 同注册（含 `role`）。登录时若用户名命中 `AGENT_ADMIN_USERNAMES` 且角色不是 admin，会自动提升。
 
 **错误**
 
@@ -183,19 +187,111 @@ Authorization: Bearer <access_token>
 { "logs": "...最近 100 行日志文本..." }
 ```
 
-### `GET /api/agent/containers` — 全部容器诊断
+> 原先此处的 `GET /api/agent/containers`（全部容器诊断）已删除——任何登录用户都能看到全平台容器属于越权。等价能力由 [§4 管理员 API](#4-管理员-api) 的 `GET /api/admin/containers` 提供，且仅限 admin 角色。
 
-> 注意：当前实现未做 admin 角色校验，任何登录用户均可调用。
+---
+
+## 4. 管理员 API
+
+平台级 Docker 容器管理（前端"Docker 容器管理"面板的数据源）。**全部端点要求 `role=admin`**，角色从数据库实时读取（非 JWT 声明），降权立即生效；非管理员一律 `403 Admin privileges required`。
+
+### 管理员的三个来源
+
+| 来源 | 说明 |
+|---|---|
+| 首个注册用户 | 数据库为空时注册的第一个用户自动成为 admin（bootstrap） |
+| 环境变量 | `AGENT_ADMIN_USERNAMES=admin,ops`（逗号分隔），启动时自动提升、登录时兜底提升 |
+| 手动改库 | `UPDATE users SET role='admin' WHERE username='...'`（SQLite 无后台时的途径） |
+
+### `GET /api/admin/overview` — 平台总览
 
 **响应**
 
 ```json
-{ "containers": [ { "...": "Docker 容器诊断信息" } ] }
+{
+  "users": { "total": 6, "admins": 1 },
+  "containers": {
+    "records": 3,                    // agent_containers 表记录数
+    "by_status": { "stopped": 3 },   // 记录状态分布
+    "docker_total": 11,              // Docker 守护进程中的平台容器数
+    "docker_running": 1
+  },
+  "platform": {
+    "image": "agent-demo:1.0.0", "network": "agent-net", "port": 4096,
+    "cpu_limit": 2.0, "memory_limit": "2g"
+  }
+}
 ```
+
+### `GET /api/admin/containers` — 全部用户容器
+
+**Query** `stats`（默认 `true`）：是否采集 CPU/内存。每个运行中容器的采样阻塞 1-2s（守护进程取两次读数），多容器并行采样。
+
+**响应**：双源合并——Docker 守护进程（地面真相）∪ `agent_containers` 记录（补用户名/最近活动/错误）。仅库里有记录、Docker 里没有的容器显示 `docker_status="absent"`。
+
+```json
+{
+  "containers": [
+    {
+      "user_id": "464d6e13-...",
+      "username": "alice",
+      "container_name": "agent-464d6e13-...",
+      "db_status": "running",          // running/starting/stopped/failed/destroyed/unmanaged
+      "docker_status": "running",      // running/exited/.../absent
+      "health": "healthy",             // Docker healthcheck，可为 null
+      "image": "agent-demo:1.0.0",
+      "started_at": "2026-08-20T03:41:22.238Z",
+      "last_activity": "2026-08-20T03:41:27.239Z",
+      "restart_count": 2,
+      "last_error": null,
+      "stats": {                        // stats=false 或非运行中时缺省
+        "cpu_percent": 8.5,
+        "mem_usage_mb": 287.1, "mem_limit_mb": 2048.0,
+        "mem_percent": 14.0, "pids": 24
+      }
+    }
+  ]
+}
+```
+
+### `GET /api/admin/containers/{user_id}/logs` — 容器日志
+
+**Query** `tail`（默认 200，1-2000）。
+
+**响应**
+
+```json
+{ "user_id": "...", "tail": 200, "logs": "...日志文本..." }
+```
+
+### `POST /api/admin/containers/{user_id}/restart` — 原地重启
+
+`docker restart`（保留容器对象：env/挂载/标签，opencode 密码不变）。内部流程：停 SSE Pump → 重启容器 → 健康探测 → 重建 Pump → `restart_count+1`。通常耗时 15-20s（含 10s 优雅停止窗口）。
+
+**响应** `{ "ok": true, "message": "Container restarted" }`；重启后健康探测失败返回 `409`。
+
+### `POST /api/admin/containers/{user_id}/stop` — 优雅停止
+
+停止容器、保留数据卷与容器对象，用户下次 `start` 直接复用。
+
+**响应** `{ "ok": true, "message": "Agent stopped" }`
+
+### `POST /api/admin/containers/{user_id}/destroy` — 销毁（不可逆）
+
+删除容器**与全部数据卷**（工作区文件、opencode 会话历史永久丢失），DB 记录置 `destroyed`。用户下次进入聊天时容器会重新创建。前端要求输入容器名二次确认。
+
+**响应** `{ "ok": true, "message": "Container and volumes destroyed" }`
+
+**操作端点公共错误**
+
+| 状态码 | 说明 |
+|---|---|
+| 404 | `No Docker container for this user`（Docker 中无此容器，含 absent 记录） |
+| 409 | 重启后健康探测失败 |
 
 ---
 
-## 4. 全局配置 API
+## 5. 全局配置 API
 
 管理**宿主机全局** `opencode.json` 与 `~/.config/opencode/skills/`。写入后需调用 `POST /api/config/reload` 注入容器生效。
 
@@ -344,7 +440,7 @@ frontmatter 必须含 `name` 与 `description` 字段。
 
 ---
 
-## 5. 工作区 API
+## 6. 工作区 API
 
 管理**项目级**配置（容器卷 `/workspace/opencode.json`）、项目级 Skills（`/workspace/.opencode/skills/`）与聊天附件 / 文件浏览。全部经 Docker archive API 操作，容器运行或停止均可，但**容器必须已创建**（否则 409）。
 
@@ -524,7 +620,7 @@ MIME 按扩展名推导（覆盖 html/md/txt/json/csv/js/ts/tsx/py/sh/css/png/jp
 
 ---
 
-## 6. SSE 事件流
+## 7. SSE 事件流
 
 ### `GET /api/tunnel/events` — opencode 事件扇出（SSE）
 
@@ -580,7 +676,7 @@ question.v2.asked / replied / rejected              # 触发提问应答卡片
 
 ---
 
-## 7. 透明代理（隧道）
+## 8. 透明代理（隧道）
 
 ### `ANY /api/tunnel/oc/{path}` — 透传到 opencode 任意路由
 
@@ -640,7 +736,7 @@ global/dispose · instance/dispose · global/upgrade · global/config · auth/
 
 ---
 
-## 8. opencode 常用透传端点
+## 9. opencode 常用透传端点
 
 以下 opencode 1.18.16 原生端点均可经 `/api/tunnel/oc/...` 访问（均经实测）。完整契约以 opencode 官方文档为准。
 
@@ -725,16 +821,16 @@ GET /api/tunnel/oc/config/providers  → 已配置的 provider
 
 ---
 
-## 9. 错误码汇总
+## 10. 错误码汇总
 
 | 状态码 | 场景 |
 |---|---|
 | 400 | 请求体校验失败、JSON 无效、frontmatter 缺字段、名称非法、skill zip 布局/大小不符、上传文件名为空 |
 | 401 | JWT 缺失/无效/过期、登录凭证错误 |
-| 403 | 命中代理黑名单（`global/dispose`、`auth/` 等） |
-| 404 | 资源不存在（provider/skill/文件） |
+| 403 | 命中代理黑名单（`global/dispose`、`auth/` 等）、非 admin 访问 `/api/admin/*` |
+| 404 | 资源不存在（provider/skill/文件）、admin 操作的容器在 Docker 中不存在 |
 | 405 | 代理端点收到不在白名单的 HTTP 方法 |
-| 409 | 工作区端点在容器未创建时调用 |
+| 409 | 工作区端点在容器未创建时调用、admin 重启后健康探测失败 |
 | 413 | 上传超 10MB、预览超 2MB、skill zip 超限 |
 | 422 | Pydantic 请求体校验失败（`detail` 为错误数组） |
 | 500 | 容器/文件系统操作失败 |

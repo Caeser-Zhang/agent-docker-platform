@@ -38,20 +38,12 @@ services:
     restart: unless-stopped
     ports:
       - "9123:8000"
-    environment:
-      - AGENT_SECRET_KEY=change-this-in-production
-      # Absolute path inside the backend-data volume (mounted at /app/data).
-      # A relative path would land in the container's writable layer and be
-      # silently wiped whenever the container is recreated.
-      - AGENT_DATABASE_URL=sqlite+aiosqlite:////app/data/agent_demo.db
-      - AGENT_AGENT_IMAGE=agent-demo:1.0.0
-      - AGENT_AGENT_NETWORK=agent-net
-      - AGENT_AGENT_PORT=4096
-      - AGENT_AGENT_WORKDIR=/workspace
-      - AGENT_CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
-      # Where the backend finds the developer's opencode.json (see volumes)
-      - AGENT_OPENCODE_CONFIG_SOURCE=/host-opencode/opencode.json
-      - AGENT_CONTAINER_HOST_ALIAS=host.docker.internal
+    depends_on:
+      - postgres
+    # All AGENT_* settings live in backend/.env — edit that file and
+    # `docker compose up -d` to apply (no image rebuild needed).
+    env_file:
+      - ./backend/.env
     volumes:
       # Mount Docker socket so the backend can manage containers
       # WARNING: In production, use a Docker API proxy instead
@@ -66,11 +58,27 @@ services:
       - platform-net
       - agent-net  # Must be on agent-net to reach user containers
 
-  # --- Shared Services Layer (extensible) ---
-  # Add FastDB, Ollama, PostgreSQL, etc. here as needed
+  # --- Shared Services Layer ---
+  # PostgreSQL — platform database. Credentials/config live here only;
+  # the backend connects via backend/.env AGENT_DATABASE_URL.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Expose to the host so GUI clients (Navicat / DBeaver) can connect:
+    #   host: localhost, port: 15432, user: agent, db: agent_demo
+    ports:
+      - "15432:5432"
+    environment:
+      - POSTGRES_USER=agent
+      - POSTGRES_PASSWORD=agentpass
+      - POSTGRES_DB=agent_demo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - platform-net
 
 networks:
-  # Platform network — frontend ↔ backend
+  # Platform network — frontend ↔ backend ↔ postgres
   # Fixed name so the backend container joins exactly this network.
   platform-net:
     name: platform-net
@@ -87,4 +95,7 @@ networks:
       managed-by: agent-platform
 
 volumes:
+  # SQLite file storage (kept so the old agent_demo.db stays recoverable)
   backend-data:
+  # PostgreSQL data directory
+  postgres-data:

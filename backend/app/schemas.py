@@ -17,6 +17,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     username: str
+    role: str = "user"
 
 
 class StartAgentRequest(BaseModel):

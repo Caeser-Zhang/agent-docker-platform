@@ -21,7 +21,7 @@ rsync -a --delete \
   --exclude 'frontend/dist/' \
   --exclude '__pycache__/' \
   --exclude '*.pyc' \
-  --exclude '.env' \
+  --exclude '/.env' \
   "$SRC"/ "$DST"/
 
 # CRLF from the Windows editor breaks shebangs and `set -e` inside containers.

@@ -29,9 +29,9 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, username: str) -> str:
+def create_access_token(user_id: str, username: str, role: str = "user") -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    payload = {"sub": user_id, "username": username, "exp": expire}
+    payload = {"sub": user_id, "username": username, "role": role, "exp": expire}
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
@@ -60,3 +60,17 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
 async def get_current_user_from_token(token: str) -> User:
     """Used by SSE endpoints where EventSource can't send Authorization headers."""
     return await get_current_user(token=token)
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Dependency for admin-only routes (Docker management etc.).
+
+    The role is read from the database (not the JWT) so demoting a user
+    takes effect on their next request without waiting for token expiry.
+    """
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return user

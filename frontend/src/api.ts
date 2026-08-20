@@ -36,6 +36,8 @@ export interface TokenResponse {
   token_type: string;
   user_id: string;
   username: string;
+  /** "user" | "admin" — gates the Docker management panel. */
+  role?: string;
 }
 
 export interface AgentStatus {
@@ -186,6 +188,57 @@ export interface OcQuestionRequest {
   tool?: { messageID: string; callID: string };
 }
 
+/** One-shot docker stats sample (admin container list). */
+export interface AdminContainerStats {
+  cpu_percent: number;
+  mem_usage_mb: number;
+  mem_limit_mb: number;
+  mem_percent: number;
+  pids?: number;
+}
+
+/** A user container as seen by the admin panel. */
+export interface AdminContainer {
+  user_id: string;
+  username: string | null;
+  container_name: string;
+  /** Status from the agent_containers DB record ("unmanaged" = no record). */
+  db_status: string;
+  /** Live status from the Docker daemon ("absent" = no container). */
+  docker_status: string;
+  /** Docker healthcheck status, e.g. "healthy" / "unhealthy" / null. */
+  health: string | null;
+  image: string;
+  started_at: string | null;
+  last_activity: string | null;
+  restart_count: number;
+  last_error: string | null;
+  stats?: AdminContainerStats | null;
+}
+
+export interface AdminContainerLogs {
+  user_id: string;
+  tail: number;
+  logs: string;
+}
+
+export interface AdminOverview {
+  users: { total: number; admins: number };
+  containers: {
+    records: number;
+    by_status: Record<string, number>;
+    docker_total: number;
+    docker_running: number;
+  };
+  platform: {
+    image: string;
+    network: string;
+    port: number;
+    cpu_limit: number;
+    memory_limit: string;
+  };
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -246,8 +299,29 @@ export const api = {
     return apiCall("/agent/logs");
   },
 
-  async listContainers(): Promise<{ containers: any[] }> {
-    return apiCall("/agent/containers");
+  // --- Admin — platform-wide Docker management (role=admin only) --------
+  async getAdminOverview(): Promise<AdminOverview> {
+    return apiCall("/admin/overview");
+  },
+
+  async getAdminContainers(stats = true): Promise<{ containers: AdminContainer[] }> {
+    return apiCall(`/admin/containers?stats=${stats}`);
+  },
+
+  async getAdminContainerLogs(userId: string, tail = 200): Promise<AdminContainerLogs> {
+    return apiCall(`/admin/containers/${userId}/logs?tail=${tail}`);
+  },
+
+  async adminRestartContainer(userId: string): Promise<{ ok: boolean; message: string }> {
+    return apiCall(`/admin/containers/${userId}/restart`, { method: "POST" });
+  },
+
+  async adminStopContainer(userId: string): Promise<{ ok: boolean; message: string }> {
+    return apiCall(`/admin/containers/${userId}/stop`, { method: "POST" });
+  },
+
+  async adminDestroyContainer(userId: string): Promise<{ ok: boolean; message: string }> {
+    return apiCall(`/admin/containers/${userId}/destroy`, { method: "POST" });
   },
 
   // --- LLM configuration (read from opencode's own /config) -------------

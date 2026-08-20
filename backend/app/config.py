@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     secret_key: str = "demo-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
+    # Comma-separated usernames that are granted the admin role (Docker
+    # management panel). Promoted at startup and on login/register.
+    admin_usernames: str = ""
 
     # --- Docker ---
     agent_image: str = "agent-demo:1.0.0"
@@ -52,6 +55,11 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = "AGENT_"
         env_file = ".env"
+
+    @property
+    def admin_username_set(self) -> set[str]:
+        """ADMIN_USERNAMES split into a de-duplicated username set."""
+        return {u.strip() for u in self.admin_usernames.split(",") if u.strip()}
 
 
 settings = Settings()

@@ -24,7 +24,7 @@
 ```mermaid
 flowchart TB
     subgraph Browser["浏览器层 · Browser Layer"]
-        SPA["React SPA<br/>(Chat / ConfigPanel / Login)"]
+        SPA["React SPA<br/>(Chat / ConfigPanel / AdminPanel / Login)"]
         NGINX["nginx<br/>:3000 · SPA 路由 + API 代理"]
         SPA --> NGINX
     end
@@ -43,7 +43,7 @@ flowchart TB
             TUNNEL["Tunnel<br/>透明反向代理 (raw bytes)"]
             PUMP["SSE Pump<br/>单上游 + 环形缓冲 + 扇出"]
         end
-        DB[("SQLite / Postgres<br/>容器台账")]
+        DB[("SQLite / Postgres<br/>用户/角色 + 容器台账")]
         AC --> CM
         AC --> PUMP
     end
@@ -130,6 +130,16 @@ sequenceDiagram
 - **工作区文件树** — 侧栏树状浏览目录与文件（自动剪除 `.git` / `node_modules` 等重目录），支持折叠 / 刷新
 - **前端预览** — HTML（iframe 沙箱渲染）、Markdown（标题/列表/代码块/加粗）、图片（base64）、纯文本；一键 `@ 引用` 插入输入框
 
+### 管理员 Docker 管理（Admin Panel）
+- **仅 admin 角色可进入**（Chat 顶部「管理」按钮）；后端每个端点都实时回读数据库角色，降权即时生效
+- 管理员来源：**首个注册用户自动成为 admin**；或 `AGENT_ADMIN_USERNAMES` 环境变量（逗号分隔，登录时自动提升）
+- **平台总览** — 用户数 / 容器记录数 / Docker 运行中容器数 / 单容器资源限额
+- **全用户容器列表** — Docker 状态 / 台账状态 / 健康探测 / 重启次数 / 启动时间 / 最近活动；台账有记录但容器不存在时显式标注
+- **实时资源采样**（可开关）— 各容器 CPU 占用率 + 内存用量/限额（并行 `docker stats` 采样）
+- **容器操作** — 重启（保留数据卷，自动重建 SSE Pump）、停止、销毁（删容器 + 卷，需输入容器名二次确认防误删）
+- **日志查看** — 模态窗口 mono 渲染，tail 100–2000 行可选，自动滚底
+- 5 秒自动刷新、操作串行锁定 + toast 反馈
+
 ## 快速启动
 
 ### 前置条件
@@ -160,7 +170,7 @@ bash scripts/verify.sh
 3. `docker compose up -d --build` —— 代码有变更时自动重建镜像并生效
 4. 等待后端健康探测通过，随后调用 `verify.sh` 打印各层状态
 
-浏览器打开 **http://localhost:3000** → 注册 → 登录 → 点「启动 Agent」→ 创建会话开始对话。
+浏览器打开 **http://localhost:3000** → 注册 → 登录 → 点「启动 Agent」→ 创建会话开始对话。**首个注册的用户自动成为管理员**，登录后可在聊天页顶部点「管理」进入 Docker 管理面板。
 
 ### 方式 B：Windows + WSL2（代码在 Windows 上编辑）
 
@@ -296,6 +306,7 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 | `AGENT_CONTAINER_MEMORY_LIMIT` | `2g` | 容器内存限额 |
 | `AGENT_CONTAINER_PIDS_LIMIT` | `200` | 容器进程数限额 |
 | `AGENT_IDLE_THRESHOLD` | `1800` | 空闲回收阈值（秒，默认 30 分钟） |
+| `AGENT_ADMIN_USERNAMES` | `""` | 管理员用户名列表（逗号分隔，登录时自动提升）；首个注册用户也自动成为 admin |
 | `AGENT_CORS_ORIGINS` | `["*"]` | CORS 允许来源 |
 | `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | 宿主 opencode 配置目录（docker-compose 用） |
 
@@ -307,8 +318,8 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/register` | 注册（用户名 + 密码），注册即返回 JWT |
-| POST | `/api/auth/login` | 登录，返回 JWT（有效期 24h） |
+| POST | `/api/auth/register` | 注册（用户名 + 密码），注册即返回 JWT；首个用户自动成为 admin |
+| POST | `/api/auth/login` | 登录，返回 JWT（有效期 24h）；响应含 `role` 字段 |
 
 ### 容器生命周期
 
@@ -319,7 +330,17 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 | POST | `/api/agent/start` | 启动容器（幂等） |
 | POST | `/api/agent/stop` | 停止容器 |
 | GET | `/api/agent/logs` | 容器日志（最近 100 行） |
-| GET | `/api/agent/containers` | 全部容器诊断信息 |
+
+### 管理员（仅 role=admin，403 守卫）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/admin/overview` | 平台总览：用户数 / 容器记录数 / 运行中容器数 / 资源限额 |
+| GET | `/api/admin/containers` | 全部用户的容器状态（`?stats=1` 附带 CPU/内存实时采样） |
+| GET | `/api/admin/containers/{user_id}/logs` | 指定用户容器日志（`?tail=` 可选 100–2000） |
+| POST | `/api/admin/containers/{user_id}/restart` | 重启容器（等待健康探测通过后重建 SSE Pump） |
+| POST | `/api/admin/containers/{user_id}/stop` | 停止指定用户的容器 |
+| POST | `/api/admin/containers/{user_id}/destroy` | 销毁容器 + 数据卷（台账记录保留，状态置 destroyed） |
 
 ### 透明代理
 
@@ -371,12 +392,13 @@ agent-docker-demo/
 │       ├── main.py                    # FastAPI 入口 + CORS + 全局异常处理
 │       ├── config.py                  # 环境变量配置（pydantic-settings）
 │       ├── auth.py                    # JWT 签发与校验
-│       ├── database.py                # 数据库连接（async SQLAlchemy）
+│       ├── database.py                # 数据库连接（async SQLAlchemy）+ 角色列迁移 / 管理员自动提升
 │       ├── models.py                  # 容器台账等 ORM 模型
 │       ├── schemas.py                 # Pydantic 请求/响应模型
 │       ├── routers/
 │       │   ├── auth.py                # 注册 / 登录
 │       │   ├── agent.py               # 容器生命周期 + /runtime 自省
+│       │   ├── admin.py               # 管理员 API：总览 / 容器列表 / 日志 / 重启 / 停止 / 销毁
 │       │   ├── tunnel.py              # 透明反向代理 + SSE + /providers
 │       │   ├── config.py              # 全局配置：Provider/MCP/Skill CRUD
 │       │   └── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览
@@ -391,13 +413,15 @@ agent-docker-demo/
 │   ├── Dockerfile                     # Vite 构建 → nginx 部署
 │   ├── nginx.conf                     # SPA 路由 + API 代理 + SSE 支持
 │   └── src/
-│       ├── api.ts                     # 平台调用 + /tunnel/oc 直通 opencode
+│       ├── api.ts                     # 平台调用（含 admin API）+ /tunnel/oc 直通 opencode
 │       ├── oc/messages.ts             # SessionMessage 归一化 + SSE 归约器
 │       └── components/
 │           ├── Chat.tsx               # 会话、流式渲染、@引用、文件树/预览、上传
+│           ├── AdminPanel.tsx         # 管理员 Docker 面板：总览 / 容器表格 / 资源采样 / 日志 / 操作
 │           ├── ConfigPanel.tsx        # 全局/项目级 Provider/MCP/Skill 配置 UI
 │           ├── Login.tsx              # 登录/注册
-│           └── chatStyles.ts          # 内联样式
+│           ├── chatStyles.ts          # 内联样式
+│           └── adminStyles.ts         # 管理面板内联样式
 ├── docs/
 │   ├── REQUIREMENTS.md                # 需求分解（R1-R16）
 │   └── API.md                         # API 完整文档
@@ -499,8 +523,8 @@ session.idle · session.created · session.updated · session.error
 
 ## 生产部署建议
 
-1. **修改密钥** — `AGENT_SECRET_KEY` 必须改为强随机值
-2. **使用 PostgreSQL** — 将 `AGENT_DATABASE_URL` 改为 PostgreSQL 连接字符串
+1. **修改密钥** — `AGENT_SECRET_KEY` 与 postgres 的 `POSTGRES_PASSWORD`/连接串必须改为强随机值
+2. **数据库已使用 PostgreSQL** — 栈内自带 postgres:16-alpine 服务；如需外部数据库，改 `backend/.env` 的 `AGENT_DATABASE_URL` 后 `docker compose up -d` 即可（SQLite→PG 历史数据可用 `scripts/migrate-sqlite-to-pg.py` 迁移）
 3. **Docker API 代理** — 后端挂载了 Docker socket，生产环境应替换为 Docker API 代理或远程 Docker daemon
 4. **HTTPS** — 在 nginx 前加 TLS 终端（如 Caddy / Traefik）
 5. **资源限制** — 根据实际负载调整 `AGENT_CONTAINER_CPU_LIMIT`、`AGENT_CONTAINER_MEMORY_LIMIT`、`AGENT_CONTAINER_PIDS_LIMIT`
