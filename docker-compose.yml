@@ -40,7 +40,8 @@ services:
       - "9123:8000"
     depends_on:
       - postgres
-    # All AGENT_* settings live in backend/.env — edit that file and
+    # All AGENT_* settings live in backend/.env (committed with demo
+    # defaults — adjust locally for production). Edit it, then
     # `docker compose up -d` to apply (no image rebuild needed).
     env_file:
       - ./backend/.env

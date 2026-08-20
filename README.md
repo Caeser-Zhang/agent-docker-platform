@@ -292,10 +292,12 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 
 ### 环境变量
 
+所有 `AGENT_*` 变量集中在 [backend/.env](backend/.env)（**随仓库提交，含演示默认值**，经 docker-compose `env_file` 注入后端容器）。克隆后无需任何配置即可启动；本地修改（连接外部数据库、换密钥等）后执行 `docker compose up -d` 生效，无需重建镜像。注意：**不要把真实凭据提交到仓库**。
+
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AGENT_SECRET_KEY` | `change-this-in-production` | JWT 签名密钥，**生产环境必须修改** |
-| `AGENT_DATABASE_URL` | `sqlite+aiosqlite:////app/data/agent_demo.db` | 数据库连接字符串（默认落在持久卷内） |
+| `AGENT_DATABASE_URL` | `postgresql+asyncpg://agent:agentpass@postgres:5432/agent_demo` | 数据库连接串（栈内 postgres 服务；改回 `sqlite+aiosqlite:////app/data/agent_demo.db` 可切回 SQLite，历史数据保留在 `backend-data` 卷；指向外部 PG 时主机名用 `host.docker.internal` 或 IP） |
 | `AGENT_AGENT_IMAGE` | `agent-demo:1.0.0` | Agent 容器镜像名 |
 | `AGENT_AGENT_NETWORK` | `agent-net` | Agent 容器网络名 |
 | `AGENT_AGENT_PORT` | `4096` | opencode serve 端口 |

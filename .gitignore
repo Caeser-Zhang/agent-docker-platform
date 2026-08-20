@@ -1,6 +1,8 @@
 # Environment & secrets
+# NOTE: backend/.env is intentionally committed (demo defaults, no real
+# secrets). Override values locally; do not commit real credentials.
 .env
-backend/.env
+!backend/.env
 *.env.local
 
 # Database
