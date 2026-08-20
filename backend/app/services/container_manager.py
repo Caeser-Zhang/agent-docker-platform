@@ -20,6 +20,7 @@ import asyncio
 import io
 import json
 import logging
+import posixpath
 import secrets
 import tarfile
 import time
@@ -33,6 +34,7 @@ from docker.models.networks import Network
 from docker.models.volumes import Volume
 
 from ..config import settings
+from .host_config import SKILLS_DIR
 from .opencode_config import build_container_config_json
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,36 @@ class ContainerManager:
             tar.addfile(info, io.BytesIO(payload))
         return buf.getvalue()
 
+    @staticmethod
+    def _tar_from_files(files: dict[str, bytes]) -> bytes:
+        """Pack {relative-path: content} into a tar stream for put_archive.
+
+        Explicit directory entries are emitted for every parent path, so the
+        tree materialises even when the destination directory is fresh.
+        """
+        dirs: set[str] = set()
+        for name in files:
+            parts = name.split("/")
+            for i in range(1, len(parts)):
+                dirs.add("/".join(parts[:i]))
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            for d in sorted(dirs):
+                info = tarfile.TarInfo(name=f"{d}/")
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                info.uid = 1000
+                info.gid = 1000
+                tar.addfile(info)
+            for name, payload in sorted(files.items()):
+                info = tarfile.TarInfo(name=name)
+                info.size = len(payload)
+                info.mode = 0o644
+                info.uid = 1000
+                info.gid = 1000
+                tar.addfile(info, io.BytesIO(payload))
+        return buf.getvalue()
+
     def inject_opencode_config(self, container: Container) -> bool:
         """Copy the sanitized host opencode.json into the container's volume.
 
@@ -140,12 +172,10 @@ class ContainerManager:
             return False
 
         archive = self._config_tar(config_json)
+        injected = False
         try:
             container.put_archive(CONTAINER_CONFIG_DIR, archive)
-            logger.info(
-                "Injected opencode config into %s (%d bytes)", container.name, len(config_json)
-            )
-            return True
+            injected = True
         except NotFound:
             # The volume is empty on first creation, so /data/config/opencode
             # may not exist yet. Create it with a throwaway run against the same
@@ -154,13 +184,50 @@ class ContainerManager:
             if self._bootstrap_config_dir(container):
                 try:
                     container.put_archive(CONTAINER_CONFIG_DIR, archive)
-                    logger.info("Injected opencode config into %s (retry ok)", container.name)
-                    return True
+                    injected = True
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Config injection retry failed: %s", exc)
-            return False
         except Exception as exc:  # noqa: BLE001
             logger.warning("Config injection failed for %s: %s", container.name, exc)
+
+        if injected:
+            logger.info(
+                "Injected opencode config into %s (%d bytes)", container.name, len(config_json)
+            )
+
+        # Global skills live beside the config file (host skills dir → the
+        # container's XDG skills dir). Injected independently so a skills
+        # failure can never block the (critical) config injection.
+        self._inject_global_skills(container)
+        return injected
+
+    @staticmethod
+    def _global_skills_tar() -> bytes | None:
+        """Pack the host skills directory tree into a tar rooted at skills/.
+
+        opencode discovers global skills under XDG_CONFIG_HOME/opencode/skills,
+        which inside the container is exactly CONTAINER_CONFIG_DIR/skills.
+        """
+        files: dict[str, bytes] = {}
+        if SKILLS_DIR.is_dir():
+            for path in sorted(SKILLS_DIR.rglob("*")):
+                if path.is_file():
+                    rel = path.relative_to(SKILLS_DIR).as_posix()
+                    files[f"skills/{rel}"] = path.read_bytes()
+        if not files:
+            return None
+        return ContainerManager._tar_from_files(files)
+
+    def _inject_global_skills(self, container: Container) -> bool:
+        skills_archive = self._global_skills_tar()
+        if skills_archive is None:
+            return False
+        try:
+            container.put_archive(CONTAINER_CONFIG_DIR, skills_archive)
+            logger.info("Injected global skills into %s", container.name)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Global skills injection failed for %s: %s", container.name, exc)
             return False
 
     def _bootstrap_config_dir(self, container: Container) -> bool:
@@ -443,6 +510,228 @@ class ContainerManager:
         if container is None:
             return "absent"
         return container.status  # 'created', 'running', 'paused', 'exited', etc.
+
+    # ------------------------------------------------------------------
+    #  Workspace file primitives (project-scope config & skills)
+    # ------------------------------------------------------------------
+    #
+    # All methods take paths RELATIVE to the workspace root (the agent-ws
+    # volume bind-mounted at /workspace) and work whether the container is
+    # running or stopped — the Docker archive API does not require a live
+    # process, and writes go through put_archive with explicit directory
+    # entries so missing parents are materialised automatically.
+
+    @staticmethod
+    def _workspace_path(rel_path: str) -> str:
+        """Resolve and validate a workspace-relative path to an absolute one."""
+        rel = rel_path.strip().replace("\\", "/").strip("/")
+        parts = [p for p in rel.split("/") if p]
+        if not parts or any(p in ("", ".", "..") for p in parts) or ":" in rel:
+            raise ValueError(f"Unsafe workspace path: {rel_path!r}")
+        return f"{settings.agent_workdir}/{'/'.join(parts)}"
+
+    def read_workspace_file(self, user_id: str, rel_path: str) -> bytes | None:
+        """Read a single file from the user's workspace volume, or None."""
+        container = self.get_container(user_id)
+        if container is None:
+            return None
+        try:
+            abs_path = self._workspace_path(rel_path)
+        except ValueError:
+            return None
+        try:
+            stream, _stat = container.get_archive(abs_path)
+            with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+                member = tar.next()
+                if member is None or not member.isfile():
+                    return None
+                handle = tar.extractfile(member)
+                return handle.read() if handle else None
+        except NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace read %s failed: %s", rel_path, exc)
+            return None
+
+    def read_workspace_tree(self, user_id: str, rel_dir: str) -> dict[str, bytes] | None:
+        """Read every file under a workspace directory.
+
+        Returns {path relative to rel_dir: content}, {} for an empty dir,
+        or None when the directory does not exist.
+        """
+        container = self.get_container(user_id)
+        if container is None:
+            return None
+        try:
+            abs_dir = self._workspace_path(rel_dir)
+        except ValueError:
+            return None
+        try:
+            stream, _stat = container.get_archive(abs_dir)
+        except NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace tree read %s failed: %s", rel_dir, exc)
+            return None
+        # get_archive tars the directory itself, so members start with its basename.
+        root = posixpath.basename(abs_dir)
+        files: dict[str, bytes] = {}
+        try:
+            with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+                for member in tar.getmembers():
+                    if not member.isfile():
+                        continue
+                    name = member.name.lstrip("/")
+                    prefix = f"{root}/"
+                    if not name.startswith(prefix):
+                        continue
+                    handle = tar.extractfile(member)
+                    if handle is not None:
+                        files[name[len(prefix):]] = handle.read()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace tree parse %s failed: %s", rel_dir, exc)
+            return None
+        return files
+
+    def write_workspace_files(self, user_id: str, files: dict[str, bytes]) -> bool:
+        """Write files (workspace-relative path → content) into the workspace.
+
+        Existing files at the same paths are overwritten; missing parent
+        directories are created via explicit tar directory entries.
+        """
+        container = self.get_container(user_id)
+        if container is None:
+            return False
+        if not files:
+            return True
+        try:
+            for name in files:
+                self._workspace_path(name)
+        except ValueError as exc:
+            logger.warning("Refusing unsafe workspace write: %s", exc)
+            return False
+        archive = self._tar_from_files(files)
+        try:
+            container.put_archive(settings.agent_workdir, archive)
+            logger.info(
+                "Wrote %d file(s) into workspace of agent-%s", len(files), user_id
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace write failed for agent-%s: %s", user_id, exc)
+            return False
+
+    def delete_workspace_path(self, user_id: str, rel_path: str) -> bool:
+        """Delete a file or directory tree from the workspace volume."""
+        container = self.get_container(user_id)
+        if container is None:
+            return False
+        try:
+            target = self._workspace_path(rel_path)
+        except ValueError:
+            return False
+        if container.status == "running":
+            try:
+                result = container.exec_run(["rm", "-rf", "--", target], user="1000:1000")
+                return result.exit_code == 0
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Workspace delete via exec failed: %s", exc)
+                return False
+        # Stopped container — run a throwaway container on the same volume.
+        return self._run_on_workspace_volume(
+            user_id, [f"rm -rf -- {target}"], purpose="workspace-cleanup"
+        )
+
+    def _run_on_workspace_volume(self, user_id: str, command: list[str], purpose: str) -> bool:
+        """Run a one-shot command against the user's workspace volume."""
+        client = self._get_client()
+        try:
+            client.containers.run(
+                image=settings.agent_image,
+                entrypoint=["/bin/sh", "-c"],
+                command=command,
+                volumes={
+                    self._workspace_volume_name(user_id): {
+                        "bind": settings.agent_workdir,
+                        "mode": "rw",
+                    }
+                },
+                user="1000:1000",
+                remove=True,
+                labels={"purpose": purpose, "temporary": "true"},
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace volume command (%s) failed: %s", purpose, exc)
+            return False
+
+    # Directories that bloat the file tree without adding value for browsing.
+    TREE_PRUNE = (".git", "node_modules", ".opencode/cache", ".cache")
+
+    def list_workspace(self, user_id: str) -> list[dict] | None:
+        """List the workspace tree as flat entries [{path, type, size}].
+
+        Runs `find` inside the agent container when it is up, otherwise in a
+        throwaway container on the same workspace volume (read-only). opencode
+        itself has no directory-listing API in this version, so the platform
+        provides its own.
+        """
+        container = self.get_container(user_id)
+        if container is None:
+            return None
+        prune = " ".join(
+            f"-name {d} -type d -prune -o" for d in self.TREE_PRUNE
+        )
+        cmd = (
+            f"find {settings.agent_workdir} {prune} "
+            r"-printf '%y\t%s\t%P\n'"
+        )
+        output: str | None = None
+        if container.status == "running":
+            try:
+                result = container.exec_run(
+                    ["/bin/sh", "-c", cmd], user="1000:1000"
+                )
+                if result.exit_code == 0:
+                    output = result.output.decode("utf-8", "replace")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Workspace listing via exec failed: %s", exc)
+        if output is None:
+            client = self._get_client()
+            try:
+                raw = client.containers.run(
+                    image=settings.agent_image,
+                    entrypoint=["/bin/sh", "-c"],
+                    command=[cmd],
+                    volumes={
+                        self._workspace_volume_name(user_id): {
+                            "bind": settings.agent_workdir,
+                            "mode": "ro",
+                        }
+                    },
+                    user="1000:1000",
+                    remove=True,
+                    labels={"purpose": "workspace-listing", "temporary": "true"},
+                )
+                output = raw.decode("utf-8", "replace") if raw else ""
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Workspace listing via throwaway failed: %s", exc)
+                return None
+
+        entries: list[dict] = []
+        for line in output.splitlines():
+            fields = line.split("\t", 2)
+            if len(fields) != 3:
+                continue
+            kind, size, path = fields
+            if not path:
+                continue  # the workspace root itself
+            entries.append({
+                "path": path,
+                "type": "dir" if kind == "d" else "file",
+                "size": int(size) if size.isdigit() else 0,
+            })
+        return entries
 
     # ------------------------------------------------------------------
     #  Diagnostics

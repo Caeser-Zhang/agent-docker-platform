@@ -40,7 +40,10 @@ services:
       - "9123:8000"
     environment:
       - AGENT_SECRET_KEY=change-this-in-production
-      - AGENT_DATABASE_URL=sqlite+aiosqlite:///./agent_demo.db
+      # Absolute path inside the backend-data volume (mounted at /app/data).
+      # A relative path would land in the container's writable layer and be
+      # silently wiped whenever the container is recreated.
+      - AGENT_DATABASE_URL=sqlite+aiosqlite:////app/data/agent_demo.db
       - AGENT_AGENT_IMAGE=agent-demo:1.0.0
       - AGENT_AGENT_NETWORK=agent-net
       - AGENT_AGENT_PORT=4096

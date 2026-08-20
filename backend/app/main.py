@@ -16,12 +16,14 @@ import asyncio
 import logging
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db
-from .routers import auth, agent, tunnel, config
+from .routers import auth, agent, tunnel, config, workspace
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
 from .services.sse_pump import sse_pump_manager
@@ -96,6 +98,19 @@ app.include_router(auth.router)
 app.include_router(agent.router)
 app.include_router(tunnel.router)
 app.include_router(config.router)
+app.include_router(workspace.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Safely handle validation errors without encoding binary request bodies."""
+    errors = exc.errors()
+    # Strip body context from errors to avoid UnicodeDecodeError on binary data
+    safe_errors = [
+        {k: v for k, v in e.items() if k != "ctx"}
+        for e in errors
+    ]
+    return JSONResponse(status_code=422, content={"detail": safe_errors})
 
 
 @app.get("/")

@@ -8,7 +8,10 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # --- Database ---
-    database_url: str = "sqlite+aiosqlite:///./agent_demo.db"
+    # Absolute path matches the backend-data volume in docker-compose.yml
+    # so the DB survives container recreation. database.py creates the parent
+    # directory if it is missing (e.g. a freshly created volume).
+    database_url: str = "sqlite+aiosqlite:////app/data/agent_demo.db"
 
     # --- Auth ---
     secret_key: str = "demo-secret-key-change-in-production"

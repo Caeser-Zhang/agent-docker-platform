@@ -30,7 +30,6 @@ class ContainerEventBus:
     user_id: str
     base_url: str
     auth: tuple[str, str]
-    healthy: bool = False
     _events: deque = field(default_factory=lambda: deque(maxlen=200))
     _subscribers: set = field(default_factory=set)
     _pump_task: asyncio.Task | None = None
@@ -89,7 +88,6 @@ class SSEPumpManager:
                 user_id=user_id,
                 base_url=base_url,
                 auth=auth,
-                healthy=True,
             )
             bus._pump_task = asyncio.create_task(self._pump_loop(bus))
             self._buses[user_id] = bus
@@ -100,7 +98,6 @@ class SSEPumpManager:
         async with self._lock:
             bus = self._buses.pop(user_id, None)
             if bus:
-                bus.healthy = False
                 if bus._pump_task and not bus._pump_task.done():
                     bus._pump_task.cancel()
                     try:
@@ -117,12 +114,21 @@ class SSEPumpManager:
 
         Reconnects automatically on connection drops. This is the core
         event relay between the container and all browser clients.
+
+        The loop exits only via task cancellation (stop_pump / shutdown).
+        Every failure path — connect error, non-200 status, mid-stream
+        protocol error, clean EOF — funnels into a single bounded
+        exponential backoff at the bottom, so the connection is always
+        retried. (An earlier version gated the loop on a `healthy` flag
+        with `continue` at the top; once an error cleared the flag the
+        probe lived in an unreachable branch and the loop spun forever
+        without ever reconnecting.)
         """
         url = f"{bus.base_url}/api/event"
+        backoff = 1.0
+        max_backoff = 15.0
         while True:
-            if not bus.healthy:
-                await asyncio.sleep(2)
-                continue
+            received = False
             try:
                 async with httpx.AsyncClient(
                     auth=bus.auth,
@@ -134,41 +140,35 @@ class SSEPumpManager:
                                 "SSE upstream returned %s for user %s",
                                 resp.status_code, bus.user_id,
                             )
-                            await asyncio.sleep(3)
-                            continue
-                        event_data = ""
-                        async for line in resp.aiter_lines():
-                            line = line.rstrip("\r\n")
-                            if line.startswith("data:"):
-                                event_data = line.split(":", 1)[1].strip()
-                            elif line == "" and event_data:
-                                try:
-                                    evt = json.loads(event_data)
-                                    bus.push_event(evt)
-                                except json.JSONDecodeError:
-                                    pass
-                                event_data = ""
-                # Stream ended cleanly (opencode restarted / client closed it).
-                # Back off briefly so a flapping server can't spin this loop.
-                await asyncio.sleep(1)
-            except httpx.ConnectError:
-                bus.healthy = False
-                logger.warning("SSE connection lost for user %s — will retry", bus.user_id)
-                await asyncio.sleep(3)
-                # Try to reconnect
-                try:
-                    async with httpx.AsyncClient(auth=bus.auth, timeout=3) as c:
-                        r = await c.get(f"{bus.base_url}/api/health")
-                        if r.status_code == 200:
-                            bus.healthy = True
-                            logger.info("SSE reconnected for user %s", bus.user_id)
-                except Exception:
-                    pass
+                        else:
+                            event_data = ""
+                            async for line in resp.aiter_lines():
+                                received = True
+                                line = line.rstrip("\r\n")
+                                if line.startswith("data:"):
+                                    event_data = line.split(":", 1)[1].strip()
+                                elif line == "" and event_data:
+                                    try:
+                                        bus.push_event(json.loads(event_data))
+                                    except json.JSONDecodeError:
+                                        pass
+                                    event_data = ""
             except asyncio.CancelledError:
-                break
+                logger.info("SSE pump cancelled for user %s", bus.user_id)
+                raise
             except Exception as e:
-                logger.error("SSE pump error for user %s: %s", bus.user_id, e)
-                await asyncio.sleep(3)
+                # ConnectError / ReadError / RemoteProtocolError / ... — all
+                # mean the upstream is unreachable right now. Retry later.
+                logger.warning(
+                    "SSE connection lost for user %s (%s: %s) — retrying in %.1fs",
+                    bus.user_id, type(e).__name__, e, backoff,
+                )
+            # Real traffic flowed on this connection before it ended, so the
+            # server was alive — reconnect fast instead of growing the backoff.
+            if received:
+                backoff = 1.0
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
 
     async def stop_all(self):
         """Stop all SSE pumps (called on shutdown)."""

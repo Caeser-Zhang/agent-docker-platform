@@ -4,53 +4,98 @@
 
 每个用户拥有独立的 Docker 容器，容器内唯一的进程是 [opencode](https://opencode.ai) `serve`（headless agent runtime）。平台不实现任何 agent 逻辑，只负责容器生命周期管理、配置注入和透明反向代理。
 
+> 完整的接口契约见 **[docs/API.md](docs/API.md)**。
+
 ## 核心原则：平台不实现任何 Agent 能力
 
 容器里唯一的进程是 **`opencode serve`**（opencode 1.18.16 官方 headless 服务）。Agent loop、LLM 调用、工具执行、会话与消息存储，全部由它负责。
 
-平台只做三件事：
+平台只做四件事：
 
 1. **生命周期管理** — 用 Docker SDK 为每个用户创建 / 启动 / 停止加固容器
-2. **配置注入** — 把开发者本机的 `opencode.json` 消毒后写进容器的配置卷
+2. **配置注入** — 把开发者本机的 `opencode.json` 消毒后写进容器的配置卷，支持全局级与项目级两级配置
 3. **透明反向代理** — 把浏览器的请求按 opencode 的原生路由原样转发进容器
+4. **工作区文件服务** — 附件上传（`tmp/` 隔离目录）、文件树浏览、文件预览与 `@` 引用
 
 > 因此当 opencode 新增能力时，平台**不需要改代码**：前端直接调用 opencode 的新路由即可。
 
 ## 架构图
 
+```mermaid
+flowchart TB
+    subgraph Browser["浏览器层 · Browser Layer"]
+        SPA["React SPA<br/>(Chat / ConfigPanel / Login)"]
+        NGINX["nginx<br/>:3000 · SPA 路由 + API 代理"]
+        SPA --> NGINX
+    end
+
+    subgraph Platform["平台控制层 · Platform Control Layer (FastAPI :8000)"]
+        direction TB
+        subgraph Control["控制平面"]
+            AC["Agent Controller<br/>状态机 · 健康探测 · 崩溃自愈"]
+            CM["Container Manager<br/>Docker SDK · 加固参数 · 配置注入"]
+        end
+        subgraph ConfigPlane["配置平面"]
+            CFG["Config API<br/>Provider / MCP / Skill CRUD<br/>(全局级: 宿主 opencode.json)"]
+            WS["Workspace API<br/>项目级配置 · Skill 导入<br/>文件上传 / 文件树 / 预览"]
+        end
+        subgraph DataPlane["数据平面"]
+            TUNNEL["Tunnel<br/>透明反向代理 (raw bytes)"]
+            PUMP["SSE Pump<br/>单上游 + 环形缓冲 + 扇出"]
+        end
+        DB[("SQLite / Postgres<br/>容器台账")]
+        AC --> CM
+        AC --> PUMP
+    end
+
+    subgraph Runtime["容器执行层 · Container Runtime Layer (agent-net)"]
+        C1["容器 agent-u1<br/>opencode serve :4096<br/>非root · 只读根fs · cap-drop ALL"]
+        C2["容器 agent-u2<br/>opencode serve :4096<br/>…"]
+        C1 -. "卷 workspace-u1<br/>(tmp/ 附件 · .opencode/)" .-> CN
+        C2 -. "卷 workspace-u2" .-> CN
+        CN["Docker Volumes<br/>per-user workspace + data"]
+    end
+
+    subgraph Shared["共享服务层 · Shared Services"]
+        LLM["宿主 LLM 代理<br/>(host.docker.internal 回源)"]
+    end
+
+    NGINX -->|"JWT · /api/*"| Platform
+    TUNNEL -->|HTTP · basic auth| C1
+    TUNNEL -->|HTTP · basic auth| C2
+    PUMP -->|GET /api/event · SSE| C1
+    C1 -->|HTTPS| LLM
+    C2 -->|HTTPS| LLM
 ```
-浏览器层 (React SPA, nginx)
-    │ JWT / fetch / EventSource
-    ▼
-平台控制层 (FastAPI)
-    ├── 控制平面  Agent Controller + Container Manager (Docker SDK)
-    ├── 配置平面  Config API (Provider / MCP / Skill CRUD)
-    └── 数据平面  Tunnel（透明反向代理）+ SSE Pump（事件扇出）
-    │ agent-net 上的 HTTP（容器不映射宿主端口）
-    ▼
-容器执行层 · per-user 加固容器
-    └── opencode serve --hostname 0.0.0.0 --port 4096
-    │
-    ▼
-共享服务层  SQLite/Postgres（容器台账）+ 宿主 LLM 代理（host.docker.internal）
+
+要点：
+
+- 前端只与 backend（9123）通信，nginx 把 `/api/*` 反代过去；用户容器**不映射宿主端口**，只能经 `agent-net` 由 backend 访问
+- backend 同时挂在 `platform-net`（接前端）和 `agent-net`（接用户容器）两张网络上
+- 每用户两块独立卷：`workspace-*`（工作区，含上传附件与项目级配置）与 `data-*`（opencode 状态）
+
+### 一次对话的请求流转
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as 浏览器 (React SPA)
+    participant P as 平台 (FastAPI)
+    participant C as 容器 (opencode serve)
+    participant L as LLM Provider
+
+    B->>P: POST /api/auth/login → JWT
+    B->>P: POST /api/agent/start
+    P->>C: 创建加固容器 + 注入消毒后的 opencode.json + 拉起 SSE Pump
+    C-->>P: /api/health 探测通过
+    B->>P: GET /api/tunnel/events (SSE, token query)
+    P-->>B: 订阅 PUMP 扇出流
+    B->>P: POST /api/tunnel/oc/api/session/{id}/prompt<br/>{prompt:{text, parts:[file…]}}
+    P->>C: raw bytes 透传 (300s 超时)
+    C->>L: Agent loop 调用真实 LLM
+    C-->>P: session.next.* 事件流
+    P-->>B: SSE 扇出 → 流式渲染 / 工具卡片 / 审批卡片
 ```
-
-## 请求流转
-
-| 浏览器发起 | 平台做什么 | 容器里执行 |
-|---|---|---|
-| `POST /api/agent/start` | Docker SDK 创建容器、注入配置、健康探测、拉起 SSE 泵 | `opencode serve` 启动 |
-| `POST /api/tunnel/oc/api/session` | 去掉 `/api/tunnel/oc` 前缀，raw bytes 透传 | `POST /api/session` |
-| `POST /api/tunnel/oc/api/session/{id}/prompt` | 同上（超时放宽到 300s） | opencode 调用真实 LLM |
-| `GET /api/tunnel/events` | 扇出容器的 `GET /api/event` | opencode 推 `session.next.*` |
-| `GET /api/tunnel/providers` | 读容器的 `GET /config` 并展平 | opencode 返回生效配置 |
-| `GET /api/config` | 读取宿主 opencode.json 总览 | — |
-| `POST /api/config/providers/{id}` | 写入宿主 opencode.json | — |
-| `POST /api/config/mcp/{name}` | 写入宿主 opencode.json | — |
-| `POST /api/config/skills/{name}` | 写入 `~/.config/opencode/skills/` | — |
-| `POST /api/config/reload` | 重新注入配置并重启容器 | opencode 重启加载新配置 |
-
-平台**没有**任何 `llm.py`、`server.py`、prompt 模板或模型适配代码。
 
 ## 功能特性
 
@@ -60,42 +105,95 @@
 - 崩溃自愈 + restart policy + `/workspace` 与 `/data` 卷持久化
 - 空闲回收（默认 30 分钟无活动自动停止）
 
-### 配置管理（CRUD）
-通过 Web UI 或 REST API 直接管理宿主 `opencode.json` 和 Skills 目录：
+### 两级配置管理（CRUD + Web UI）
+| | 全局级 `/api/config/*` | 项目级 `/api/workspace/*` |
+|---|---|---|
+| 存储位置 | 宿主机 `opencode.json` + `~/.config/opencode/skills/` | 容器卷 `/workspace/opencode.json` + `/workspace/.opencode/skills/` |
+| 作用范围 | 所有用户容器共享 | 仅该用户本工作区 |
+| 生效方式 | 注入时消毒（MCP 过滤/回环重写/模型覆盖） | opencode 启动时原生合并 |
+| Skill 导入 | 单个 SKILL.md 编辑 | **zip 批量导入**（三种布局自适应，500 文件/单文件 5MB/总量 20MB 上限） |
 
 - **LLM Provider** — 增删改查，支持 OpenAI-compatible / 自定义 baseURL
-- **MCP 服务** — 增删改查，支持 Remote (URL) 和 Local (Command) 两种类型，含启用/禁用开关
-- **Skills** — 增删改查，直接编辑 `SKILL.md` 文件（YAML frontmatter + Markdown）
+- **MCP 服务** — 增删改查，Remote (URL) 与 Local (Command) 两种类型，含启用/禁用开关
+- **Skills** — 增删改查 + zip 导入，直接编辑 `SKILL.md`（YAML frontmatter + Markdown）
 - **一键重载** — 将宿主配置重新注入运行中的容器
 
 ### AI 对话
-- 流式渲染（SSE）opencode 的实时输出
-- 工具调用展示（可折叠）
-- 多会话管理
-- 运行时模型切换
+- 流式渲染（SSE）opencode 的实时输出，工具调用可折叠展开
+- 多会话管理：创建 / 重命名 / 删除，切换会话自动恢复消息
+- 运行时模型切换 + Agent 模式切换（build / plan 等 primary agents，自动过滤 subagent）
+- 工具权限审批卡片：允许一次 / 总是允许 / 拒绝，SSE 事件驱动实时出现
+- Agent 提问应答卡片：单选 / 多选 / 自定义输入，支持一次多问
+- **Skill 显式指定** — 输入框下拉多选（全局 + 项目级合并展示），随 prompt 一并下发
+- **文件上传** — 输入框上传按钮，附件进入容器工作区 `tmp/` 隔离目录（≤10MB），不污染工作区根目录
+- **`@` 文件引用** — 输入 `@` 触发工作区文件模糊搜索自动补全（opencode `/find/file`），选中后转换为 FilePart 随 prompt 发送；上传成功后自动在输入框追加 `@tmp/…` 引用
+- **工作区文件树** — 侧栏树状浏览目录与文件（自动剪除 `.git` / `node_modules` 等重目录），支持折叠 / 刷新
+- **前端预览** — HTML（iframe 沙箱渲染）、Markdown（标题/列表/代码块/加粗）、图片（base64）、纯文本；一键 `@ 引用` 插入输入框
 
-## 快速部署
+## 快速启动
 
 ### 前置条件
 
 - [Docker Engine](https://docs.docker.com/engine/install/) 24.0+
 - [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
-- [opencode](https://opencode.ai) 兼容的 LLM Provider 配置（如 OpenAI、阿里百炼、火山引擎等）
+- [opencode](https://opencode.ai) 兼容的 LLM Provider 配置（如 OpenAI、阿里百炼、火山引擎等；也可启动后在 UI「配置管理」中从零创建）
 
-### 步骤 1：克隆仓库
+### 方式 A：Linux / WSL 内一键启动（3 条命令）
 
-```bash
-git clone https://github.com/Caeser-Zhang/agent-docker-platform.git
-cd agent-docker-platform
-```
-
-### 步骤 2：配置环境变量
+适用于仓库在 Linux/WSL 文件系统中的情况（WSL 内 `git clone`，或已通过方式 B 同步过去）：
 
 ```bash
+# 1. 首次：准备环境变量（编辑 .env，把 OPENCODE_CONFIG_DIR 指向你的 opencode 配置目录）
 cp .env.example .env
+
+# 2. 一键启动
+bash scripts/up.sh
+
+# 3. 栈体检（可选，也可随时单独运行）
+bash scripts/verify.sh
 ```
 
-编辑 `.env`，设置你的 opencode 配置路径：
+[up.sh](scripts/up.sh) 是幂等的，重复执行无副作用，它做了 4 件事：
+
+1. 等待 Docker 守护进程就绪（最多 60s，兼容 WSL VM 冷启动）
+2. `agent-demo:1.0.0` 镜像缺失时自动构建；构建失败自动用 `--network=host` 重试（WSL2 DNS 问题规避）
+3. `docker compose up -d --build` —— 代码有变更时自动重建镜像并生效
+4. 等待后端健康探测通过，随后调用 `verify.sh` 打印各层状态
+
+浏览器打开 **http://localhost:3000** → 注册 → 登录 → 点「启动 Agent」→ 创建会话开始对话。
+
+### 方式 B：Windows + WSL2（代码在 Windows 上编辑）
+
+> 为什么不直接在 `/mnt/d/...` 上跑：跨文件系统构建慢一个数量级，且 NTFS 会丢失 entrypoint 的可执行位。项目必须运行在 WSL 的 ext4 文件系统中。
+
+在 Windows PowerShell 中执行（路径按实际位置调整）：
+
+```powershell
+# 1. 同步 Windows 工作副本 → WSL ext4（~/agent-docker-demo，自动修复 CRLF / 可执行位）
+wsl -d Ubuntu-24.04 -- bash /mnt/d/Project/agent-docker-demo/scripts/wsl-sync.sh
+
+# 2. 钉住 WSL VM，防止空闲 ~60s 自动关机带走全部容器
+wscript.exe D:\Project\agent-docker-demo\scripts\wsl-keepalive.vbs
+
+# 3. 在 WSL 内一键启动（即方式 A 的 up.sh）
+wsl -d Ubuntu-24.04 -- bash ~/agent-docker-demo/scripts/up.sh
+```
+
+之后 Windows 浏览器直接访问 **http://localhost:3000**（WSL2 mirrored 网络自动映射端口）。
+
+- **日常迭代** = 改代码（Windows）→ 重复步骤 1、3
+- **建议**：把 `wsl-keepalive.vbs` 的快捷方式放进 `shell:startup`（Win+R），开机自动拉起 VM 和容器
+
+### 手动分步（等效于 up.sh，供理解与自定义）
+
+```bash
+cp .env.example .env                                 # 配置 OPENCODE_CONFIG_DIR，见下
+docker build -t agent-demo:1.0.0 ./agent-image       # agent 镜像；网络受限环境加 --network=host
+docker compose up -d --build                         # 平台栈（前端 + 后端）
+curl http://localhost:9123/api/health                # 验证 → {"status":"ok"}
+```
+
+`OPENCODE_CONFIG_DIR` 按配置所在位置设置：
 
 ```bash
 # Linux / WSL（配置在 WSL 文件系统中）
@@ -110,46 +208,17 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 
 如果你的 `opencode.json` 中使用了 `127.0.0.1` 或 `localhost` 的 LLM 代理地址，平台会自动将其重写为 `host.docker.internal`，容器通过 `--add-host=host.docker.internal:host-gateway` 回源到宿主机。
 
-> 没有现成的 opencode.json？可以使用 UI 中的"配置管理"功能从零创建 Provider 和 MCP 配置。
+> 没有现成的 opencode.json？可以使用 UI 中的「配置管理」功能从零创建 Provider 和 MCP 配置。
 
-### 步骤 3：构建 Agent 镜像
+### 常见问题（WSL）
 
-```bash
-docker build -t agent-demo:1.0.0 ./agent-image
-```
-
-**网络受限环境**（如 WSL2 IPv6 DNS 问题）请加 `--network=host`：
-
-```bash
-docker build --network=host -t agent-demo:1.0.0 ./agent-image
-```
-
-可指定已缓存的基础镜像避免外网拉取：
-
-```bash
-docker build --network=host -t agent-demo:1.0.0 \
-    --build-arg NODE_IMAGE=node:20-slim \
-    --build-arg RUNTIME_IMAGE=debian:bookworm-slim \
-    ./agent-image
-```
-
-### 步骤 4：启动全栈
-
-```bash
-docker compose up -d
-```
-
-### 步骤 5：验证
-
-```bash
-# 前端
-curl http://localhost:3000
-
-# 后端健康检查
-curl http://localhost:9123/api/health
-```
-
-浏览器访问 **http://localhost:3000**，注册账号 → 登录 → 点击"启动 Agent" → 创建会话 → 开始对话。
+| 症状 | 原因 | 解决 |
+|---|---|---|
+| WSL 内 curl 正常，Windows 浏览器打不开 | WSL VM 空闲自动关机（默认 ~60s），容器全部停止 | 运行 `wsl-keepalive.vbs`；或在 `%USERPROFILE%\.wslconfig` 设 `vmIdleTimeout=-1` |
+| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.0.0 ./agent-image`（`up.sh` 已内置自动重试） |
+| `bash: \r: command not found` | 脚本带 Windows CRLF 行尾 | 走 `wsl-sync.sh` 同步（自动转换）；仓库已加 `.gitattributes` 强制 LF |
+| 改了前端代码但页面没变化 | 平台镜像未重建 | `docker compose up -d --build`（`up.sh` 默认带 `--build`） |
+| 需要停止服务 | — | `docker compose down`（数据在卷中，不受影响；WSL 侧另需 `wsl --shutdown` 才会关 VM） |
 
 ## 配置说明
 
@@ -209,29 +278,37 @@ curl http://localhost:9123/api/health
 
 配置通过 `container.put_archive()` 在容器创建后、启动前写入 `/data/config/opencode/opencode.json`。
 
+> 项目级配置（`/workspace/opencode.json`）**不做消毒**——它位于容器卷内，由 opencode 启动时按原生规则与全局配置合并。
+
 ### 环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AGENT_SECRET_KEY` | `change-this-in-production` | JWT 签名密钥，**生产环境必须修改** |
-| `AGENT_DATABASE_URL` | `sqlite+aiosqlite:///./agent_demo.db` | 数据库连接字符串 |
+| `AGENT_DATABASE_URL` | `sqlite+aiosqlite:////app/data/agent_demo.db` | 数据库连接字符串（默认落在持久卷内） |
 | `AGENT_AGENT_IMAGE` | `agent-demo:1.0.0` | Agent 容器镜像名 |
 | `AGENT_AGENT_NETWORK` | `agent-net` | Agent 容器网络名 |
 | `AGENT_AGENT_PORT` | `4096` | opencode serve 端口 |
 | `AGENT_AGENT_WORKDIR` | `/workspace` | 容器内工作目录 |
 | `AGENT_OPENCODE_CONFIG_SOURCE` | `/host-opencode/opencode.json` | 宿主配置路径（在容器内） |
 | `AGENT_CONTAINER_HOST_ALIAS` | `host.docker.internal` | 宿主机别名 |
+| `AGENT_CONTAINER_CPU_LIMIT` | `2.0` | 容器 CPU 限额 |
+| `AGENT_CONTAINER_MEMORY_LIMIT` | `2g` | 容器内存限额 |
+| `AGENT_CONTAINER_PIDS_LIMIT` | `200` | 容器进程数限额 |
+| `AGENT_IDLE_THRESHOLD` | `1800` | 空闲回收阈值（秒，默认 30 分钟） |
 | `AGENT_CORS_ORIGINS` | `["*"]` | CORS 允许来源 |
 | `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | 宿主 opencode 配置目录（docker-compose 用） |
 
-## API 端点
+## API 端点概览
+
+> 完整的请求/响应结构、错误码与示例见 **[docs/API.md](docs/API.md)**。
 
 ### 认证
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/register` | 注册（用户名 + 密码） |
-| POST | `/api/auth/login` | 登录，返回 JWT |
+| POST | `/api/auth/register` | 注册（用户名 + 密码），注册即返回 JWT |
+| POST | `/api/auth/login` | 登录，返回 JWT（有效期 24h） |
 
 ### 容器生命周期
 
@@ -241,34 +318,39 @@ curl http://localhost:9123/api/health
 | GET | `/api/agent/runtime` | 运行时自省（镜像、端口、配置来源、被剥离的字段） |
 | POST | `/api/agent/start` | 启动容器（幂等） |
 | POST | `/api/agent/stop` | 停止容器 |
-| GET | `/api/agent/logs` | 容器日志 |
-| GET | `/api/agent/containers` | 诊断信息 |
+| GET | `/api/agent/logs` | 容器日志（最近 100 行） |
+| GET | `/api/agent/containers` | 全部容器诊断信息 |
 
 ### 透明代理
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| ANY | `/api/tunnel/oc/{path}` | **透明代理到 opencode 的任意路由** |
+| ANY | `/api/tunnel/oc/{path}` | **透明代理到 opencode 的任意路由**（raw bytes 透传） |
 | GET | `/api/tunnel/providers` | 由容器 `/config` 展平的 provider/model 列表 |
 | POST | `/api/tunnel/config/reload` | 重新注入宿主配置并重启容器 |
 | GET | `/api/tunnel/events` | SSE：opencode 事件扇出（支持 `lastEventId` 重放） |
 
-### 配置管理
+### 全局配置管理
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/config` | 总览（providers + mcp + skills，API key 脱敏） |
-| GET | `/api/config/providers/{id}` | 获取单个 Provider |
-| POST | `/api/config/providers/{id}` | 新增/更新 Provider |
-| DELETE | `/api/config/providers/{id}` | 删除 Provider |
-| GET | `/api/config/mcp/{name}` | 获取单个 MCP Server |
-| POST | `/api/config/mcp/{name}` | 新增/更新 MCP Server |
-| PATCH | `/api/config/mcp/{name}` | 启用/禁用 MCP Server |
-| DELETE | `/api/config/mcp/{name}` | 删除 MCP Server |
-| GET | `/api/config/skills/{name}` | 获取单个 Skill 内容 |
-| POST | `/api/config/skills/{name}` | 新增/更新 Skill（SKILL.md） |
-| DELETE | `/api/config/skills/{name}` | 删除 Skill |
+| GET/POST/DELETE | `/api/config/providers/{id}` | Provider 增删改查 |
+| GET/POST/PATCH/DELETE | `/api/config/mcp/{name}` | MCP Server 增删改查 + 启停 |
+| GET/POST/DELETE | `/api/config/skills/{name}` | 全局 Skill 增删改查（SKILL.md） |
 | POST | `/api/config/reload` | 将宿主配置重新注入运行中的容器 |
+
+### 工作区（项目级配置 + 文件服务）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/PUT | `/api/workspace/config` | 项目级 opencode.json 读取（缺省自动创建骨架）/ 保存 |
+| GET | `/api/workspace/skills/all` | 全局 + 项目级 skills 合并列表（供输入框下拉） |
+| GET/POST/DELETE | `/api/workspace/skills/{name}` | 项目级 Skill 增删改查 |
+| POST | `/api/workspace/skills/import` | **zip 批量导入**项目级 skills |
+| POST | `/api/workspace/files/upload` | 聊天附件上传（`tmp/` 目录，≤10MB） |
+| GET | `/api/workspace/files` | 工作区文件树（扁平列表，剪除 .git/node_modules 等） |
+| GET | `/api/workspace/file-content?path=` | 单文件预览读取（text/image/binary，≤2MB） |
 
 代理黑名单：`global/dispose`、`instance/dispose`、`global/upgrade`、`global/config`、`auth/` — 防止沙箱内的用户改写注入的凭据或关掉服务。
 
@@ -276,7 +358,7 @@ curl http://localhost:9123/api/health
 
 ```
 agent-docker-demo/
-├── docker-compose.yml                 # 全栈编排
+├── docker-compose.yml                 # 全栈编排（frontend + backend + 双网络）
 ├── .env.example                       # 环境变量模板
 ├── agent-image/                       # 容器执行层
 │   ├── Dockerfile                     # 两阶段：取 opencode 二进制 → 加固运行时
@@ -286,44 +368,46 @@ agent-docker-demo/
 │   ├── Dockerfile
 │   ├── requirements.txt
 │   └── app/
-│       ├── main.py                    # FastAPI 入口
-│       ├── config.py                  # 环境变量配置
-│       ├── auth.py                    # JWT 认证
-│       ├── database.py               # 数据库连接
-│       ├── models.py                  # SQLAlchemy 模型
-│       ├── schemas.py                 # Pydantic 模型
+│       ├── main.py                    # FastAPI 入口 + CORS + 全局异常处理
+│       ├── config.py                  # 环境变量配置（pydantic-settings）
+│       ├── auth.py                    # JWT 签发与校验
+│       ├── database.py                # 数据库连接（async SQLAlchemy）
+│       ├── models.py                  # 容器台账等 ORM 模型
+│       ├── schemas.py                 # Pydantic 请求/响应模型
 │       ├── routers/
-│       │   ├── auth.py               # 注册 / 登录
-│       │   ├── agent.py              # 容器生命周期 + /runtime 自省
-│       │   ├── tunnel.py             # 透明反向代理 + SSE + /providers
-│       │   └── config.py             # Provider/MCP/Skill CRUD
+│       │   ├── auth.py                # 注册 / 登录
+│       │   ├── agent.py               # 容器生命周期 + /runtime 自省
+│       │   ├── tunnel.py              # 透明反向代理 + SSE + /providers
+│       │   ├── config.py              # 全局配置：Provider/MCP/Skill CRUD
+│       │   └── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览
 │       └── services/
-│           ├── container_manager.py  # Docker SDK、加固参数、配置注入
-│           ├── agent_controller.py   # 状态机、健康探测、崩溃恢复
-│           ├── opencode_config.py    # 宿主配置消毒 / 回环重写 / 默认值
-│           ├── host_config.py         # Provider/MCP/Skill CRUD 操作
-│           ├── tunnel_relay.py       # 到容器的 HTTP 调用（raw bytes 透传）
-│           └── sse_pump.py           # 单上游连接 + 环形缓冲 + 扇出
+│           ├── container_manager.py   # Docker SDK、加固参数、配置注入、卷读写
+│           ├── agent_controller.py    # 状态机、健康探测、崩溃恢复、空闲回收
+│           ├── opencode_config.py     # 宿主配置消毒 / 回环重写 / 默认值
+│           ├── host_config.py         # 宿主 Provider/MCP/Skill CRUD 操作
+│           ├── tunnel_relay.py        # 到容器的 HTTP 调用（raw bytes 透传）
+│           └── sse_pump.py            # 单上游连接 + 环形缓冲 + 扇出
 ├── frontend/                          # 浏览器层 (React SPA)
-│   ├── Dockerfile                    # Vite 构建 → nginx 部署
-│   ├── nginx.conf                    # SPA 路由 + API 代理 + SSE 支持
-│   ├── package.json
+│   ├── Dockerfile                     # Vite 构建 → nginx 部署
+│   ├── nginx.conf                     # SPA 路由 + API 代理 + SSE 支持
 │   └── src/
-│       ├── main.tsx
-│       ├── App.tsx
-│       ├── api.ts                    # 平台调用 + /tunnel/oc 直通 opencode
-│       ├── oc/messages.ts            # SessionMessage 归一化 + SSE 归约器
+│       ├── api.ts                     # 平台调用 + /tunnel/oc 直通 opencode
+│       ├── oc/messages.ts             # SessionMessage 归一化 + SSE 归约器
 │       └── components/
-│           ├── Chat.tsx              # 会话、流式渲染、工具调用、切换 LLM
-│           ├── ConfigPanel.tsx       # Provider/MCP/Skill 配置管理 UI
-│           ├── Login.tsx             # 登录/注册
-│           └── chatStyles.ts         # 内联样式
+│           ├── Chat.tsx               # 会话、流式渲染、@引用、文件树/预览、上传
+│           ├── ConfigPanel.tsx        # 全局/项目级 Provider/MCP/Skill 配置 UI
+│           ├── Login.tsx              # 登录/注册
+│           └── chatStyles.ts          # 内联样式
+├── docs/
+│   ├── REQUIREMENTS.md                # 需求分解（R1-R16）
+│   └── API.md                         # API 完整文档
 └── scripts/
-    ├── wsl-sync.sh                   # Windows 工作副本 → WSL ext4
-    ├── wsl-up.sh                     # 等 dockerd → compose up → 打印健康
-    ├── wsl-keepalive.vbs             # WSL 常驻会话防关机
-    ├── e2e.py                        # 四层端到端校验
-    └── probe-*.py|sh                 # 从 OpenAPI 文档提取 opencode 契约
+    ├── up.sh                          # 一键启动：等 dockerd → 补建 agent 镜像 → compose up --build → 健康检查
+    ├── verify.sh                      # 栈体检：容器 / 镜像 / 端点 / 前端产物抽查
+    ├── wsl-sync.sh                    # Windows 工作副本 → WSL ext4（含 CRLF 修复）
+    ├── wsl-keepalive.vbs              # WSL 常驻会话，防止 VM 空闲自动关机
+    ├── e2e.py                         # 四层端到端校验
+    └── probe-*.py|sh                  # 开发期 opencode 契约探测工具
 ```
 
 ## 容器加固
@@ -355,21 +439,40 @@ HEALTHCHECK curl -fsS /api/health
 ```
 POST /api/session                       { agent?, model?, location?: { directory } }
                                         -> { data: { id: "ses_..." } }
-POST /api/session/{sessionID}/prompt    { "prompt": { "text": "..." } }        ← PromptInput 对象，不是字符串
+POST /api/session/{sessionID}/prompt    { "prompt": { "text": "...", "parts": [...] } }  ← PromptInput 对象
 POST /api/session/{sessionID}/model     { "model": { "providerID": "x", "id": "y" } }  ← ModelRef 对象
 GET  /api/session/{sessionID}/message   -> { data: SessionMessage[], cursor }
 GET  /api/event                         全局 SSE
 GET  /api/health                        健康检查
 GET  /config                            生效的合并配置
 GET  /config/providers                  已配置的 provider
+GET  /find/file?query=&limit=&type=file 工作区文件模糊搜索（注意：不带 /api 前缀）
+GET  /file/content?path=                读取文件内容（注意：不带 /api 前缀）
 ```
 
 容易踩的坑：
 
-- `POST .../model` 传 `"provider/model"` 字符串会 400 `Expected Model.Ref, got string`；传 `{providerID, modelID}` 会 400 `Missing key at model`。正确是 `{model:{providerID, id}}`。
-- `GET /api/provider` 返回 `{"data":[]}`（空），真正能拿到用户 provider 的是 `GET /config` 与 `GET /config/providers`。
-- `GET /config` 的输出会**剥掉** `mcp` / `plugin` 字段，但服务端启动时**确实加载**了它们——不能靠 `/config` 判断插件是否生效。
-- 创建 session 时必须传 `agent: "coder"`，否则 opencode 会用内置的全局模型目录（models.json）做 title generation，导致 403 区域限制错误。
+- `POST .../prompt` 的 body 必须是 `{ "prompt": { "text": "...", "parts": [...] } }`——`text` 必填，多模态 `parts` 嵌套在 `prompt` 内；顶层传 `parts` 会 400 `Missing key at ["prompt"]`
+- `POST .../model` 传 `"provider/model"` 字符串会 400 `Expected Model.Ref, got string`；传 `{providerID, modelID}` 会 400 `Missing key at model`。正确是 `{model:{providerID, id}}`
+- `GET /api/provider` 返回 `{"data":[]}`（空），真正能拿到用户 provider 的是 `GET /config` 与 `GET /config/providers`
+- `GET /config` 的输出会**剥掉** `mcp` / `plugin` 字段，但服务端启动时**确实加载**了它们——不能靠 `/config` 判断插件是否生效
+- 创建 session 时必须传 `agent: "coder"`，否则 opencode 会用内置的全局模型目录（models.json）做 title generation，导致 403 区域限制错误
+- 文件路由 `/find/file`、`/file/content` **不带 `/api` 前缀**（与 session 路由不同），经隧道访问即为 `/api/tunnel/oc/find/file`
+- FilePart 格式：`{type:"file", mime, filename?, url}`，`url` 为容器内绝对路径（如 `/workspace/tmp/a.pdf`）
+
+会话管理与审批端点（均经 1.18.16 实测）：
+
+```
+PATCH  /session/{id}          {title}     → 裸 legacy Session（改名只在 legacy 面，V2 无路由）
+DELETE /session/{id}                      → 裸 true（删除同上）
+GET    /api/permission/request            → {data: PermissionRequest[]}   注意 /request 后缀，/api/permission 是 404
+POST   /api/session/{sid}/permission/{rid}/reply   {reply:"once"|"always"|"reject"} → 204
+GET    /api/question/request              → {data: QuestionRequest[]}     同样带 /request 后缀
+POST   /api/session/{sid}/question/{rid}/reply     {answers: string[][]}   → 204（每个 answer 为选中 label 数组）
+POST   /api/session/{sid}/question/{rid}/reject                            → 204
+```
+
+审批 UI 靠 SSE 的 `permission.v2.asked/replied`、`question.v2.asked/replied/rejected` 事件触发列表刷新。
 
 `SessionMessage` 是按 `type` 区分的联合类型：`user` / `assistant` / `system` / `synthetic` / `shell` / `compaction` / `agent-switched` / `model-switched`。`assistant.content[]` 内再分 `text` / `reasoning` / `tool`。
 
@@ -400,8 +503,8 @@ session.idle · session.created · session.updated · session.error
 2. **使用 PostgreSQL** — 将 `AGENT_DATABASE_URL` 改为 PostgreSQL 连接字符串
 3. **Docker API 代理** — 后端挂载了 Docker socket，生产环境应替换为 Docker API 代理或远程 Docker daemon
 4. **HTTPS** — 在 nginx 前加 TLS 终端（如 Caddy / Traefik）
-5. **资源限制** — 根据实际负载调整 `container_cpu_limit`、`container_memory_limit`、`container_pids_limit`
-6. **定期备份** — 备份 `~/.config/opencode/` 目录和数据库
+5. **资源限制** — 根据实际负载调整 `AGENT_CONTAINER_CPU_LIMIT`、`AGENT_CONTAINER_MEMORY_LIMIT`、`AGENT_CONTAINER_PIDS_LIMIT`
+6. **定期备份** — 备份 `~/.config/opencode/` 目录、数据库与各用户 workspace 卷
 
 ## License
 

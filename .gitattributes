@@ -1,0 +1,4 @@
+# Keep entrypoint/shell files LF-only: CRLF breaks shebangs inside containers
+*.sh    text eol=lf
+Dockerfile text eol=lf
+*.vbs   text eol=crlf

@@ -69,12 +69,26 @@ def get_provider(provider_id: str) -> dict | None:
 
 
 def upsert_provider(provider_id: str, config: dict) -> dict:
-    """Create or update a provider in the host config."""
+    """Create or update a provider in the host config.
+
+    Merge semantics: the config UI edits name/npm/baseURL/apiKey but never
+    models, so a full replacement would silently wipe the provider's model
+    list — and would also drop the stored API key whenever the form leaves
+    it blank ("留空不修改"). Fields absent from the payload are preserved
+    from the existing entry.
+    """
     config_data = _read_host_config()
     providers = config_data.setdefault("provider", {})
-    providers[provider_id] = config
+    existing = providers.get(provider_id) or {}
+    merged = {**existing, **config}
+    # Shallow-merge options so an update that omits apiKey keeps the stored one.
+    merged["options"] = {**(existing.get("options") or {}), **(config.get("options") or {})}
+    # An absent/empty models payload must not wipe the existing model list.
+    if not config.get("models"):
+        merged["models"] = existing.get("models") or {}
+    providers[provider_id] = merged
     _write_host_config(config_data)
-    return config
+    return merged
 
 
 def delete_provider(provider_id: str) -> bool:
@@ -171,6 +185,7 @@ def list_skills() -> list[dict]:
 
 def get_skill(name: str) -> dict | None:
     """Get a single skill's metadata and content."""
+    _validate_name(name)
     skill_dir = SKILLS_DIR / name
     skill_md = skill_dir / "SKILL.md"
     if not skill_md.is_file():
@@ -206,6 +221,9 @@ def upsert_skill(name: str, content: str) -> dict:
 
 def delete_skill(name: str) -> bool:
     """Delete a skill directory."""
+    # MUST validate before building the path: an unvalidated `name` like
+    # ".." would rmtree the entire host opencode config directory.
+    _validate_name(name)
     import shutil
     skill_dir = SKILLS_DIR / name
     if not skill_dir.is_dir():

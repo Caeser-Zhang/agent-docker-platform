@@ -32,6 +32,7 @@ from ..auth import get_current_user
 from ..models import User
 from ..services import host_config
 from ..services.agent_controller import agent_controller
+from ..services.container_manager import container_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -286,11 +287,17 @@ async def delete_skill(
 
 @router.post("/reload", response_model=ReloadResponse)
 async def reload_config(user: User = Depends(get_current_user)):
-    """Re-inject the host opencode.json into the user's running container.
+    """Re-inject config into the user's container and restart it.
 
-    This restarts the container so opencode picks up the new config.
+    Must actually restart the container (not just reuse the running one) —
+    opencode reads the config at boot. Mirrors tunnel.py's /config/reload:
+    stop → re-inject → start → rebuild the SSE pump.
     """
-    result = await agent_controller.start_for_user(user.id)
-    if result.get("running"):
-        return ReloadResponse(reloaded=True, message="Config reloaded into container")
-    return ReloadResponse(reloaded=False, message=result.get("message", "Reload failed"))
+    ok = await container_manager.reload_config(user.id)
+    if not ok:
+        return ReloadResponse(
+            reloaded=False,
+            message="No container to reload — 请先启动 Agent",
+        )
+    await agent_controller.restart_pump(user.id)
+    return ReloadResponse(reloaded=True, message="Config reloaded into container")

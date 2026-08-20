@@ -6,12 +6,25 @@
  *     `opencode serve` inside the user's container
  *
  * Everything agent-related uses opencode's own routes and payload shapes,
- * verified against opencode 1.18.16's OpenAPI document:
- *   POST /api/session                      { agent?, model?, location? }
- *   POST /api/session/{id}/prompt          { prompt: { text } }
- *   POST /api/session/{id}/model           { model: { providerID, id } }
- *   GET  /api/session/{id}/message         { data: SessionMessage[] }
- *   GET  /config                           effective merged config
+ * verified against opencode 1.18.16's live OpenAPI document (`/doc`):
+ *   GET,POST /api/session               { data: SessionV2Info[] | SessionV2Info }
+ *   GET  /api/session/{id}              { data: SessionV2Info }
+ *   POST /api/session/{id}/prompt       { prompt: { text } } → { data: SessionInputAdmitted }
+ *   POST /api/session/{id}/model        { model: ModelRef }   → 204
+ *   POST /api/session/{id}/agent        { agent: string }     → 204
+ *   POST /api/session/{id}/interrupt    → 204
+ *   GET  /api/session/{id}/message      { data: SessionMessage[], cursor }
+ *   GET  /api/model                     { location, data: ModelV2Info[] }
+ *   GET  /api/agent                     { location, data: AgentV2Info[] }
+ *   GET  /api/permission/request        { location, data: PermissionV2Request[] }
+ *   POST /api/session/{id}/permission/{rid}/reply  { reply: once|always|reject } → 204
+ *   GET  /api/question/request          { location, data: QuestionV2Request[] }
+ *   POST /api/session/{id}/question/{rid}/reply    { answers: string[][] }       → 204
+ *   POST /api/session/{id}/question/{rid}/reject   → 204
+ *
+ * Session delete/rename has no v2 route — it lives on the legacy surface:
+ *   DELETE /session/{id}   → bare true
+ *   PATCH  /session/{id}   { title } → bare legacy Session
  */
 
 const API_BASE = "/api";
@@ -94,6 +107,85 @@ export interface OcEvent {
   location?: { directory: string };
 }
 
+/** opencode location info, part of the v2 list envelope. */
+export interface OcLocation {
+  directory: string;
+  workspaceID?: string;
+  project?: { id: string; directory: string };
+}
+
+/** Pagination envelope: GET /api/session, GET /api/session/{id}/message. */
+export interface OcPage<T> {
+  data: T[];
+  cursor: { previous: string | null; next: string | null };
+}
+
+/** Location envelope: GET /api/agent, /api/model, /api/permission/request, /api/question/request. */
+export interface OcEnvelope<T> {
+  location: OcLocation;
+  data: T[];
+}
+
+/** opencode AgentV2Info (GET /api/agent) — fields the UI renders. */
+export interface OcAgent {
+  id: string;
+  model?: ModelRef;
+  system?: string;
+  description?: string;
+  mode?: "subagent" | "primary" | "all";
+  hidden?: boolean;
+  steps?: number;
+}
+
+/** opencode ModelV2Info (GET /api/model) — fields the UI renders. */
+export interface OcModel {
+  id: string;
+  providerID: string;
+  family?: string;
+  name: string;
+  status?: "alpha" | "beta" | "deprecated" | "active";
+  enabled?: boolean;
+  limit?: { context: number; input?: number; output: number };
+}
+
+/** opencode PermissionV2Reply. */
+export type OcPermissionReply = "once" | "always" | "reject";
+
+/** opencode PermissionV2Request (GET /api/permission/request). */
+export interface OcPermissionRequest {
+  /** "per_*" */
+  id: string;
+  sessionID: string;
+  action: string;
+  resources: string[];
+  save?: string[];
+  metadata?: Record<string, unknown>;
+  source?: { type: "tool"; messageID: string; callID: string };
+}
+
+export interface OcQuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** One question inside a QuestionV2Request. */
+export interface OcQuestion {
+  question: string;
+  header?: string;
+  options: OcQuestionOption[];
+  multiple?: boolean;
+  custom?: boolean;
+}
+
+/** opencode QuestionV2Request (GET /api/question/request). */
+export interface OcQuestionRequest {
+  /** "que_*" */
+  id: string;
+  sessionID: string;
+  questions: OcQuestion[];
+  tool?: { messageID: string; callID: string };
+}
+
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem("token");
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -103,14 +195,15 @@ async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...getAuthHeaders(),
       ...options.headers,
     },
   });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-    throw new Error(err.detail || `HTTP ${resp.status}`);
+    // Platform errors use {detail}; opencode errors use {message}.
+    throw new Error(err.detail || err.message || `HTTP ${resp.status}`);
   }
   if (resp.status === 204) return undefined as T;
   return resp.json();
@@ -169,7 +262,7 @@ export const api = {
 
   // --- Sessions (opencode /api/session) ---------------------------------
   async listSessions(): Promise<OcSession[]> {
-    const r = await apiCall<{ data: OcSession[] }>(`${OC}/api/session`);
+    const r = await apiCall<OcPage<OcSession>>(`${OC}/api/session`);
     return r.data ?? [];
   },
 
@@ -196,18 +289,23 @@ export const api = {
   },
 
   async getMessages(sessionId: string): Promise<any[]> {
-    const r = await apiCall<{ data: any[] }>(`${OC}/api/session/${sessionId}/message`);
+    const r = await apiCall<OcPage<any>>(`${OC}/api/session/${sessionId}/message`);
     return r.data ?? [];
   },
 
   /**
    * Send a prompt. Returns as soon as opencode admits the message; the actual
    * answer arrives as `session.next.text.delta` events on the SSE stream.
+   * Payload shape (verified against the running opencode server):
+   *   { prompt: { text: "...", parts?: [ {type:"text"|"file", ...} ] } }
+   * `prompt.text` is required; extra `parts` attach files by container path.
    */
-  async sendPrompt(sessionId: string, text: string): Promise<any> {
+  async sendPrompt(sessionId: string, text: string, parts?: any[]): Promise<any> {
+    const prompt: any = { text: text || (parts && parts.length ? "(attachments)" : "") };
+    if (parts && parts.length > 0) prompt.parts = parts;
     return apiCall(`${OC}/api/session/${sessionId}/prompt`, {
       method: "POST",
-      body: JSON.stringify({ prompt: { text } }),
+      body: JSON.stringify({ prompt }),
     });
   },
 
@@ -230,9 +328,78 @@ export const api = {
     });
   },
 
+  /**
+   * Rename a session. v2 has no update route, so this uses the legacy
+   * PATCH /session/{id}, which returns the bare legacy Session object.
+   */
+  async renameSession(sessionId: string, title: string): Promise<OcSession> {
+    return apiCall<OcSession>(`${OC}/session/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  /** Delete a session (legacy DELETE /session/{id}, returns bare true). */
+  async deleteSession(sessionId: string): Promise<boolean> {
+    return apiCall<boolean>(`${OC}/session/${sessionId}`, { method: "DELETE" });
+  },
+
+  /** All models across providers (GET /api/model). */
+  async listModels(): Promise<OcModel[]> {
+    const r = await apiCall<OcEnvelope<OcModel>>(`${OC}/api/model`);
+    return r.data ?? [];
+  },
+
+  /** Pending permission requests (GET /api/permission/request). */
+  async listPermissionRequests(): Promise<OcPermissionRequest[]> {
+    const r = await apiCall<OcEnvelope<OcPermissionRequest>>(`${OC}/api/permission/request`);
+    return r.data ?? [];
+  },
+
+  /** Answer a permission request — 204 on success. */
+  async replyPermission(
+    sessionId: string,
+    requestId: string,
+    reply: OcPermissionReply,
+    message?: string
+  ): Promise<void> {
+    return apiCall(`${OC}/api/session/${sessionId}/permission/${requestId}/reply`, {
+      method: "POST",
+      body: JSON.stringify(message ? { reply, message } : { reply }),
+    });
+  },
+
+  /** Pending question requests (GET /api/question/request). */
+  async listQuestionRequests(): Promise<OcQuestionRequest[]> {
+    const r = await apiCall<OcEnvelope<OcQuestionRequest>>(`${OC}/api/question/request`);
+    return r.data ?? [];
+  },
+
+  /**
+   * Answer questions. `answers` aligns with `questions` in order; each entry
+   * is an array of selected option labels. 204 on success.
+   */
+  async replyQuestion(
+    sessionId: string,
+    requestId: string,
+    answers: string[][]
+  ): Promise<void> {
+    return apiCall(`${OC}/api/session/${sessionId}/question/${requestId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    });
+  },
+
+  /** Dismiss a question request — 204 on success. */
+  async rejectQuestion(sessionId: string, requestId: string): Promise<void> {
+    return apiCall(`${OC}/api/session/${sessionId}/question/${requestId}/reject`, {
+      method: "POST",
+    });
+  },
+
   /** Agent presets opencode exposes (build / plan / general / ...). */
-  async listAgents(): Promise<{ id: string; description?: string; mode?: string }[]> {
-    const r = await apiCall<{ data: any[] }>(`${OC}/api/agent`);
+  async listAgents(): Promise<OcAgent[]> {
+    const r = await apiCall<OcEnvelope<OcAgent>>(`${OC}/api/agent`);
     return (r.data ?? []).filter((a) => !a.hidden);
   },
 
@@ -308,6 +475,101 @@ export const api = {
 
   async reloadConfigIntoContainer(): Promise<{ reloaded: boolean; message: string }> {
     return apiCall("/config/reload", { method: "POST" });
+  },
+
+  // --- Workspace (project-scope) config & skills -----------------------
+  async getProjectConfig(): Promise<{
+    scope: string;
+    exists: boolean;
+    created: boolean;
+    valid: boolean;
+    content: string;
+    config: Record<string, any>;
+  }> {
+    return apiCall("/workspace/config");
+  },
+
+  async saveProjectConfig(content: string): Promise<{ status: string; message: string }> {
+    return apiCall("/workspace/config", {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async listProjectSkills(): Promise<{ skills: { name: string; description: string; dir: string; scope: string }[] }> {
+    return apiCall("/workspace/skills");
+  },
+
+  async getProjectSkill(name: string): Promise<{ name: string; description: string; content: string; dir: string; scope: string }> {
+    return apiCall(`/workspace/skills/${name}`);
+  },
+
+  async upsertProjectSkill(name: string, content: string): Promise<any> {
+    return apiCall(`/workspace/skills/${name}`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  async deleteProjectSkill(name: string): Promise<any> {
+    return apiCall(`/workspace/skills/${name}`, { method: "DELETE" });
+  },
+
+  async importSkillsZip(file: File): Promise<{ status: string; imported: { name: string; description: string; dir: string; scope: string; fileCount: number }[]; message: string }> {
+    const form = new FormData();
+    form.append("file", file);
+    return apiCall("/workspace/skills/import", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  // --- Chat attach: skill picker + file upload --------------------------
+  async listAllSkills(): Promise<{ skills: { name: string; description: string; dir: string; scope: string }[] }> {
+    return apiCall("/workspace/skills/all");
+  },
+
+  async uploadChatFile(file: File): Promise<{
+    status: string;
+    path: string;
+    absPath: string;
+    filename: string;
+    size: number;
+    mime: string;
+    isImage: boolean;
+  }> {
+    const form = new FormData();
+    form.append("file", file);
+    return apiCall("/workspace/files/upload", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  // --- Workspace file browser -------------------------------------------
+  async listWorkspaceFiles(): Promise<{ files: { path: string; type: "file" | "dir"; size: number }[] }> {
+    return apiCall("/workspace/files");
+  },
+
+  async readWorkspaceFile(path: string): Promise<{
+    type: "text" | "image" | "binary";
+    mime: string;
+    content?: string;
+    base64?: string;
+    size?: number;
+  }> {
+    return apiCall(`/workspace/file-content?path=${encodeURIComponent(path)}`);
+  },
+
+  /**
+   * Fuzzy file search backed by opencode's own /find/file endpoint (the same
+   * index the @-mention picker uses internally). Returns workspace-relative
+   * paths. Note: this route lives outside the /api prefix.
+   */
+  async findFiles(query: string, limit = 20): Promise<string[]> {
+    return apiCall(
+      `${OC}/find/file?query=${encodeURIComponent(query)}&limit=${limit}&type=file`
+    );
   },
 
   // --- SSE --------------------------------------------------------------
