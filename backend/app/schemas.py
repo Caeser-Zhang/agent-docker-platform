@@ -22,6 +22,10 @@ class TokenResponse(BaseModel):
 
 class StartAgentRequest(BaseModel):
     workspace: str | None = None
+    # True = block until the startup flow finishes (scripts / e2e tests).
+    # False (default) = return immediately; the caller polls GET /agent/status
+    # for the live phase (creating → starting → warming → running).
+    wait: bool = False
 
 
 class AgentStatusResponse(BaseModel):

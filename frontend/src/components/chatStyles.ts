@@ -399,6 +399,21 @@ export const styles: Record<string, any> = {
     fontWeight: 600,
     cursor: "pointer",
   },
+  // Startup-in-progress strip shown in place of the welcome button while a
+  // background container start is in flight (creating / starting / warming).
+  welcomeStarting: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "12px 32px",
+    borderRadius: "8px",
+    background: "#1f2030",
+    border: "1px solid #2a2d3a",
+    color: "#a5b4fc",
+    fontSize: "15px",
+    fontWeight: 500,
+  },
+  welcomeSpinner: { fontSize: "18px" },
   noSession: {
     flex: 1,
     display: "flex",

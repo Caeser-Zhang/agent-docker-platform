@@ -147,7 +147,9 @@ def main() -> int:
 
     print("\n== layer 3: container runtime ==")
     t0 = time.time()
-    code, body = c.call("POST", "/api/agent/start", {}, timeout=180)
+    # wait=true → blocking start (the UI uses the async mode + status polling;
+    # here we want the full boot time measured in one call).
+    code, body = c.call("POST", "/api/agent/start", {"wait": True}, timeout=180)
     started = code == 200 and isinstance(body, dict) and body.get("running")
     step("POST /api/agent/start", bool(started),
          f"HTTP {code} {body if not started else body.get('container_name')} "

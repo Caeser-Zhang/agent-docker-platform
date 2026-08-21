@@ -51,10 +51,16 @@ async def agent_status(user: User = Depends(get_current_user)):
 async def start_agent(req: StartAgentRequest, user: User = Depends(get_current_user)):
     """Start the agent container for this user.
 
-    Creates and starts a hardened Docker container if one doesn't exist,
-    or restarts an existing stopped container. Idempotent.
+    Non-blocking by default: kicks the startup off in the background and
+    returns the initial phase immediately — the UI polls GET /agent/status
+    for progress (creating → starting → warming → running). Concurrent
+    calls are deduplicated server-side. `wait: true` restores the old
+    blocking behaviour for scripts (e2e). Idempotent either way.
     """
-    result = await agent_controller.start_for_user(user.id, req.workspace)
+    if req.wait:
+        result = await agent_controller.start_for_user(user.id, req.workspace)
+    else:
+        result = await agent_controller.request_start(user.id, req.workspace)
     return AgentStatusResponse(**result)
 
 

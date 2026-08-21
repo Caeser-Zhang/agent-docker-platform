@@ -345,52 +345,60 @@ class ContainerManager:
         - If container doesn't exist → create + start it
 
         Implements the ensure_container pattern from design section 3.4.
+
+        The Docker SDK work runs in a worker thread: container creation
+        blocks for ~1-2s, and doing that on the event loop would stall the
+        status polls (and any concurrent /start call) that the async start
+        flow depends on.
         """
         async with self._lock:
-            client = self._get_client()
-            self.ensure_network()
+            return await asyncio.to_thread(self._ensure_container_sync, user_id)
 
-            container_name = f"agent-{user_id}"
-            ws_volume_name = self._workspace_volume_name(user_id)
-            data_volume_name = self._data_volume_name(user_id)
+    def _ensure_container_sync(self, user_id: str) -> tuple[Container, str]:
+        client = self._get_client()
+        self.ensure_network()
 
-            # Ensure volumes exist
-            ws_volume = self._ensure_volume(ws_volume_name)
-            data_volume = self._ensure_volume(data_volume_name)
+        container_name = f"agent-{user_id}"
+        ws_volume_name = self._workspace_volume_name(user_id)
+        data_volume_name = self._data_volume_name(user_id)
 
-            # Try to find existing container
-            try:
-                container = client.containers.get(container_name)
-                password = self._extract_password(container) or secrets.token_urlsafe(32)
-                if container.status == "running":
-                    logger.info("Container %s already running", container_name)
-                    return container, password
-                logger.info("Container %s exists but stopped — refreshing config and starting", container_name)
-                # Pick up any provider/credential edits the user made on the host.
-                self.inject_opencode_config(container)
-                container.start()
-                container.reload()
+        # Ensure volumes exist
+        ws_volume = self._ensure_volume(ws_volume_name)
+        data_volume = self._ensure_volume(data_volume_name)
+
+        # Try to find existing container
+        try:
+            container = client.containers.get(container_name)
+            password = self._extract_password(container) or secrets.token_urlsafe(32)
+            if container.status == "running":
+                logger.info("Container %s already running", container_name)
                 return container, password
-
-            except NotFound:
-                pass  # Need to create
-
-            # Create new container
-            password = secrets.token_urlsafe(32)
-            logger.info("Creating container %s", container_name)
-
-            run_kwargs = self._build_run_kwargs(user_id, password, ws_volume_name, data_volume_name)
-            container = client.containers.create(**run_kwargs)
-
-            # Config must land before the first start; the entrypoint falls back
-            # to the image default if this fails, so a failure is not fatal.
+            logger.info("Container %s exists but stopped — refreshing config and starting", container_name)
+            # Pick up any provider/credential edits the user made on the host.
             self.inject_opencode_config(container)
-
             container.start()
             container.reload()
-
-            logger.info("Container %s created and started (opencode serve)", container_name)
             return container, password
+
+        except NotFound:
+            pass  # Need to create
+
+        # Create new container
+        password = secrets.token_urlsafe(32)
+        logger.info("Creating container %s", container_name)
+
+        run_kwargs = self._build_run_kwargs(user_id, password, ws_volume_name, data_volume_name)
+        container = client.containers.create(**run_kwargs)
+
+        # Config must land before the first start; the entrypoint falls back
+        # to the image default if this fails, so a failure is not fatal.
+        self.inject_opencode_config(container)
+
+        container.start()
+        container.reload()
+
+        logger.info("Container %s created and started (opencode serve)", container_name)
+        return container, password
 
     async def reload_config(self, user_id: str) -> bool:
         """Re-inject the host opencode.json and restart the user's container.

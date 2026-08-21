@@ -75,6 +75,10 @@ export function Chat({
   const [error, setError] = useState("");
   const [logs, setLogs] = useState("");
   const [busy, setBusy] = useState<string>("");
+  // True while a background container start is in flight (page warmup or the
+  // start button). POST /agent/start returns immediately; this drives the
+  // status polling + phase UI until the phase settles on running/failed.
+  const [starting, setStarting] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
 
   // opencode agent presets + pending approval requests.
@@ -110,7 +114,23 @@ export function Chat({
   // The SSE callback is registered once; it reads the live session id from here.
   const sessionIdRef = useRef<string | null>(null);
 
-  const isAgentRunning = Boolean(agentStatus?.running && agentStatus?.healthy);
+  // Readiness = container running AND the controller marked it "running"
+  // (which only happens after its own health probe + session warmup).
+  // Deliberately NOT gated on `healthy`: the image's HEALTHCHECK has a 45s
+  // start-period, so `healthy` stays false for a while even when opencode
+  // is already serving — gating on it would leave the UI stuck on
+  // "starting" right after a successful boot.
+  const isAgentRunning = Boolean(agentStatus?.running && agentStatus?.status === "running");
+
+  // Live phase label while a background start is in flight.
+  const startupPhaseLabel =
+    agentStatus?.status === "creating"
+      ? "正在创建容器…"
+      : agentStatus?.status === "starting"
+      ? "正在启动 opencode 服务…"
+      : agentStatus?.status === "warming"
+      ? "正在预热模型会话…"
+      : "启动中…";
 
   // ------------------------------------------------------------------
   //  Control plane
@@ -247,10 +267,74 @@ export function Chat({
     };
   }, [refreshPending]);
 
+  // On mount: fetch the status once, then auto-warm the container if it
+  // isn't up — the user should never have to click "start" and wait. The
+  // start endpoint is async (returns immediately); progress arrives via
+  // the polling effect below.
   useEffect(() => {
-    refreshStatus();
-    return () => esRef.current?.close();
-  }, [refreshStatus]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const st = await api.getAgentStatus();
+        if (cancelled) return;
+        setAgentStatus(st);
+        if (st.status === "running") return;
+        if (["creating", "starting", "warming"].includes(st.status)) {
+          // Another tab / request already started it — just poll.
+          setStarting(true);
+          return;
+        }
+        // absent / stopped / failed → kick off the background start now.
+        setStarting(true);
+        const r = await api.startAgent();
+        if (cancelled) return;
+        setAgentStatus(r);
+        if (r.status === "running") {
+          setStarting(false); // fast path: container was already up
+        } else if (r.status === "failed") {
+          setStarting(false);
+          setError(r.message || "自动启动 Agent 失败");
+        }
+      } catch (e) {
+        console.error("status check failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      esRef.current?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // While a background start is in flight, poll GET /agent/status (~1s)
+  // until the phase settles on running / failed / stopped.
+  useEffect(() => {
+    if (!starting) return;
+    let stop = false;
+    (async () => {
+      while (!stop) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (stop) break;
+        try {
+          const st = await api.getAgentStatus();
+          if (stop) break;
+          setAgentStatus(st);
+          if (["running", "failed", "stopped"].includes(st.status)) {
+            setStarting(false);
+            if (st.status === "failed") {
+              setError("Agent 启动失败：" + (st.message || "健康检查超时"));
+            }
+            break;
+          }
+        } catch {
+          // transient network error — keep polling
+        }
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, [starting]);
 
   // If the container was already up when the page loaded, attach to it.
   const attachedRef = useRef(false);
@@ -263,21 +347,25 @@ export function Chat({
 
   const handleStartAgent = async () => {
     setError("");
-    setBusy("启动容器中…");
+    setStarting(true);
     try {
       const result = await api.startAgent();
       setAgentStatus(result);
-      if (result.running) {
+      if (result.status === "running") {
+        // Fast path: container was already up.
+        setStarting(false);
         attachedRef.current = true;
         connectSSE();
         await loadContainerState();
-      } else {
+      } else if (result.status === "failed") {
+        setStarting(false);
         setError(result.message || "启动 Agent 失败");
       }
+      // otherwise: background start in flight — the polling effect takes
+      // over and flips `starting` off when the phase settles.
     } catch (e: any) {
+      setStarting(false);
       setError(e.message);
-    } finally {
-      setBusy("");
     }
   };
 
@@ -766,6 +854,8 @@ export function Chat({
                 ...styles.statusDot,
                 background: isAgentRunning
                   ? "#22c55e"
+                  : starting
+                  ? "#3b82f6"
                   : agentStatus?.status === "stopped"
                   ? "#f59e0b"
                   : "#52525b",
@@ -774,6 +864,8 @@ export function Chat({
             <span style={styles.statusText}>
               {busy
                 ? busy
+                : starting
+                ? startupPhaseLabel
                 : isAgentRunning
                 ? "opencode serve 运行中"
                 : agentStatus?.status === "stopped"
@@ -819,8 +911,8 @@ export function Chat({
 
           <div style={styles.statusButtons}>
             {!isAgentRunning ? (
-              <button style={styles.startBtn} onClick={handleStartAgent} disabled={!!busy}>
-                启动 Agent
+              <button style={styles.startBtn} onClick={handleStartAgent} disabled={!!busy || starting}>
+                {starting ? "启动中…" : "启动 Agent"}
               </button>
             ) : (
               <button style={styles.stopBtn} onClick={handleStopAgent} disabled={!!busy}>
@@ -957,7 +1049,11 @@ export function Chat({
         <div style={styles.chatBody}>
         <div style={styles.chatColumn}>
         {!isAgentRunning ? (
-          <Welcome onStart={handleStartAgent} disabled={!!busy} />
+          <Welcome
+            onStart={handleStartAgent}
+            disabled={!!busy}
+            phase={starting ? agentStatus?.status || "creating" : undefined}
+          />
         ) : !currentSession ? (
           <div style={styles.noSession}>
             <div style={styles.noSessionIcon}>💬</div>
@@ -1690,13 +1786,29 @@ function QuestionCard({
   );
 }
 
-function Welcome({ onStart, disabled }: { onStart: () => void; disabled: boolean }) {
+function Welcome({
+  onStart,
+  disabled,
+  phase,
+}: {
+  onStart: () => void;
+  disabled: boolean;
+  phase?: string;
+}) {
   const features = [
     ["🔒", "强隔离", "每用户独立容器：文件系统 / 进程 / 网络 / 资源命名空间隔离"],
     ["🛡️", "安全加固", "非 root + cap-drop ALL + no-new-privileges + 只读根文件系统"],
     ["🧩", "零业务耦合", "平台不实现任何 agent 逻辑，全部能力来自容器内 opencode serve"],
     ["🔄", "崩溃自愈", "双层健康检查 + restart policy + /workspace 与 /data 卷持久化"],
   ];
+  const phaseText =
+    phase === "creating"
+      ? "正在创建容器…"
+      : phase === "starting"
+      ? "正在启动 opencode 服务…"
+      : phase === "warming"
+      ? "正在预热模型会话…"
+      : "启动中…";
   return (
     <div style={styles.welcome}>
       <div style={styles.welcomeIcon}>🐳</div>
@@ -1715,9 +1827,16 @@ function Welcome({ onStart, disabled }: { onStart: () => void; disabled: boolean
           </div>
         ))}
       </div>
-      <button style={styles.welcomeBtn} onClick={onStart} disabled={disabled}>
-        启动 Agent 容器
-      </button>
+      {phase ? (
+        <div style={styles.welcomeStarting}>
+          <span style={styles.welcomeSpinner}>⏳</span>
+          <span>{phaseText}</span>
+        </div>
+      ) : (
+        <button style={styles.welcomeBtn} onClick={onStart} disabled={disabled}>
+          启动 Agent 容器
+        </button>
+      )}
     </div>
   );
 }

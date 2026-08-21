@@ -12,6 +12,7 @@ Responsibilities:
   - Idempotent operations (safe to call multiple times)
 """
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -36,9 +37,89 @@ class AgentController:
     On startup, recover() scans the DB and re-attaches to running containers.
     """
 
+    def __init__(self):
+        # user_id -> in-flight background start task (see request_start).
+        # Lets get_status() report the live startup phase and keeps
+        # concurrent start requests from spawning duplicate work.
+        self._start_tasks: dict[str, asyncio.Task] = {}
+        # user_id -> live startup phase (creating / starting / warming).
+        # In-memory only — get_status() surfaces it to the polling UI while
+        # the background task advances; cleared when the task finishes.
+        self._start_phases: dict[str, str] = {}
+
     # ------------------------------------------------------------------
     #  Start — the main entry point when a user enters the platform
+    #  request_start — non-blocking entry, spawns the background task
+    #  start_for_user — actual startup flow (creating → starting → warming)
     # ------------------------------------------------------------------
+
+    async def request_start(self, user_id: str, workspace: str | None = None) -> dict:
+        """Kick off startup in the background and return the phase immediately.
+
+        POST /api/agent/start uses this so the UI never blocks on the full
+        container boot (typically ~5-10s). The browser polls
+        GET /api/agent/status, which reports the live phase while the
+        background task advances: creating → starting → warming → running.
+
+        Concurrent callers (page warmup + button click, two tabs, ...) share
+        one task via _start_tasks, so the flow never runs twice per user.
+        """
+        existing = self._start_tasks.get(user_id)
+        if existing and not existing.done():
+            record = await self._get_container_record(user_id)
+            return {
+                "running": False,
+                "healthy": False,
+                "status": self._start_phases.get(user_id, "starting"),
+                "container_name": record.container_name if record else None,
+                "workspace": None,
+                "message": "Agent startup already in progress",
+            }
+
+        record = await self._get_container_record(user_id)
+        if record and record.status == "running":
+            # Already up — start_for_user's fast path also re-attaches a
+            # missing SSE pump, so call it directly instead of spawning.
+            return await self.start_for_user(user_id, workspace)
+
+        # Re-check after the awaits above: a concurrent caller may have
+        # spawned the task while we were reading the record.
+        existing = self._start_tasks.get(user_id)
+        if existing and not existing.done():
+            return {
+                "running": False,
+                "healthy": False,
+                "status": self._start_phases.get(user_id, "starting"),
+                "container_name": record.container_name if record else None,
+                "workspace": None,
+                "message": "Agent startup already in progress",
+            }
+
+        self._start_phases[user_id] = "creating"
+        self._start_tasks[user_id] = asyncio.create_task(
+            self._run_start(user_id, workspace)
+        )
+        return {
+            "running": False,
+            "healthy": False,
+            "status": "creating",
+            "container_name": record.container_name if record else None,
+            "workspace": None,
+            "message": "Agent startup initiated",
+        }
+
+    async def _run_start(self, user_id: str, workspace: str | None):
+        """Background wrapper around start_for_user; cleans up tracking."""
+        try:
+            await self.start_for_user(user_id, workspace)
+        except Exception:
+            # start_for_user handles its own errors; this only guards the
+            # fast-path / record reads that happen outside its try block.
+            logger.exception("Background start for user %s crashed", user_id)
+            await self._update_status(user_id, "failed", error="background start crashed")
+        finally:
+            self._start_tasks.pop(user_id, None)
+            self._start_phases.pop(user_id, None)
 
     async def start_for_user(self, user_id: str, workspace: str | None = None) -> dict:
         """Ensure the user's agent container is running.
@@ -54,8 +135,13 @@ class AgentController:
         # Check if already running
         record = await self._get_container_record(user_id)
         if record and record.status == "running":
-            # Verify it's actually healthy
-            if container_manager.is_healthy(user_id):
+            # Gate on Docker's running state, NOT is_healthy(): the image's
+            # HEALTHCHECK has a 45s start-period during which health reads
+            # "starting" even though opencode is serving (our own probe
+            # already verified it before the DB row was marked running).
+            # Using is_healthy() here would trigger a full re-create on
+            # every start request within the first ~15s of container life.
+            if container_manager.get_container_status(user_id) == "running":
                 # The container survived, but the pump may not have: it dies if
                 # the backend was restarted between recover() runs or if the
                 # upstream stream was closed. Without it the browser gets a
@@ -76,6 +162,7 @@ class AgentController:
                 }
 
         # Update status → creating
+        self._start_phases[user_id] = "creating"
         await self._update_status(user_id, "creating")
 
         try:
@@ -96,6 +183,7 @@ class AgentController:
             )
 
             # Health probe — wait for the container to be ready
+            self._start_phases[user_id] = "starting"
             await self._update_status(user_id, "starting")
             healthy = await self._health_probe(user_id, password)
 
@@ -110,12 +198,16 @@ class AgentController:
                 }
 
             # opencode's HTTP server is up, but the @ai-sdk provider packages
-            # are still initialising in the background. If a session is created
-            # during that window, the first model-resolve (title generation)
-            # races with provider init and fails with "Model unavailable",
-            # poisoning that session's runner. A short settle delay lets the
-            # provider finish loading before the user starts chatting.
-            await asyncio.sleep(5)
+            # are still initialising in the background. If a session is
+            # created during that window, its first model-resolve (title
+            # generation) races with provider init and fails with "Model
+            # unavailable", poisoning that session's runner. Absorb the race
+            # with a throwaway session — it doubles as a real readiness
+            # signal (the warmup session's title is a model call, so once it
+            # appears the providers are live), typically ready in 1-2s
+            # instead of a fixed 5s sleep.
+            self._start_phases[user_id] = "warming"
+            await self._warmup_session(user_id, password)
 
             # Start SSE pump
             base_url = container_manager.get_container_url(user_id)
@@ -258,9 +350,22 @@ class AgentController:
     # ------------------------------------------------------------------
 
     async def get_status(self, user_id: str) -> dict:
-        """Get the current agent status for a user."""
+        """Get the current agent status for a user.
+
+        Merges three sources: the DB record, Docker's live state, and — when
+        a background start is in flight — the live startup phase. The phase
+        matters because the DB record alone flip-flops during boot (docker
+        state lags the flow, so a "creating" row reads back as "stopped").
+
+        Note on `healthy`: it mirrors Docker's HEALTHCHECK, which has a 45s
+        start-period — it stays False for a while even when opencode is
+        serving. Readiness should be judged from `status == "running"`
+        (only set after our own probe + warmup succeeded), not `healthy`.
+        """
         record = await self._get_container_record(user_id)
-        if not record:
+        phase = self._start_phases.get(user_id)
+
+        if not record and not phase:
             return {
                 "running": False,
                 "healthy": False,
@@ -269,15 +374,15 @@ class AgentController:
                 "workspace": None,
             }
 
-        # Check actual container health
+        # Check actual container state
         is_healthy = container_manager.is_healthy(user_id)
         is_running = container_manager.get_container_status(user_id) == "running"
 
         return {
             "running": is_running,
             "healthy": is_healthy,
-            "status": record.status if is_running else "stopped",
-            "container_name": record.container_name,
+            "status": phase or (record.status if is_running else "stopped"),
+            "container_name": record.container_name if record else None,
             "workspace": None,
         }
 
@@ -289,9 +394,12 @@ class AgentController:
         """Probe opencode's own GET /api/health until it responds or times out.
 
         opencode reports `{"healthy": true}` as soon as the HTTP server is
-        listening, which happens ~2s after container start.
+        listening, which happens ~2s after container start. Poll fast at
+        first (a fixed 2s interval can waste ~2s when the server comes up
+        between probes), then back off to 2s for the long tail.
         """
         deadline = time.time() + settings.startup_timeout
+        interval = 0.5
         while time.time() < deadline:
             result = await tunnel_relay.http_request(
                 user_id=user_id,
@@ -303,8 +411,106 @@ class AgentController:
             if result["status"] == 200:
                 logger.info("Container for user %s is healthy", user_id)
                 return True
-            await asyncio.sleep(2)
+            await asyncio.sleep(interval)
+            interval = min(interval * 1.6, 2.0)
         return False
+
+    # ------------------------------------------------------------------
+    #  Warmup — absorb the first-session model race
+    # ------------------------------------------------------------------
+
+    async def _warmup_session(self, user_id: str, password: str) -> None:
+        """Create a throwaway session so the user's first session starts clean.
+
+        Mirrors the warmup step in scripts/e2e.py. opencode serve mode does
+        NOT auto-resolve the default model from config — it must be passed
+        explicitly at session creation. And the FIRST session on a fresh
+        container triggers a title-generation call whose model resolution
+        races with provider initialisation; when it loses, that session's
+        runner is poisoned with "Model unavailable" and silently drops
+        prompts. Creating a discarded session lets the race burn out there.
+
+        Readiness signal: the warmup session's title is itself produced by
+        a model call, so once it appears the providers are initialised. We
+        poll for it (up to 5s, matching the old fixed sleep as worst case)
+        and typically return in 1-2s.
+        """
+        try:
+            # Resolve the default model ("providerID/modelID") from /config.
+            cfg = await tunnel_relay.http_request(
+                user_id=user_id, method="GET", path="/config",
+                password=password, timeout=10,
+            )
+            default_model = None
+            if cfg["status"] == 200 and isinstance(cfg["body"], dict):
+                default_model = cfg["body"].get("model")
+
+            session_body: dict = {"agent": "build", "location": {"directory": "/workspace"}}
+            if default_model and "/" in default_model:
+                pid, mid = default_model.split("/", 1)
+                session_body["model"] = {"providerID": pid, "id": mid}
+
+            resp = await tunnel_relay.http_request(
+                user_id=user_id,
+                method="POST",
+                path="/api/session",
+                raw_body=json.dumps(session_body).encode(),
+                password=password,
+                timeout=30,
+                headers={"content-type": "application/json"},
+            )
+            session_id = None
+            if resp["status"] == 200 and isinstance(resp["body"], dict):
+                session_id = (resp["body"].get("data") or {}).get("id")
+            if not session_id:
+                logger.warning(
+                    "Warmup session creation failed for %s: HTTP %s — settling 5s instead",
+                    user_id, resp["status"],
+                )
+                await asyncio.sleep(5)
+                return
+
+            # Poll the warmup session until its title appears (a successful
+            # model call ⇒ providers ready). Cap at 5s: if title generation
+            # lost the race, no title ever arrives and we just wait out the
+            # same budget the old fixed sleep used.
+            deadline = time.time() + 5
+            titled = False
+            while time.time() < deadline:
+                detail = await tunnel_relay.http_request(
+                    user_id=user_id, method="GET",
+                    path=f"/api/session/{session_id}",
+                    password=password, timeout=5,
+                )
+                if detail["status"] == 200 and isinstance(detail["body"], dict):
+                    if (detail["body"].get("data") or {}).get("title"):
+                        titled = True
+                        break
+                await asyncio.sleep(0.5)
+            if titled:
+                logger.info("Warmup session titled — providers ready for %s", user_id)
+            else:
+                logger.info("Warmup session for %s untitled after 5s — proceeding", user_id)
+
+            # The warmup session is disposable: delete it so it doesn't
+            # linger in the user's session list. Best effort only — a
+            # failed delete never blocks startup.
+            # NOTE: deletion only exists on the legacy route (no /api
+            # prefix — same one the frontend's deleteSession uses); the
+            # v2 path falls through to the SPA and deletes nothing.
+            try:
+                await tunnel_relay.http_request(
+                    user_id=user_id, method="DELETE",
+                    path=f"/session/{session_id}",
+                    password=password, timeout=5,
+                )
+                logger.info("Warmup session %s deleted for %s", session_id, user_id)
+            except Exception as e:
+                logger.debug("Warmup session delete failed for %s: %s", user_id, e)
+        except Exception as e:
+            # Best effort only: a failed warmup must never block startup.
+            logger.warning("Warmup for %s failed (%s) — settling 5s instead", user_id, e)
+            await asyncio.sleep(5)
 
     # ------------------------------------------------------------------
     #  Recovery — re-attach to running containers on platform restart
