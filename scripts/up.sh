@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
-# Universal startup script — works in any Linux environment or WSL2.
+# 一键构建+启动所有平台服务
 #
-# Idempotent and safe to re-run. Steps:
-#   1. Wait for the Docker daemon (a WSL VM may have just booted)
-#   2. Build the per-user agent image (agent-demo:1.0.0) if it's missing;
-#      on network failure retry with --network=host (WSL2 DNS workaround)
-#   3. docker compose up -d --build  (rebuilds platform images when code changed)
-#   4. Wait for backend health, then print the state of every layer
+# 与 start.sh 不同，up.sh 会先构建 Agent 镜像（如果缺失）和平台镜像，
+# 然后启动服务。适合首次部署或全量更新场景。
 #
-# Usage (from the repo root or anywhere):
+# 如果只需要启动已构建好的服务，使用：
+#   bash scripts/start.sh
+#
+# 如果只需要重新构建某个组件，使用对应的 build-*.sh：
+#   bash scripts/build-backend.sh   # 后端代码变更
+#   bash scripts/build-frontend.sh  # 前端代码变更
+#   bash scripts/build-agent.sh     # Agent 镜像变更
+#
+# Usage:
 #   bash scripts/up.sh
-set -uo pipefail
+set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
-AGENT_IMAGE="agent-demo:1.0.0"
+# 从 backend/.env 读取 Agent 镜像标签
+ENV_FILE="$PROJECT_DIR/backend/.env"
+AGENT_IMAGE="agent-demo:1.1.0"
+if [ -f "$ENV_FILE" ]; then
+  AGENT_IMAGE=$(grep -oP '^AGENT_AGENT_IMAGE=\K.*' "$ENV_FILE" | tr -d '"' | tr -d "'" || echo "$AGENT_IMAGE")
+fi
 
+# ---- 等待 Docker daemon ----
 echo "== waiting for docker daemon =="
 ready=0
 for i in $(seq 1 60); do
@@ -32,23 +42,20 @@ if [ "$ready" != 1 ]; then
   exit 1
 fi
 
-echo "== agent image =="
-if [ -n "$(docker images -q "$AGENT_IMAGE")" ]; then
+# ---- 构建 Agent 镜像（如果缺失） ----
+echo "== agent image ($AGENT_IMAGE) =="
+if [ -n "$(docker images -q "$AGENT_IMAGE" 2>/dev/null)" ]; then
   echo "$AGENT_IMAGE already built"
 else
   echo "building $AGENT_IMAGE (first build takes a few minutes)…"
-  if ! docker build -t "$AGENT_IMAGE" ./agent-image; then
-    echo "-- plain build failed, retrying with --network=host (WSL2 DNS workaround)…"
-    docker build --network=host -t "$AGENT_IMAGE" ./agent-image || {
-      echo "ERROR: agent image build failed" >&2
-      exit 1
-    }
-  fi
+  bash "$(dirname "${BASH_SOURCE[0]}")/build-agent.sh"
 fi
 
+# ---- 构建并启动平台服务 ----
 echo "== compose up (build + start) =="
 docker compose up -d --build || exit 1
 
+# ---- 等待后端健康检查 ----
 echo "== waiting for backend =="
 for i in $(seq 1 60); do
   code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9123/api/health 2>/dev/null || echo 000)
@@ -59,5 +66,6 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
+# ---- 验证 ----
 echo
 bash "$(dirname "${BASH_SOURCE[0]}")/verify.sh"
