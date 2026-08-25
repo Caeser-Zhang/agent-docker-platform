@@ -21,7 +21,7 @@ cd "$PROJECT_DIR"
 
 # 从 backend/.env 读取 Agent 镜像标签
 ENV_FILE="$PROJECT_DIR/backend/.env"
-AGENT_IMAGE="agent-demo:1.1.0"
+AGENT_IMAGE="agent-demo:1.2.0"
 if [ -f "$ENV_FILE" ]; then
   AGENT_IMAGE=$(grep -oP '^AGENT_AGENT_IMAGE=\K.*' "$ENV_FILE" | tr -d '"' | tr -d "'" || echo "$AGENT_IMAGE")
 fi

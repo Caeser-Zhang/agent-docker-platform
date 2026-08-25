@@ -15,7 +15,7 @@
  *   POST /api/session/{id}/interrupt    → 204
  *   GET  /api/session/{id}/message      { data: SessionMessage[], cursor }
  *   GET  /api/model                     { location, data: ModelV2Info[] }
- *   GET  /api/agent                     { location, data: AgentV2Info[] }
+ *   GET  /api/agent                     { location, data: AgentV2Info[] } (native only — listAgents uses legacy /agent for plugin agents)
  *   GET  /api/permission/request        { location, data: PermissionV2Request[] }
  *   POST /api/session/{id}/permission/{rid}/reply  { reply: once|always|reject } → 204
  *   GET  /api/question/request          { location, data: QuestionV2Request[] }
@@ -139,6 +139,14 @@ export interface OcAgent {
   steps?: number;
 }
 
+/** opencode command entry (GET /command) — global list incl. plugin commands. */
+export interface OcCommand {
+  name: string;
+  description?: string;
+  source?: string;
+  template?: string;
+}
+
 /** opencode ModelV2Info (GET /api/model) — fields the UI renders. */
 export interface OcModel {
   id: string;
@@ -201,6 +209,8 @@ export interface AdminContainerStats {
 export interface AdminContainer {
   user_id: string;
   username: string | null;
+  /** Employee number (工号) from the users table. */
+  uid: string | null;
   container_name: string;
   /** Status from the agent_containers DB record ("unmanaged" = no record). */
   db_status: string;
@@ -471,10 +481,41 @@ export const api = {
     });
   },
 
-  /** Agent presets opencode exposes (build / plan / general / ...). */
+  /**
+   * Agent presets opencode exposes (build / plan / general / ... plus plugin
+   * agents). NOTE: v2 GET /api/agent only lists native agents on opencode
+   * 1.18.x — agents registered by plugins (oh-my-opencode-slim's
+   * orchestrator / designer / oracle / ...) are absent from it. The legacy
+   * GET /agent returns the full registry (native + plugin); it uses "name"
+   * instead of "id" and returns a bare array.
+   */
   async listAgents(): Promise<OcAgent[]> {
-    const r = await apiCall<OcEnvelope<OcAgent>>(`${OC}/api/agent`);
-    return (r.data ?? []).filter((a) => !a.hidden);
+    const r = await apiCall<any[]>(`${OC}/agent`);
+    return (Array.isArray(r) ? r : [])
+      .filter((a) => !a.hidden)
+      .map((a) => ({ ...a, id: a.name }));
+  },
+
+  /**
+   * Global slash commands (GET /command). Note: this route lives outside the
+   * /api prefix, like /find/file. Includes commands registered by plugins;
+   * returns a bare array (no envelope).
+   */
+  async listCommands(): Promise<OcCommand[]> {
+    const r = await apiCall<OcCommand[]>(`${OC}/command`);
+    return Array.isArray(r) ? r : [];
+  },
+
+  /**
+   * Run a slash command in a session. Payload verified against the running
+   * opencode server: both `command` and `arguments` are required strings
+   * (pass "" when the command takes no arguments). Returns { info: Message }.
+   */
+  async runCommand(sessionId: string, command: string, args: string): Promise<any> {
+    return apiCall(`${OC}/session/${sessionId}/command`, {
+      method: "POST",
+      body: JSON.stringify({ command, arguments: args }),
+    });
   },
 
   /** Raw escape hatch onto any opencode route not wrapped above. */

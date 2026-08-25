@@ -5,6 +5,10 @@
 !backend/.env
 *.env.local
 
+# Real opencode config contains gateway URL + apiKey — commit only the
+# .example template. Copy it to config/opencode.json and fill in secrets.
+config/opencode.json
+
 # Database
 *.db
 *.db-journal

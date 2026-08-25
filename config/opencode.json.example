@@ -16,18 +16,20 @@
     "skill": "allow",
     "web_search*": "allow"
   },
-  "mcp": {
-    "web_search": {
-      "type": "local",
-      "command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"],
-      "environment": {
-        "SEARXNG_URL": "http://searxng:8080"
+  "mcp": {},
+  "provider": {
+    "your-provider": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Your Provider",
+      "options": {
+        "baseURL": "https://your-gateway.example.com/v1",
+        "apiKey": "YOUR_API_KEY"
       },
-      "enabled": true
+      "models": {
+        "your-model": {
+          "name": "Your Model"
+        }
+      }
     }
-  },
-  "plugin": [
-    "/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim"
-  ],
-  "provider": {}
+  }
 }

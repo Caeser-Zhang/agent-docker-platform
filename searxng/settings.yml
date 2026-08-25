@@ -1,0 +1,23 @@
+# SearXNG configuration for the platform's built-in web_search MCP tool
+# (agent-image/web_search_mcp.py). Mounted read-only by the `searxng`
+# service in docker-compose.yml.
+#
+# use_default_settings pulls in the full upstream defaults; we only override
+# what the platform needs:
+#   - json output format: required by the MCP server's HTTP calls; disabled
+#     in upstream defaults
+#   - limiter off: the only clients are our own agent containers on the
+#     internal agent-net network; SearXNG's bot-detection limiter would
+#     randomly 429 them
+# The service publishes no host ports — it is reachable only as
+# http://searxng:8080 from inside agent-net.
+use_default_settings: true
+
+server:
+  secret_key: "agent-demo-searxng-secret"
+  limiter: false
+
+search:
+  formats:
+    - html
+    - json

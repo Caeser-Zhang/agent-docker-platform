@@ -17,7 +17,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -240,6 +240,13 @@ class AgentController:
                 "container_name": None,
                 "message": f"Failed to start agent: {str(e)}",
             }
+        finally:
+            # start_for_user is also invoked directly (POST /start with
+            # wait:true, and the fast-path forward below) — without the
+            # _run_start wrapper whose finally clears the phase. A leaked
+            # "warming" phase makes GET /agent/status report warming forever,
+            # so the UI shows an endless "starting" spinner.
+            self._start_phases.pop(user_id, None)
 
     # ------------------------------------------------------------------
     #  Stop — graceful shutdown (preserves volumes)
@@ -268,14 +275,25 @@ class AgentController:
     #  Destroy — irreversible (removes container + volumes)
     # ------------------------------------------------------------------
 
-    async def destroy_for_user(self, user_id: str):
+    async def destroy_for_user(self, user_id: str) -> dict:
         """Destroy the user's container and volumes.
 
         Per design section 3.2 — should backup volumes before calling this.
+
+        Idempotent and tolerant of drift: when the Docker container is
+        already gone but a DB record (and possibly orphaned volumes)
+        remains, this still cleans them up and removes the record, so the
+        admin panel row disappears instead of lingering as a zombie.
         """
+        record = await self._get_container_record(user_id)
+        has_container = container_manager.get_container(user_id) is not None
+        if not has_container and record is None:
+            return {"ok": False, "message": "No container or record for this user"}
+
         await sse_pump_manager.stop_pump(user_id)
         await container_manager.destroy_container(user_id)
-        await self._update_status(user_id, "destroyed")
+        await self._delete_record(user_id)
+        return {"ok": True, "message": "Container and volumes destroyed"}
 
     # ------------------------------------------------------------------
     #  Restart — in-place container restart with pump re-attach
@@ -534,7 +552,11 @@ class AgentController:
         recovered = 0
         for record in records:
             user_id = record.user_id
-            if container_manager.is_healthy(user_id):
+            # Gate on Docker's running state, not is_healthy(): containers
+            # created before the authed healthcheck fix read "unhealthy"
+            # forever (curl 401), which used to mark live containers as
+            # stopped on every backend restart and killed their pumps.
+            if container_manager.get_container_status(user_id) == "running":
                 # Container is still running — re-attach SSE pump
                 base_url = container_manager.get_container_url(user_id)
                 password = record.password_enc  # In production this would be decrypted
@@ -615,6 +637,18 @@ class AgentController:
                 update(AgentContainer)
                 .where(AgentContainer.user_id == user_id)
                 .values(**values)
+            )
+            await db.commit()
+
+    async def _delete_record(self, user_id: str):
+        """Remove the user's container record (after destroy).
+
+        Safe to call unconditionally: start_for_user upserts a fresh record
+        when the user launches a new container.
+        """
+        async with async_session() as db:
+            await db.execute(
+                delete(AgentContainer).where(AgentContainer.user_id == user_id)
             )
             await db.commit()
 

@@ -22,8 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .database import init_db, promote_admins
-from .routers import auth, agent, tunnel, config, workspace, admin
+from .database import init_db, promote_admins, backfill_uids
+from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
 from .services.sse_pump import sse_pump_manager
@@ -49,6 +49,11 @@ async def lifespan(app: FastAPI):
     promoted = await promote_admins()
     if promoted:
         logger.info("Promoted %d user(s) to admin", promoted)
+
+    # 1c. Assign 工号 to users registered before the uid column existed
+    filled = await backfill_uids()
+    if filled:
+        logger.info("Backfilled uid for %d user(s)", filled)
 
     # 2. Ensure Docker network exists
     try:
@@ -105,6 +110,7 @@ app.include_router(tunnel.router)
 app.include_router(config.router)
 app.include_router(workspace.router)
 app.include_router(admin.router)
+app.include_router(llm_proxy.router)
 
 
 @app.exception_handler(RequestValidationError)

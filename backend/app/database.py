@@ -1,7 +1,7 @@
 """Database engine and session management."""
 from pathlib import Path
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -43,18 +43,56 @@ async def init_db():
 
 
 def _add_missing_columns(sync_conn) -> None:
-    """ALTER TABLE for columns introduced after initial deployment (SQLite).
+    """ALTER TABLE for columns introduced after initial deployment.
 
-    PRAGMA introspection is SQLite-only; on other backends (PostgreSQL)
-    create_all already produced the current schema, so skip.
+    create_all only creates missing TABLES — it never alters existing ones,
+    so any database created before a column existed (SQLite or PostgreSQL)
+    needs these additive migrations. Introspection is dialect-specific:
+    PRAGMA for SQLite, information_schema for PostgreSQL.
     """
-    if sync_conn.dialect.name != "sqlite":
-        return
-    user_cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(users)"))}
+    if sync_conn.dialect.name == "sqlite":
+        user_cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(users)"))}
+    else:
+        user_cols = {
+            row[0] for row in sync_conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")
+            )
+        }
     if "role" not in user_cols:
         sync_conn.execute(
             text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'")
         )
+    if "uid" not in user_cols:
+        # ALTER TABLE ADD COLUMN cannot add UNIQUE on either backend —
+        # uniqueness is enforced in the register route for migrated databases.
+        sync_conn.execute(text("ALTER TABLE users ADD COLUMN uid VARCHAR(50)"))
+
+
+def _next_uid(existing: list[str | None]) -> str:
+    """Next sequential 工号, starting at 10001 above any numeric uid present."""
+    highest = 10000
+    for value in existing:
+        if value and value.isdigit():
+            highest = max(highest, int(value))
+    return str(highest + 1)
+
+
+async def backfill_uids() -> int:
+    """Assign sequential 工号 to users created before the uid column existed."""
+    from .models import User  # local import — models depends on this module
+
+    async with async_session() as db:
+        users = (await db.execute(select(User))).scalars().all()
+        missing = [u for u in users if not u.uid]
+        if not missing:
+            return 0
+        taken = [u.uid for u in users if u.uid]
+        for user in missing:
+            uid = _next_uid(taken)
+            user.uid = uid
+            taken.append(uid)
+        await db.commit()
+        return len(missing)
 
 
 async def promote_admins() -> int:

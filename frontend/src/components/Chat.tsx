@@ -5,6 +5,7 @@ import {
   type AgentStatus,
   type ModelRef,
   type OcAgent,
+  type OcCommand,
   type OcPermissionReply,
   type OcPermissionRequest,
   type OcQuestionRequest,
@@ -50,6 +51,15 @@ const collectAtTokens = (text: string): string[] => {
   for (const m of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) out.add(m[1]);
   return [...out];
 };
+
+/**
+ * Slash menu entry kinds: real opencode commands, the client-side "/agents"
+ * pseudo command, and the agent entries it expands into.
+ */
+type SlashOption =
+  | { kind: "command"; name: string; description?: string; source?: string }
+  | { kind: "agentsCmd"; name: "agents"; description: string }
+  | { kind: "agent"; name: string; description?: string };
 
 export function Chat({
   username,
@@ -101,6 +111,14 @@ export function Chat({
   const [atOptions, setAtOptions] = useState<string[]>([]);
   const [atIndex, setAtIndex] = useState(0);
   const atTimerRef = useRef<number | null>(null);
+
+  // Slash command menu: "/" at the very start of the input opens the command
+  // picker; typing "/agents" fully swaps it to an agent picker (client-side
+  // pseudo command — the opencode server has no /agents command).
+  const [commands, setCommands] = useState<OcCommand[]>([]);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const commandsLoadedRef = useRef(false);
 
   // Workspace file browser panel.
   const [showFiles, setShowFiles] = useState(false);
@@ -475,6 +493,53 @@ export function Chat({
     setError("");
     setAtQuery(null);
     setAtOptions([]);
+    setSlashQuery(null);
+
+    // Slash command dispatch: "/name args..." goes to the dedicated command
+    // endpoint instead of the prompt route. Unknown "/" text falls through
+    // as a normal prompt (same as opencode's own TUI behaviour).
+    const slashMatch = text.match(/^\/([a-zA-Z0-9_:-]+)(?:\s+([\s\S]*))?$/);
+    if (slashMatch) {
+      const name = slashMatch[1];
+      const args = (slashMatch[2] ?? "").trim();
+      if (name.toLowerCase() === "agents") {
+        // Client-side pseudo command: switching happens in the menu itself.
+        setInput("");
+        return;
+      }
+      let cmds = commands;
+      if (cmds.length === 0) {
+        try {
+          cmds = await api.listCommands();
+          setCommands(cmds);
+        } catch {
+          cmds = [];
+        }
+      }
+      if (cmds.some((c) => c.name === name)) {
+        setInput("");
+        setAttachments([]);
+        setIsGenerating(true);
+        // Optimistic bubble; reconciled by session.next.prompted, and
+        // isGenerating is cleared by the session.idle SSE event.
+        setTurns((prev) => [
+          ...prev,
+          {
+            id: "pending-user",
+            role: "user",
+            type: "user",
+            blocks: [{ kind: "text", id: "pending-user:text", text }],
+          },
+        ]);
+        try {
+          await api.runCommand(currentSession.id, name, args);
+        } catch (e: any) {
+          setError(e.message);
+          setIsGenerating(false);
+        }
+        return;
+      }
+    }
 
     // File parts: uploads first, then "@path" references in the text that
     // resolve to a real workspace file (deduped by path). Unknown @tokens
@@ -580,7 +645,7 @@ export function Chat({
   };
 
   // ------------------------------------------------------------------
-  //  @-mention file autocomplete
+  //  @-mention file autocomplete + slash command menu
   // ------------------------------------------------------------------
   /** Extract the active "@query" before the caret, or null when not in a mention. */
   const detectAtMention = (text: string, caret: number): string | null => {
@@ -592,11 +657,42 @@ export function Chat({
     return query;
   };
 
-  /** Called on every input change: opens/closes the menu, debounced search. */
+  /** The active "/cmd" token when the input starts with "/" (before caret). */
+  const detectSlashCommand = (text: string, caret: number): string | null => {
+    const before = text.slice(0, caret);
+    if (!before.startsWith("/")) return null; // commands only at message start
+    const query = before.slice(1);
+    if (/\s/.test(query)) return null; // a space ends command selection
+    return query;
+  };
+
+  /** Called on every input change: opens/closes the menus, debounced search. */
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setInput(text);
-    const q = detectAtMention(text, e.target.selectionStart ?? text.length);
+    const caret = e.target.selectionStart ?? text.length;
+    // The slash menu (message start) and the @-menu are mutually exclusive.
+    const sq = detectSlashCommand(text, caret);
+    setSlashQuery(sq);
+    setSlashIndex(0);
+    if (sq !== null) {
+      setAtQuery(null);
+      setAtOptions([]);
+      // Lazy-load the command list on first slash usage; plugins can register
+      // more, so a failed fetch retries on the next slash input.
+      if (commands.length === 0 && !commandsLoadedRef.current) {
+        commandsLoadedRef.current = true;
+        api
+          .listCommands()
+          .then(setCommands)
+          .catch(() => {
+            setCommands([]);
+            commandsLoadedRef.current = false;
+          });
+      }
+      return;
+    }
+    const q = detectAtMention(text, caret);
     setAtQuery(q);
     if (q === null) {
       setAtOptions([]);
@@ -811,6 +907,90 @@ export function Chat({
     () => agents.filter((a) => !a.hidden && a.mode !== "subagent"),
     [agents]
   );
+
+  // Slash menu options, filtered locally from the cached command list. Once
+  // the query fully reads "agents", the list swaps to the agent picker.
+  const slashOptions = useMemo<SlashOption[]>(() => {
+    if (slashQuery === null) return [];
+    const q = slashQuery.toLowerCase();
+    if (q === "agents") {
+      return primaryAgents.map((a) => ({
+        kind: "agent" as const,
+        name: a.id,
+        description: a.description,
+      }));
+    }
+    const out: SlashOption[] = [];
+    if (q === "" || "agents".startsWith(q)) {
+      out.push({ kind: "agentsCmd", name: "agents", description: "查看并切换当前会话的 Agent" });
+    }
+    for (const c of commands) {
+      if (c.name.toLowerCase().includes(q)) {
+        out.push({ kind: "command", name: c.name, description: c.description, source: c.source });
+      }
+    }
+    return out;
+  }, [slashQuery, commands, primaryAgents]);
+
+  /** Apply the highlighted menu entry: pick agent / expand /agents / insert "/name ". */
+  const applySlashSelection = (index?: number) => {
+    if (slashQuery === null) return;
+    const opt = slashOptions[index ?? slashIndex];
+    if (!opt) return;
+    if (opt.kind === "agent") {
+      // Agent picker: switch the session and clear the input.
+      setInput("");
+      setSlashQuery(null);
+      handleAgentChange(opt.name);
+      return;
+    }
+    if (opt.kind === "agentsCmd") {
+      // Rewrite the input to "/agents" so the agent picker takes over.
+      setInput("/agents");
+      setSlashQuery("agents");
+      setSlashIndex(0);
+      requestAnimationFrame(() => {
+        const ta = inputRef.current;
+        ta?.focus();
+        ta?.setSelectionRange(7, 7);
+      });
+      return;
+    }
+    // Insert "/name " and let the user append arguments; Enter then dispatches.
+    setInput(`/${opt.name} `);
+    setSlashQuery(null);
+    requestAnimationFrame(() => {
+      const ta = inputRef.current;
+      ta?.focus();
+      const pos = opt.name.length + 2;
+      ta?.setSelectionRange(pos, pos);
+    });
+  };
+
+  /** Keyboard routing while the slash menu is open. Returns true if handled. */
+  const handleSlashKeyDown = (e: React.KeyboardEvent): boolean => {
+    if (slashQuery === null || slashOptions.length === 0) return false;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSlashIndex((i) => (i + 1) % slashOptions.length);
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSlashIndex((i) => (i - 1 + slashOptions.length) % slashOptions.length);
+      return true;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      applySlashSelection();
+      return true;
+    }
+    if (e.key === "Escape") {
+      setSlashQuery(null);
+      return true;
+    }
+    return false;
+  };
 
   const handleViewLogs = async () => {
     try {
@@ -1217,11 +1397,12 @@ export function Chat({
                     placeholder={
                       uploading
                         ? "上传文件中…"
-                        : "输入消息…（@ 引用工作区文件，Enter 发送，Shift+Enter 换行）"
+                        : "输入消息…（/ 执行命令，@ 引用文件，Enter 发送，Shift+Enter 换行）"
                     }
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={(e) => {
+                      if (handleSlashKeyDown(e)) return;
                       if (handleAtKeyDown(e)) return;
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -1230,6 +1411,32 @@ export function Chat({
                     }}
                     rows={1}
                   />
+                  {slashQuery !== null && slashOptions.length > 0 && (
+                    <div style={styles.atMenu}>
+                      <div style={styles.atMenuHeader}>
+                        {slashQuery.toLowerCase() === "agents"
+                          ? "选择 Agent · ↑↓ 选择 · Enter 切换 · Esc 关闭"
+                          : "命令 · ↑↓ 选择 · Enter/Tab 选中 · Esc 关闭"}
+                      </div>
+                      {slashOptions.map((o, i) => (
+                        <div
+                          key={`${o.kind}:${o.name}`}
+                          style={{ ...styles.atItem, ...(i === slashIndex ? styles.atItemActive : {}) }}
+                          onClick={() => applySlashSelection(i)}
+                          onMouseEnter={() => setSlashIndex(i)}
+                        >
+                          <span style={styles.atItemIcon}>{o.kind === "agent" ? "🤖" : "⌘"}</span>
+                          <span style={styles.cmdName}>
+                            {o.kind === "agent" ? o.name : `/${o.name}`}
+                          </span>
+                          {o.description && <span style={styles.cmdDesc}>{o.description}</span>}
+                          {o.kind === "command" && o.source && (
+                            <span style={styles.cmdSource}>{o.source}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {atQuery !== null && atOptions.length > 0 && (
                     <div style={styles.atMenu}>
                       <div style={styles.atMenuHeader}>

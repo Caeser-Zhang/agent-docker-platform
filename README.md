@@ -153,8 +153,8 @@ sequenceDiagram
 适用于仓库在 Linux/WSL 文件系统中的情况（WSL 内 `git clone`，或已通过方式 B 同步过去）：
 
 ```bash
-# 1. 首次：准备环境变量（编辑 .env，把 OPENCODE_CONFIG_DIR 指向你的 opencode 配置目录）
-cp .env.example .env
+# 1. 首次：编辑 config/opencode.json 填入你的 Provider 配置（API key 等）
+#    （也可跳过，启动后在 UI「配置管理」中从零创建）
 
 # 2. 一键启动
 bash scripts/up.sh
@@ -166,7 +166,7 @@ bash scripts/verify.sh
 [up.sh](scripts/up.sh) 是幂等的，重复执行无副作用，它做了 4 件事：
 
 1. 等待 Docker 守护进程就绪（最多 60s，兼容 WSL VM 冷启动）
-2. `agent-demo:1.0.0` 镜像缺失时自动构建；构建失败自动用 `--network=host` 重试（WSL2 DNS 问题规避）
+2. agent 镜像缺失时自动构建（标签读自 `backend/.env` 的 `AGENT_AGENT_IMAGE`）；构建失败自动用 `--network=host` 重试（WSL2 DNS 问题规避）
 3. `docker compose up -d --build` —— 代码有变更时自动重建镜像并生效
 4. 等待后端健康探测通过，随后调用 `verify.sh` 打印各层状态
 
@@ -197,35 +197,25 @@ wsl -d Ubuntu-24.04 -- bash ~/agent-docker-demo/scripts/up.sh
 ### 手动分步（等效于 up.sh，供理解与自定义）
 
 ```bash
-cp .env.example .env                                 # 配置 OPENCODE_CONFIG_DIR，见下
-docker build -t agent-demo:1.0.0 ./agent-image       # agent 镜像；网络受限环境加 --network=host
+# 编辑 config/opencode.json 填入 Provider 配置（也可在 UI 中配置）
+docker build -t agent-demo:1.2.0 ./agent-image       # agent 镜像；网络受限环境加 --network=host
 docker compose up -d --build                         # 平台栈（前端 + 后端）
 curl http://localhost:9123/api/health                # 验证 → {"status":"ok"}
 ```
 
-`OPENCODE_CONFIG_DIR` 按配置所在位置设置：
+`config/opencode.json` 是项目内置的 opencode 配置文件（Provider、MCP 等），
+编辑后 `docker compose up -d` 即可生效。如果文件中使用了 `127.0.0.1` 或 `localhost`
+的 LLM 代理地址，平台会自动将其重写为 `host.docker.internal`，容器通过
+`--add-host=host.docker.internal:host-gateway` 回源到宿主机。
 
-```bash
-# Linux / WSL（配置在 WSL 文件系统中）
-OPENCODE_CONFIG_DIR=/home/<you>/.config/opencode
-
-# WSL2（配置在 Windows 文件系统中）
-OPENCODE_CONFIG_DIR=/mnt/c/Users/<you>/.config/opencode
-
-# macOS
-OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
-```
-
-如果你的 `opencode.json` 中使用了 `127.0.0.1` 或 `localhost` 的 LLM 代理地址，平台会自动将其重写为 `host.docker.internal`，容器通过 `--add-host=host.docker.internal:host-gateway` 回源到宿主机。
-
-> 没有现成的 opencode.json？可以使用 UI 中的「配置管理」功能从零创建 Provider 和 MCP 配置。
+> 也可以跳过手动编辑，启动后在 UI「配置管理」中从零创建 Provider 和 MCP 配置。
 
 ### 常见问题（WSL）
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
 | WSL 内 curl 正常，Windows 浏览器打不开 | WSL VM 空闲自动关机（默认 ~60s），容器全部停止 | 运行 `wsl-keepalive.vbs`；或在 `%USERPROFILE%\.wslconfig` 设 `vmIdleTimeout=-1` |
-| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.0.0 ./agent-image`（`up.sh` 已内置自动重试） |
+| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.2.0 ./agent-image`（`up.sh` 已内置自动重试） |
 | `bash: \r: command not found` | 脚本带 Windows CRLF 行尾 | 走 `wsl-sync.sh` 同步（自动转换）；仓库已加 `.gitattributes` 强制 LF |
 | 改了前端代码但页面没变化 | 平台镜像未重建 | `docker compose up -d --build`（`up.sh` 默认带 `--build`） |
 | 需要停止服务 | — | `docker compose down`（数据在卷中，不受影响；WSL 侧另需 `wsl --shutdown` 才会关 VM） |
@@ -284,7 +274,8 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 2. **回环地址重写** — `http://127.0.0.1:8787/v1` → `http://host.docker.internal:8787/v1`
 3. **模型覆盖** — 强制将 `agents.*.model` 设为配置的默认 model，防止 opencode 回退到内置 provider
 4. **Provider 白名单** — 添加 `enabled_providers`，限制 opencode 只使用用户配置的 provider
-5. **叠加默认值** — `autoupdate:false`、`share:disabled`、所有 `permission` 设为 `allow`
+5. **叠加默认值** — `autoupdate:false`、`share:disabled`、所有 `permission` 设为 `allow`（含 `web_search*`）
+6. **内置 MCP 注入** — 自动发现 `agent-image/builtin-mcp/` 下的 manifest 声明，注入内置 MCP server（如 `web_search`），通过 SearXNG 元搜索引擎提供 web 搜索能力；SearXNG 地址由 `AGENT_SEARXNG_URL` 环境变量统一指定
 
 配置通过 `container.put_archive()` 在容器创建后、启动前写入 `/data/config/opencode/opencode.json`。
 
@@ -298,19 +289,19 @@ OPENCODE_CONFIG_DIR=/Users/<you>/.config/opencode
 |---|---|---|
 | `AGENT_SECRET_KEY` | `change-this-in-production` | JWT 签名密钥，**生产环境必须修改** |
 | `AGENT_DATABASE_URL` | `postgresql+asyncpg://agent:agentpass@postgres:5432/agent_demo` | 数据库连接串（栈内 postgres 服务；改回 `sqlite+aiosqlite:////app/data/agent_demo.db` 可切回 SQLite，历史数据保留在 `backend-data` 卷；指向外部 PG 时主机名用 `host.docker.internal` 或 IP） |
-| `AGENT_AGENT_IMAGE` | `agent-demo:1.0.0` | Agent 容器镜像名 |
+| `AGENT_AGENT_IMAGE` | `agent-demo:1.2.0` | Agent 容器镜像名 |
 | `AGENT_AGENT_NETWORK` | `agent-net` | Agent 容器网络名 |
 | `AGENT_AGENT_PORT` | `4096` | opencode serve 端口 |
 | `AGENT_AGENT_WORKDIR` | `/workspace` | 容器内工作目录 |
-| `AGENT_OPENCODE_CONFIG_SOURCE` | `/host-opencode/opencode.json` | 宿主配置路径（在容器内） |
+| `AGENT_OPENCODE_CONFIG_SOURCE` | `/host-opencode/opencode.json` | 项目内置 opencode 配置路径（容器内挂载自 `config/` 目录） |
 | `AGENT_CONTAINER_HOST_ALIAS` | `host.docker.internal` | 宿主机别名 |
+| `AGENT_SEARXNG_URL` | `http://searxng:8080` | 内置 web_search MCP 使用的 SearXNG 实例地址 |
 | `AGENT_CONTAINER_CPU_LIMIT` | `2.0` | 容器 CPU 限额 |
 | `AGENT_CONTAINER_MEMORY_LIMIT` | `2g` | 容器内存限额 |
 | `AGENT_CONTAINER_PIDS_LIMIT` | `200` | 容器进程数限额 |
 | `AGENT_IDLE_THRESHOLD` | `1800` | 空闲回收阈值（秒，默认 30 分钟） |
 | `AGENT_ADMIN_USERNAMES` | `""` | 管理员用户名列表（逗号分隔，登录时自动提升）；首个注册用户也自动成为 admin |
 | `AGENT_CORS_ORIGINS` | `["*"]` | CORS 允许来源 |
-| `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | 宿主 opencode 配置目录（docker-compose 用） |
 
 ## API 端点概览
 

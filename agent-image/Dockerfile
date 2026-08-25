@@ -5,7 +5,7 @@
 # the session store. The platform never re-implements any of that; it just
 # manages this container's lifecycle and reverse-proxies HTTP into it.
 #
-#   docker build -t agent-demo:1.0.0 ./agent-image
+#   docker build -t agent-demo:1.2.0 ./agent-image
 #
 # Layout inside the container:
 #   /workspace          project root opencode operates on   (volume, rw)
@@ -24,6 +24,8 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim
 FROM ${NODE_IMAGE} AS fetch
 
 ARG OPENCODE_VERSION=1.18.16
+# Pinned so builds are reproducible — bump to upgrade the pre-baked plugin.
+ARG OMOS_PLUGIN_VERSION=2.2.15
 
 WORKDIR /fetch
 # The npm package resolves an optional platform dependency (opencode-linux-x64)
@@ -45,6 +47,33 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm config set registry https://registry.npmmirror.com \
     && npm install --no-audit --no-fund --omit=dev @ai-sdk/openai-compatible
 
+# Pre-download the oh-my-opencode-slim plugin with its FULL dependency tree.
+# Doing this at build time means:
+#   - no npm install when a user container boots (fast starts, no network)
+#   - the ast-grep native binary ships inside the tree (npm pulls the
+#     platform-specific @ast-grep/cli-* package AND runs the @ast-grep/cli
+#     postinstall here, where node is available), so the plugin never falls
+#     back to downloading from GitHub releases at runtime
+#   - the tree lives in the read-only image — users cannot remove or tamper
+#     with the plugin
+# The runtime stage copies it to /opt/agent/builtin-plugins/oh-my-opencode-slim
+# and the backend injects the package path into every user's opencode.json
+# (opencode loads bare-path plugins in place; dependencies resolve from the
+# sibling node_modules directories).
+# node_modules is pre-created because npm walks up the tree looking for the
+# nearest package.json OR node_modules to decide its install root. /fetch has
+# a package.json (from the opencode-ai install above) — without a local
+# anchor the plugin tree would silently land in /fetch/node_modules.
+RUN mkdir -p /fetch/builtin-plugins/oh-my-opencode-slim/node_modules \
+    && cd /fetch/builtin-plugins/oh-my-opencode-slim \
+    && npm config set registry https://registry.npmmirror.com \
+    && npm install --no-audit --no-fund --omit=dev "oh-my-opencode-slim@${OMOS_PLUGIN_VERSION}" \
+    # Fail the build early if the plugin entry point or the ast-grep platform
+    # package didn't make it into the tree — without either, the plugin would
+    # try to reach GitHub from inside the (offline) user container.
+    && test -f node_modules/oh-my-opencode-slim/dist/index.js \
+    && ls node_modules/@ast-grep/ | grep -q '^cli-linux'
+
 # -------------------------------------------------------------- runtime stage
 FROM ${RUNTIME_IMAGE}
 
@@ -62,6 +91,9 @@ RUN sed -i 's|http://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/
 
 # ripgrep / git / fd are what opencode's built-in grep, glob and vcs tools shell
 # out to. curl is used by the container HEALTHCHECK.
+# Additional CLI tools are declared in builtin-tools/packages.list (one apt
+# package per line, # for comments) and appended here at build time.
+COPY builtin-tools/packages.list /tmp/builtin-packages.list
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -69,8 +101,10 @@ RUN apt-get update \
         fd-find \
         git \
         less \
+        python3 \
         ripgrep \
-    && rm -rf /var/lib/apt/lists/* \
+        $(grep -E '^[a-z0-9][a-z0-9+.-]*$' /tmp/builtin-packages.list | tr '\n' ' ') \
+    && rm -rf /var/lib/apt/lists/* /tmp/builtin-packages.list \
     && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     # Some bookworm-derived bases (node:*-slim) already ship a uid/gid 1000
     # account. Reuse it instead of failing, so RUNTIME_IMAGE can be swapped for
@@ -86,6 +120,18 @@ COPY --from=fetch /opencode /usr/local/bin/opencode
 # Pre-baked provider SDK packages so opencode doesn't need npm at runtime.
 COPY --from=fetch /fetch/provider-deps /opt/agent/provider-deps
 COPY opencode.default.json /opt/agent/opencode.default.json
+# Built-in MCP servers — each subdirectory of builtin-mcp/ declares one server
+# via a manifest.json (mcp config) plus its executable(s). The backend discovers
+# the manifests and injects the servers into every user container. The scripts
+# themselves live in the read-only image and cannot be removed by users.
+COPY builtin-mcp/ /opt/agent/builtin-mcp/
+# Built-in opencode plugins — pre-installed node_modules trees fetched above.
+# The source builtin-plugins/ dir (manifest.json + plugin.default.json per
+# plugin) is copied OVER the fetched tree: the manifest drives backend-side
+# discovery/injection, plugin.default.json seeds the plugin's own config file
+# on first boot (see entrypoint.sh).
+COPY --from=fetch /fetch/builtin-plugins /opt/agent/builtin-plugins
+COPY builtin-plugins/ /opt/agent/builtin-plugins/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode
 

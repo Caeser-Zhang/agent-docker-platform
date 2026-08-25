@@ -7,7 +7,7 @@
 #
 # Prerequisites:
 #   - Docker Engine installed and running
-#   - The agent image must be built first: docker build -t agent-demo:1.0.0 ./agent-image
+#   - The agent image must be built first: docker build -t agent-demo:1.2.0 ./agent-image
 #
 # Usage:
 #   docker-compose up -d
@@ -51,15 +51,34 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Persist the SQLite database
       - backend-data:/app/data
-      # Mount the entire opencode config directory (read-write) so the backend
+      # Mount the project-managed config directory (read-write) so the backend
       # can manage opencode.json AND skill files via the config API.
-      # Override the host path with OPENCODE_CONFIG_DIR in .env
-      - ${OPENCODE_CONFIG_DIR:-~/.config/opencode}:/host-opencode:rw
+      # Edit config/opencode.json to configure providers, MCP servers, etc.
+      - ./config:/host-opencode:rw
+      # Mount the built-in MCP manifest directory (read-only) so the backend
+      # can discover built-in MCP servers and inject them into user containers.
+      - ./agent-image/builtin-mcp:/builtin-mcp:ro
+      # Mount the built-in plugin manifest directory (read-only) so the backend
+      # can discover pre-baked plugins and inject them into user containers.
+      - ./agent-image/builtin-plugins:/builtin-plugins:ro
     networks:
       - platform-net
       - agent-net  # Must be on agent-net to reach user containers
 
   # --- Shared Services Layer ---
+  # SearXNG — meta-search engine backing the built-in web_search MCP tool in
+  # every agent container. The backend injects its URL (AGENT_SEARXNG_URL in
+  # backend/.env) into each container's opencode config. Internal only: no
+  # host ports, agent-net only. settings.yml enables the JSON API that the
+  # MCP server calls.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks:
+      - agent-net
+
   # PostgreSQL — platform database. Credentials/config live here only;
   # the backend connects via backend/.env AGENT_DATABASE_URL.
   postgres:

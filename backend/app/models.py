@@ -17,6 +17,8 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    # Employee number (工号) — unique, auto-assigned at registration when absent.
+    uid: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(200))
     # "user" | "admin" — admins get the Docker management panel.
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")

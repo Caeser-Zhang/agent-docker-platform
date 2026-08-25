@@ -95,6 +95,7 @@ async def admin_containers(stats: bool = Query(True, description="Include CPU/me
         rows.append({
             "user_id": uid,
             "username": user.username if user else None,
+            "uid": user.uid if user else None,
             "container_name": dc["name"],
             "db_status": rec.status if rec else "unmanaged",
             "docker_status": dc["status"],
@@ -115,6 +116,7 @@ async def admin_containers(stats: bool = Query(True, description="Include CPU/me
         rows.append({
             "user_id": uid,
             "username": user.username if user else None,
+            "uid": user.uid if user else None,
             "container_name": rec.container_name,
             "db_status": rec.status,
             "docker_status": "absent",
@@ -180,8 +182,14 @@ async def admin_stop_container(user_id: str):
 
 @router.post("/containers/{user_id}/destroy")
 async def admin_destroy_container(user_id: str):
-    """Destroy the container AND its volumes — irreversible."""
-    _require_record(user_id)
-    await agent_controller.destroy_for_user(user_id)
+    """Destroy the container AND its volumes — irreversible.
+
+    Also handles zombie rows (DB record whose container is already gone):
+    leftover volumes are removed and the record is deleted so the row
+    leaves the panel. 404 only when nothing exists at all.
+    """
+    result = await agent_controller.destroy_for_user(user_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("message", "Destroy failed"))
     logger.warning("Admin destroyed container and volumes for user %s", user_id)
-    return {"ok": True, "message": "Container and volumes destroyed"}
+    return result

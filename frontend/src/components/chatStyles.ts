@@ -701,6 +701,31 @@ export const styles: Record<string, any> = {
     fontSize: "12px",
   },
 
+  // --- Slash command menu (shares atMenu/atItem with @-mention) ----------
+  cmdName: {
+    flexShrink: 0,
+    fontFamily: "ui-monospace, monospace",
+    fontSize: "12px",
+    color: "#e4e4e7",
+    minWidth: "80px",
+  },
+  cmdDesc: {
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: "11px",
+    color: "#a1a1aa",
+  },
+  cmdSource: {
+    flexShrink: 0,
+    fontSize: "10px",
+    color: "#71717a",
+    border: "1px solid #2a2d3a",
+    borderRadius: "4px",
+    padding: "1px 5px",
+  },
+
   // --- Workspace file browser panel ---------------------------------------
   filesPanel: {
     width: "320px",

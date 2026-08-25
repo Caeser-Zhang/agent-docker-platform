@@ -41,6 +41,22 @@ if [ ! -d "${PROVIDER_DEPS_DIR}" ] && [ -d /opt/agent/provider-deps/node_modules
     cp -a /opt/agent/provider-deps/package-lock.json "${XDG_CONFIG_HOME}/opencode/package-lock.json" 2>/dev/null || true
 fi
 
+# Built-in plugins ship a default config next to their pre-baked node_modules
+# tree: /opt/agent/builtin-plugins/<name>/plugin.default.json seeds
+# ${XDG_CONFIG_HOME}/opencode/<name>.json. First boot only — afterwards the
+# user may tune the plugin's config freely. Defaults keep autoUpdate off
+# because the plugin tree lives in the read-only image and must never try to
+# replace itself at runtime.
+for default_cfg in /opt/agent/builtin-plugins/*/plugin.default.json; do
+    [ -f "${default_cfg}" ] || continue
+    plugin_name="$(basename "$(dirname "${default_cfg}")")"
+    target="${XDG_CONFIG_HOME}/opencode/${plugin_name}.json"
+    if [ ! -s "${target}" ]; then
+        echo "[entrypoint] seeding plugin config: ${target}" >&2
+        cp "${default_cfg}" "${target}"
+    fi
+done
+
 # opencode shells out to git for its vcs tools; the workspace volume is owned by
 # a different uid than the one that created it in some Docker setups.
 git config --global --add safe.directory "${AGENT_WORKDIR}" 2>/dev/null || true

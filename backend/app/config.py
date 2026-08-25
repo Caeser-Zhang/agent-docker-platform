@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     admin_usernames: str = ""
 
     # --- Docker ---
-    agent_image: str = "agent-demo:1.0.0"
+    agent_image: str = "agent-demo:1.2.0"
     agent_network: str = "agent-net"
     agent_port: int = 4096
     container_cpu_limit: float = 2.0
@@ -38,6 +38,32 @@ class Settings(BaseSettings):
     container_host_alias: str = "host.docker.internal"
     # Directory opencode treats as the project root inside the container.
     agent_workdir: str = "/workspace"
+    # Base URL of the platform SearXNG instance. Injected into every user
+    # container as SEARXNG_URL for the built-in web_search MCP server
+    # (agent-image/builtin-mcp/web_search). Point it at an existing instance or
+    # keep the default, which matches the searxng service in docker-compose.
+    searxng_url: str = "http://searxng:8080"
+
+    # Base URL agent containers use to reach the platform LLM proxy (this
+    # app's /llm-proxy router). build_container_config rewrites every
+    # provider's options.baseURL to "{llm_proxy_base}/{provider_id}" so SSE
+    # tool-call deltas get normalized before opencode's ai-sdk sees them.
+    # "backend" resolves on agent-net via the compose service name.
+    llm_proxy_base: str = "http://backend:8000/llm-proxy"
+
+    # Directory containing built-in MCP server manifests (mounted read-only
+    # into the backend from the agent image source). Each subdirectory has a
+    # manifest.json declaring the server's mcp config; these are discovered
+    # and injected into every user container.
+    builtin_mcp_dir: str = "/builtin-mcp"
+
+    # Directory containing built-in opencode plugin manifests (mounted
+    # read-only into the backend from the agent image source). Each
+    # subdirectory has a manifest.json pointing at the plugin's pre-baked
+    # node_modules path inside the agent image; these are discovered and
+    # injected into every user container's plugin array. The plugin trees
+    # live in the read-only image, so users cannot remove them.
+    builtin_plugins_dir: str = "/builtin-plugins"
 
     # --- Lifecycle ---
     health_check_interval: int = 10  # seconds

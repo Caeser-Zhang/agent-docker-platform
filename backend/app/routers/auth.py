@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import hash_password, verify_password, create_access_token
 from ..config import settings
-from ..database import async_session
+from ..database import async_session, _next_uid
 from ..models import User
 from ..schemas import RegisterRequest, LoginRequest, TokenResponse
 
@@ -27,8 +27,20 @@ async def register(req: RegisterRequest):
         user_count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
         role = "admin" if (user_count == 0 or req.username in settings.admin_username_set) else "user"
 
+        # 工号: optional at registration, validated for uniqueness and
+        # auto-assigned sequentially (10001+) when omitted.
+        uid = (req.uid or "").strip() or None
+        if uid:
+            clash = await db.execute(select(User).where(User.uid == uid))
+            if clash.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Employee number (uid) already taken")
+        else:
+            taken = [u.uid for u in (await db.execute(select(User.uid))).scalars()]
+            uid = _next_uid(taken)
+
         user = User(
             username=req.username,
+            uid=uid,
             hashed_password=hash_password(req.password),
             role=role,
         )

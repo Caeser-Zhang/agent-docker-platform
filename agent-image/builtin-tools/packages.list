@@ -1,0 +1,9 @@
+# Additional CLI tools to bake into the agent image.
+# One apt package per line. Lines starting with # are ignored.
+# Rebuild the image after editing: docker build -t agent-demo:1.1.0 ./agent-image
+#
+# Examples:
+# jq
+# htop
+# tree
+jq

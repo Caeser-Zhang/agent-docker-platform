@@ -5,6 +5,8 @@ from pydantic import BaseModel
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    # Optional employee number (工号); auto-assigned when omitted.
+    uid: str | None = None
 
 
 class LoginRequest(BaseModel):

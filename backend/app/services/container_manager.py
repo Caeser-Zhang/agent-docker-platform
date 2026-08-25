@@ -320,8 +320,11 @@ class ContainerManager:
             # --- Restart policy ---
             "restart_policy": {"Name": "unless-stopped"},
             # --- Health check (opencode's own endpoint) ---
+            # /api/health sits behind opencode's BasicAuth — without
+            # credentials curl gets a 401 and every container reads
+            # "unhealthy" forever.
             "healthcheck": {
-                "test": ["CMD-SHELL", f"curl -fsS http://127.0.0.1:{port}/api/health || exit 1"],
+                "test": ["CMD-SHELL", f'curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:{port}/api/health || exit 1'],
                 "interval": 15_000_000_000,   # 15s in nanoseconds
                 "timeout": 5_000_000_000,     # 5s
                 "retries": 4,
@@ -335,6 +338,19 @@ class ContainerManager:
             },
             "detach": True,
         }
+
+    def _image_stale(self, client, container) -> bool:
+        """True when the container's image differs from the configured agent image.
+
+        Compares image digests (tags can be re-pointed), and treats a missing
+        configured image as "not stale" so a bad AGENT_AGENT_IMAGE value never
+        destroys working containers.
+        """
+        try:
+            wanted = client.images.get(settings.agent_image).id
+            return container.attrs["Image"] != wanted
+        except Exception:
+            return False
 
     async def ensure_container(self, user_id: str) -> tuple[Container, str]:
         """Idempotently ensure a container exists and is running for the user.
@@ -367,21 +383,36 @@ class ContainerManager:
         data_volume = self._ensure_volume(data_volume_name)
 
         # Try to find existing container
+        container = None
         try:
             container = client.containers.get(container_name)
+        except NotFound:
+            pass  # Need to create
+
+        if container is not None:
             password = self._extract_password(container) or secrets.token_urlsafe(32)
             if container.status == "running":
                 logger.info("Container %s already running", container_name)
                 return container, password
-            logger.info("Container %s exists but stopped — refreshing config and starting", container_name)
-            # Pick up any provider/credential edits the user made on the host.
-            self.inject_opencode_config(container)
-            container.start()
-            container.reload()
-            return container, password
-
-        except NotFound:
-            pass  # Need to create
+            # Image upgrade: start/restart reuse the image the container was
+            # CREATED with — after an agent image rebuild (new plugins, new
+            # opencode version) stale containers would keep the old rootfs
+            # forever. Recreate from the current image; the named workspace/
+            # data volumes are re-attached, so user data survives.
+            if self._image_stale(client, container):
+                old = container.image.tags or [container.image_id]
+                logger.info(
+                    "Container %s runs stale image %s — recreating on %s",
+                    container_name, old, settings.agent_image,
+                )
+                container.remove(force=True)
+            else:
+                logger.info("Container %s exists but stopped — refreshing config and starting", container_name)
+                # Pick up any provider/credential edits the user made on the host.
+                self.inject_opencode_config(container)
+                container.start()
+                container.reload()
+                return container, password
 
         # Create new container
         password = secrets.token_urlsafe(32)
@@ -442,6 +473,13 @@ class ContainerManager:
             container_name = f"agent-{user_id}"
             try:
                 container = client.containers.get(container_name)
+                # Re-inject the host config before restarting: `docker restart`
+                # alone keeps whatever config file the container was created
+                # with, so provider/MCP edits on the host would never reach
+                # containers that only ever get restarted (never stopped).
+                # put_archive writes straight into the /data volume, so it
+                # works on a running container too.
+                self.inject_opencode_config(container)
                 container.restart(timeout=timeout)
                 container.reload()
                 logger.info("Container %s restarted", container_name)
