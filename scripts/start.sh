@@ -7,8 +7,7 @@
 #   bash scripts/build-agent.sh     # Agent 镜像变更后
 #   然后运行本脚本启动服务。
 #
-# 如果你希望一键构建+启动，请使用：
-#   bash scripts/up.sh
+# 如果需要一键构建+启动，请按 README 中的 build-*.sh + start.sh 顺序执行。
 #
 # Usage:
 #   bash scripts/start.sh

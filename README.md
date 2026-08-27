@@ -154,16 +154,17 @@ sequenceDiagram
 
 - [Docker Engine](https://docs.docker.com/engine/install/) 24.0+
 - [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
-- [opencode](https://opencode.ai) 兼容的 LLM Provider 配置（如 OpenAI、阿里百炼、火山引擎等；也可启动后在 UI「配置管理」中从零创建）
+- 一个可从部署服务器访问的 [opencode](https://opencode.ai) 兼容 LLM Provider（如 OpenAI、阿里百炼、火山引擎等）；**没有有效 Provider 和模型时只能启动平台，发送对话不会产生回复**
 
 ### 方式 A：Linux / WSL 内首次部署
 
 项目应运行在 Linux 或 WSL 的 ext4 文件系统。准备好 Docker Engine 后，在仓库根目录执行：
 
 ```bash
-# 1. 可选：预先配置 Provider；也可在首次登录后从 UI「配置管理」创建
+# 1. 必须先配置 Provider 与模型；示例中的占位值不能用于真实请求
 cp config/opencode.json.example config/opencode.json
-# 编辑 config/opencode.json，填入 provider 的 baseURL、apiKey 与 model
+# 编辑 config/opencode.json，填入部署服务器可访问的 baseURL、有效 apiKey 与 model ID
+# 若 Provider 部署在本机回环地址，容器会自动通过 host.docker.internal 回源
 
 # 2. 构建 Agent 运行时镜像（仅首次，或 agent-image/ 改动后）
 bash scripts/build-agent.sh
@@ -176,7 +177,7 @@ bash scripts/build-frontend.sh
 bash scripts/start.sh
 ```
 
-浏览器打开 **http://localhost:3000** → 注册 → 登录 → 启动 Agent → 创建会话。**首个注册用户自动成为管理员**。
+浏览器打开 `http://<服务器IP或域名>:3000` → 注册 → 登录 → 启动 Agent → 确认「配置管理」中能看到 Provider 和模型 → 创建会话。**首个注册用户自动成为管理员**。若通过反向代理或其他域名访问，必须把该完整 Origin 加入 `AGENT_CORS_ORIGINS`，然后执行 `docker compose up -d`。
 
 > `start.sh` 不会构建镜像。构建和启动已拆分，确保日常部署只重建变更的层。
 
@@ -231,6 +232,33 @@ wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/agent-docker-demo && bash scripts/build-ag
 ```
 
 日常迭代：先重复同步命令，再按改动范围调用上节的 `build-*.sh` 与 `start.sh`。Windows 浏览器访问 **http://localhost:3000**。
+
+### 部署后无响应排查
+
+按顺序执行以下命令；每一步都必须成功，不能只看前端端口是否返回 200：
+
+```bash
+# 1. 查看服务状态与后端日志
+docker compose ps
+docker compose logs --tail=100 backend frontend
+
+# 2. 检查平台健康与前端代理（在部署服务器执行）
+curl -i http://127.0.0.1:9123/api/health
+curl -i http://127.0.0.1:3000/api/health
+
+# 3. 确认 Agent 镜像存在、网络存在、用户 Agent 已运行
+docker image inspect "$(grep '^AGENT_AGENT_IMAGE=' backend/.env | cut -d= -f2)"
+docker network inspect agent-net
+docker ps --filter 'name=agent-'
+
+# 4. 检查 Agent 日志；重点看 provider/model、401/403、DNS、timeout、Model unavailable
+docker logs --tail=200 <agent-container-name>
+
+# 5. 配置 UI 中必须能看到至少一个 Provider 和模型；修改配置后重载容器
+#    或执行 UI 的「重载配置」，再重新发送一条短消息
+```
+
+常见原因：Provider 的 `baseURL` 或 API key 无效、部署服务器无法访问上游、模型 ID 不存在、`AGENT_CORS_ORIGINS` 未包含浏览器 Origin、Agent 镜像未构建或 backend 无法连接 Docker socket。**请求返回 401/403/404/502 时不要当作“无响应”，先查看浏览器 Network 和上述日志中的实际状态码。**
 
 ### 常见问题（WSL）
 

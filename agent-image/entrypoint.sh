@@ -57,6 +57,45 @@ for default_cfg in /opt/agent/builtin-plugins/*/plugin.default.json; do
     fi
 done
 
+# oh-my-opencode-slim's official installer generates a config that maps every
+# subagent (orchestrator, oracle, ...) to a model via preset/presets. Without
+# that mapping the plugin's agents come up with model=null and every tool call
+# fails with an opaque "unknown" error. The model is deployment-specific (it
+# comes from the injected opencode.json), so generate the preset config at
+# boot from the resolved default model instead of shipping a static file.
+# Existing configs that already define presets are left untouched.
+OMO_CFG="${XDG_CONFIG_HOME}/opencode/oh-my-opencode-slim.json"
+OMO_MODEL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model",""))' "${CONFIG_FILE}" 2>/dev/null || true)"
+if [ -n "${OMO_MODEL}" ]; then
+    python3 - "${OMO_CFG}" "${OMO_MODEL}" <<'PYEOF'
+import json, os, sys
+
+path, model = sys.argv[1], sys.argv[2]
+cfg = {}
+if os.path.exists(path):
+    try:
+        cfg = json.load(open(path))
+    except Exception:
+        cfg = {}
+
+if not cfg.get("presets"):
+    agents = {}
+    for agent in ("orchestrator", "oracle", "librarian", "explorer", "designer", "fixer"):
+        entry = {"model": model, "skills": [], "mcps": []}
+        if agent == "orchestrator":
+            entry["skills"] = ["*"]
+            entry["mcps"] = ["*"]
+        elif agent == "librarian":
+            entry["mcps"] = ["web_search"]
+        agents[agent] = entry
+    cfg["preset"] = "container"
+    cfg["presets"] = {"container": agents}
+    with open(path, "w") as fh:
+        json.dump(cfg, fh, indent=2)
+    print(f"[entrypoint] generated oh-my-opencode-slim preset config (model={model})", file=sys.stderr)
+PYEOF
+fi
+
 # opencode shells out to git for its vcs tools; the workspace volume is owned by
 # a different uid than the one that created it in some Docker setups.
 git config --global --add safe.directory "${AGENT_WORKDIR}" 2>/dev/null || true

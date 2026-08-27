@@ -61,6 +61,13 @@ services:
       # Mount the built-in plugin manifest directory (read-only) so the backend
       # can discover pre-baked plugins and inject them into user containers.
       - ./agent-image/builtin-plugins:/builtin-plugins:ro
+    # The LLM proxy (backend /llm-proxy/{provider}) resolves loopback provider
+    # base URLs to host.docker.internal when forwarding upstream — the same
+    # alias the per-user agent containers get from container_manager. Required
+    # on Linux/WSL2 engines where host.docker.internal is not defined by
+    # default; no-op on Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - platform-net
       - agent-net  # Must be on agent-net to reach user containers
