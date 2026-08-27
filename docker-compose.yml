@@ -86,6 +86,19 @@ services:
     networks:
       - agent-net
 
+  # demo-mcp — a minimal Streamable HTTP MCP server used to verify the
+  # end-to-end "user adds a remote MCP" flow. Exposes echo/add/get_time tools
+  # over JSON-RPC at /mcp. Agent containers reach it by DNS name `demo-mcp`
+  # on agent-net. Stdlib-only, no build step, read-only script mount.
+  demo-mcp:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    command: ["python", "/app/server.py"]
+    volumes:
+      - ./mcp-demo/server.py:/app/server.py:ro
+    networks:
+      - agent-net
+
   # PostgreSQL — platform database. Credentials/config live here only;
   # the backend connects via backend/.env AGENT_DATABASE_URL.
   postgres:

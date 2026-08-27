@@ -89,6 +89,7 @@ def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
         "type": cfg.get("type"),
         "enabled": cfg.get("enabled", True),
         "builtin": builtin,
+        "source": "builtin" if builtin else "user",
     }
     if cfg.get("type") == "remote":
         entry["url"] = cfg.get("url")

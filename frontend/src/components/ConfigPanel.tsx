@@ -409,9 +409,13 @@ function McpTab({ overview, onChange, onReload }: { overview: any; onChange: () 
               <span style={{ marginLeft: 8, fontSize: 12, padding: "2px 6px", borderRadius: 4, background: data.type === "remote" ? "#e6f1fb" : "#e1f5ee" }}>
                 {data.type}
               </span>
-              {data.builtin && (
+              {data.builtin ? (
                 <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11, background: "#ede9fe", color: "#6d28d9", fontWeight: 500 }}>
                   内置
+                </span>
+              ) : (
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11, background: "#e0f2fe", color: "#0369a1", fontWeight: 500 }}>
+                  用户添加
                 </span>
               )}
               {scopeBadge("global")}
