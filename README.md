@@ -43,7 +43,7 @@ flowchart TB
             TUNNEL["Tunnel<br/>透明反向代理 (raw bytes)"]
             PUMP["SSE Pump<br/>单上游 + 环形缓冲 + 扇出"]
         end
-        DB[("SQLite / Postgres<br/>用户/角色 + 容器台账")]
+        DB[("PostgreSQL 16 · 可切回 SQLite<br/>用户/角色 + 容器台账")]
         AC --> CM
         AC --> PUMP
     end
@@ -57,15 +57,21 @@ flowchart TB
     end
 
     subgraph Shared["共享服务层 · Shared Services"]
-        LLM["宿主 LLM 代理<br/>(host.docker.internal 回源)"]
+        LP["LLM Proxy<br/>(backend /llm-proxy · SSE delta 归一化)"]
+        SXNG["SearXNG<br/>web_search 元搜索"]
     end
+
+    UP["上游 LLM Provider<br/>(baseURL 实时读宿主 opencode.json)"]
 
     NGINX -->|"JWT · /api/*"| Platform
     TUNNEL -->|HTTP · basic auth| C1
     TUNNEL -->|HTTP · basic auth| C2
-    PUMP -->|GET /api/event · SSE| C1
-    C1 -->|HTTPS| LLM
-    C2 -->|HTTPS| LLM
+    PUMP -->|GET /event · SSE| C1
+    C1 -->|HTTP · API key 透传| LP
+    C2 -->|HTTP · API key 透传| LP
+    LP -->|HTTPS| UP
+    C1 -.->|web_search MCP| SXNG
+    C2 -.->|web_search MCP| SXNG
 ```
 
 要点：
@@ -73,6 +79,7 @@ flowchart TB
 - 前端只与 backend（9123）通信，nginx 把 `/api/*` 反代过去；用户容器**不映射宿主端口**，只能经 `agent-net` 由 backend 访问
 - backend 同时挂在 `platform-net`（接前端）和 `agent-net`（接用户容器）两张网络上
 - 每用户两块独立卷：`workspace-*`（工作区，含上传附件与项目级配置）与 `data-*`（opencode 状态）
+- 容器内的 LLM 请求统一经 backend 的 **LLM Proxy**（`/llm-proxy/{provider}`）回源真实上游——平台顺带归一化 SSE tool-call delta（部分网关的续传块携带空 `id`/`name`，会打断 `@ai-sdk/openai-compatible` 的流式解析）；上游地址实时读宿主配置，改配置无需重启后端
 
 ### 一次对话的请求流转
 
@@ -90,11 +97,12 @@ sequenceDiagram
     C-->>P: /api/health 探测通过
     B->>P: GET /api/tunnel/events (SSE, token query)
     P-->>B: 订阅 PUMP 扇出流
-    B->>P: POST /api/tunnel/oc/api/session/{id}/prompt<br/>{prompt:{text, parts:[file…]}}
-    P->>C: raw bytes 透传 (300s 超时)
-    C->>L: Agent loop 调用真实 LLM
-    C-->>P: session.next.* 事件流
-    P-->>B: SSE 扇出 → 流式渲染 / 工具卡片 / 审批卡片
+    B->>P: POST /api/tunnel/oc/session/{id}/prompt_async<br/>{parts:[text, file, agent…]}
+    P->>C: raw bytes 透传 → 204 No Content
+    C->>P: Agent loop → POST /llm-proxy/{provider}（API key 透传）
+    P->>L: 回源真实上游（SSE tool-call delta 归一化）
+    C-->>P: GET /event → message.part.delta / message.part.updated
+    P-->>B: SSE 扇出 → 逐段流式渲染 / 工具卡片 / 审批卡片
 ```
 
 ## 功能特性
@@ -110,7 +118,7 @@ sequenceDiagram
 |---|---|---|
 | 存储位置 | 宿主机 `opencode.json` + `~/.config/opencode/skills/` | 容器卷 `/workspace/opencode.json` + `/workspace/.opencode/skills/` |
 | 作用范围 | 所有用户容器共享 | 仅该用户本工作区 |
-| 生效方式 | 注入时消毒（MCP 过滤/回环重写/模型覆盖） | opencode 启动时原生合并 |
+| 生效方式 | 注入时消毒（MCP 过滤 / 内置 MCP·插件注入 / LLM Proxy 改写 / 模型覆盖） | opencode 启动时原生合并 |
 | Skill 导入 | 单个 SKILL.md 编辑 | **zip 批量导入**（三种布局自适应，500 文件/单文件 5MB/总量 20MB 上限） |
 
 - **LLM Provider** — 增删改查，支持 OpenAI-compatible / 自定义 baseURL
@@ -148,76 +156,90 @@ sequenceDiagram
 - [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
 - [opencode](https://opencode.ai) 兼容的 LLM Provider 配置（如 OpenAI、阿里百炼、火山引擎等；也可启动后在 UI「配置管理」中从零创建）
 
-### 方式 A：Linux / WSL 内一键启动（3 条命令）
+### 方式 A：Linux / WSL 内首次部署
 
-适用于仓库在 Linux/WSL 文件系统中的情况（WSL 内 `git clone`，或已通过方式 B 同步过去）：
+项目应运行在 Linux 或 WSL 的 ext4 文件系统。准备好 Docker Engine 后，在仓库根目录执行：
 
 ```bash
-# 1. 首次：编辑 config/opencode.json 填入你的 Provider 配置（API key 等）
-#    （也可跳过，启动后在 UI「配置管理」中从零创建）
+# 1. 可选：预先配置 Provider；也可在首次登录后从 UI「配置管理」创建
+cp config/opencode.json.example config/opencode.json
+# 编辑 config/opencode.json，填入 provider 的 baseURL、apiKey 与 model
 
-# 2. 一键启动
-bash scripts/up.sh
+# 2. 构建 Agent 运行时镜像（仅首次，或 agent-image/ 改动后）
+bash scripts/build-agent.sh
 
-# 3. 栈体检（可选，也可随时单独运行）
+# 3. 构建平台前端与后端镜像（仅首次，或相应目录改动后）
+bash scripts/build-backend.sh
+bash scripts/build-frontend.sh
+
+# 4. 启动 PostgreSQL、SearXNG、后端与前端；脚本会等待后端健康并运行检查
+bash scripts/start.sh
+```
+
+浏览器打开 **http://localhost:3000** → 注册 → 登录 → 启动 Agent → 创建会话。**首个注册用户自动成为管理员**。
+
+> `start.sh` 不会构建镜像。构建和启动已拆分，确保日常部署只重建变更的层。
+
+### 代码更新后的部署
+
+在仓库根目录，按改动范围执行对应构建，再启动服务：
+
+```bash
+# 仅 frontend/ 改动
+bash scripts/build-frontend.sh
+bash scripts/start.sh
+
+# 仅 backend/ 改动
+bash scripts/build-backend.sh
+bash scripts/start.sh
+
+# agent-image/ 改动
+bash scripts/build-agent.sh
+bash scripts/start.sh
+# 已存在的用户 Agent 容器仍使用旧镜像；在管理面板销毁该用户容器后，
+# 下一次启动会创建使用新镜像的容器。
+
+# Compose、多个层或不确定影响范围
+bash scripts/build-agent.sh
+bash scripts/build-backend.sh
+bash scripts/build-frontend.sh
+bash scripts/start.sh
+
+# 栈体检，可独立执行
 bash scripts/verify.sh
 ```
 
-[up.sh](scripts/up.sh) 是幂等的，重复执行无副作用，它做了 4 件事：
+配置改动的生效方式：修改 `backend/.env` 后运行 `bash scripts/start.sh`；修改 `config/opencode.json` 或在 UI 保存 Provider/MCP/Skill 后，使用 UI 的「重载配置」或调用 `POST /api/config/reload` 重启用户 Agent 并重新注入配置。
 
-1. 等待 Docker 守护进程就绪（最多 60s，兼容 WSL VM 冷启动）
-2. agent 镜像缺失时自动构建（标签读自 `backend/.env` 的 `AGENT_AGENT_IMAGE`）；构建失败自动用 `--network=host` 重试（WSL2 DNS 问题规避）
-3. `docker compose up -d --build` —— 代码有变更时自动重建镜像并生效
-4. 等待后端健康探测通过，随后调用 `verify.sh` 打印各层状态
+停止平台服务：`bash scripts/stop.sh`。该命令停止前端、后端、PostgreSQL 与 SearXNG，不会删除卷，也不会停止用户 Agent 容器。
 
-浏览器打开 **http://localhost:3000** → 注册 → 登录 → 点「启动 Agent」→ 创建会话开始对话。**首个注册的用户自动成为管理员**，登录后可在聊天页顶部点「管理」进入 Docker 管理面板。
+### 方式 B：Windows 编辑 + WSL2 部署
 
-### 方式 B：Windows + WSL2（代码在 Windows 上编辑）
+> 不要在 `/mnt/d/...` 直接构建：跨文件系统构建较慢，且 NTFS 不保留 shell entrypoint 所需的可执行位。Windows 工作副本应同步到 WSL ext4 后运行。
 
-> 为什么不直接在 `/mnt/d/...` 上跑：跨文件系统构建慢一个数量级，且 NTFS 会丢失 entrypoint 的可执行位。项目必须运行在 WSL 的 ext4 文件系统中。
-
-在 Windows PowerShell 中执行（路径按实际位置调整）：
+在 Windows PowerShell 中执行（发行版、路径按实际环境调整）：
 
 ```powershell
-# 1. 同步 Windows 工作副本 → WSL ext4（~/agent-docker-demo，自动修复 CRLF / 可执行位）
+# 1. 同步 Windows 工作副本到 WSL ~/agent-docker-demo，自动清理 CRLF 并修复可执行位
 wsl -d Ubuntu-24.04 -- bash /mnt/d/Project/agent-docker-demo/scripts/wsl-sync.sh
 
-# 2. 钉住 WSL VM，防止空闲 ~60s 自动关机带走全部容器
+# 2. 可选：保持 WSL VM 常驻，避免空闲关机带走 Docker 容器
 wscript.exe D:\Project\agent-docker-demo\scripts\wsl-keepalive.vbs
 
-# 3. 在 WSL 内一键启动（即方式 A 的 up.sh）
-wsl -d Ubuntu-24.04 -- bash ~/agent-docker-demo/scripts/up.sh
+# 3. 在 WSL 中首次构建并启动
+wsl -d Ubuntu-24.04 -- bash -lc 'cd ~/agent-docker-demo && bash scripts/build-agent.sh && bash scripts/build-backend.sh && bash scripts/build-frontend.sh && bash scripts/start.sh'
 ```
 
-之后 Windows 浏览器直接访问 **http://localhost:3000**（WSL2 mirrored 网络自动映射端口）。
-
-- **日常迭代** = 改代码（Windows）→ 重复步骤 1、3
-- **建议**：把 `wsl-keepalive.vbs` 的快捷方式放进 `shell:startup`（Win+R），开机自动拉起 VM 和容器
-
-### 手动分步（等效于 up.sh，供理解与自定义）
-
-```bash
-# 编辑 config/opencode.json 填入 Provider 配置（也可在 UI 中配置）
-docker build -t agent-demo:1.2.0 ./agent-image       # agent 镜像；网络受限环境加 --network=host
-docker compose up -d --build                         # 平台栈（前端 + 后端）
-curl http://localhost:9123/api/health                # 验证 → {"status":"ok"}
-```
-
-`config/opencode.json` 是项目内置的 opencode 配置文件（Provider、MCP 等），
-编辑后 `docker compose up -d` 即可生效。如果文件中使用了 `127.0.0.1` 或 `localhost`
-的 LLM 代理地址，平台会自动将其重写为 `host.docker.internal`，容器通过
-`--add-host=host.docker.internal:host-gateway` 回源到宿主机。
-
-> 也可以跳过手动编辑，启动后在 UI「配置管理」中从零创建 Provider 和 MCP 配置。
+日常迭代：先重复同步命令，再按改动范围调用上节的 `build-*.sh` 与 `start.sh`。Windows 浏览器访问 **http://localhost:3000**。
 
 ### 常见问题（WSL）
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
 | WSL 内 curl 正常，Windows 浏览器打不开 | WSL VM 空闲自动关机（默认 ~60s），容器全部停止 | 运行 `wsl-keepalive.vbs`；或在 `%USERPROFILE%\.wslconfig` 设 `vmIdleTimeout=-1` |
-| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.2.0 ./agent-image`（`up.sh` 已内置自动重试） |
+| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.2.0 ./agent-image`（`build-agent.sh` 已内置自动重试） |
 | `bash: \r: command not found` | 脚本带 Windows CRLF 行尾 | 走 `wsl-sync.sh` 同步（自动转换）；仓库已加 `.gitattributes` 强制 LF |
-| 改了前端代码但页面没变化 | 平台镜像未重建 | `docker compose up -d --build`（`up.sh` 默认带 `--build`） |
+| 改了前端代码但页面没变化 | 前端镜像未重建 | `bash scripts/build-frontend.sh && bash scripts/start.sh` |
 | 需要停止服务 | — | `docker compose down`（数据在卷中，不受影响；WSL 侧另需 `wsl --shutdown` 才会关 VM） |
 
 ## 配置说明
@@ -270,12 +292,15 @@ curl http://localhost:9123/api/health                # 验证 → {"status":"ok"
 
 平台在将宿主 `opencode.json` 注入容器前，会执行以下消毒步骤：
 
-1. **MCP 过滤** — 保留 `remote` 类型（URL 可达），丢弃 `local` 类型（命令依赖宿主机可执行文件，容器内不可用）
-2. **回环地址重写** — `http://127.0.0.1:8787/v1` → `http://host.docker.internal:8787/v1`
-3. **模型覆盖** — 强制将 `agents.*.model` 设为配置的默认 model，防止 opencode 回退到内置 provider
-4. **Provider 白名单** — 添加 `enabled_providers`，限制 opencode 只使用用户配置的 provider
-5. **叠加默认值** — `autoupdate:false`、`share:disabled`、所有 `permission` 设为 `allow`（含 `web_search*`）
-6. **内置 MCP 注入** — 自动发现 `agent-image/builtin-mcp/` 下的 manifest 声明，注入内置 MCP server（如 `web_search`），通过 SearXNG 元搜索引擎提供 web 搜索能力；SearXNG 地址由 `AGENT_SEARXNG_URL` 环境变量统一指定
+1. **剥离宿主 plugin** — 用户自己声明的 `plugin` 条目被丢弃（引用宿主路径 / npm 包，在只读容器内安装会失败）
+2. **MCP 过滤** — 保留 `remote` 类型（URL 可达），丢弃 `local` 类型（命令依赖宿主机可执行文件，容器内不可用）
+3. **内置 MCP 注入** — 自动发现 `agent-image/builtin-mcp/` 下的 manifest 声明，注入内置 MCP server（如 `web_search`），通过 SearXNG 元搜索引擎提供 web 搜索能力；SearXNG 地址由 `AGENT_SEARXNG_URL` 环境变量统一指定
+4. **内置插件注入** — 自动发现 `agent-image/builtin-plugins/` 下的 manifest 声明，把预烘焙进镜像的插件（`oh-my-opencode-slim`，构建时已装好完整 node_modules 依赖树与 ast-grep 原生二进制）以路径形式注入 `plugin` 数组；插件树位于只读镜像内，用户无法卸载或篡改
+5. **回环地址重写** — `http://127.0.0.1:8787/v1` → `http://host.docker.internal:8787/v1`
+6. **LLM Proxy 改写** — 所有 provider 的 `options.baseURL` 统一改写为 `{AGENT_LLM_PROXY_BASE}/{provider_id}`（默认 `http://backend:8000/llm-proxy`）：平台转发到真实上游的同时归一化 SSE tool-call delta——部分网关在续传块里发空 `id`/`name`，会让 `@ai-sdk/openai-compatible` 报 `tool call delta is missing id or name` 中断整个流。上游地址在转发时实时读宿主配置，改配置无需重启后端
+7. **模型覆盖与清理** — 强制 `agents.*.model` 指向默认 model、显式设置 `small_model`（规避 opencode 廉价模型回退解析 bug）、剥离 `@ai-sdk/openai-compatible` 不接受的模型级 `options.thinking`，防止 opencode 回退到内置 provider 或硬 400
+8. **Provider 白名单** — 添加 `enabled_providers`，限制 opencode 只使用用户配置的 provider
+9. **叠加默认值** — `autoupdate:false`、`share:disabled`、所有 `permission` 设为 `allow`（含 `web_search*`）
 
 配置通过 `container.put_archive()` 在容器创建后、启动前写入 `/data/config/opencode/opencode.json`。
 
@@ -293,15 +318,16 @@ curl http://localhost:9123/api/health                # 验证 → {"status":"ok"
 | `AGENT_AGENT_NETWORK` | `agent-net` | Agent 容器网络名 |
 | `AGENT_AGENT_PORT` | `4096` | opencode serve 端口 |
 | `AGENT_AGENT_WORKDIR` | `/workspace` | 容器内工作目录 |
-| `AGENT_OPENCODE_CONFIG_SOURCE` | `/host-opencode/opencode.json` | 项目内置 opencode 配置路径（容器内挂载自 `config/` 目录） |
+| `AGENT_OPENCODE_CONFIG_SOURCE` | `/host-opencode/opencode.json` | 项目内置 opencode 配置路径（`config/` 目录挂载进 backend） |
 | `AGENT_CONTAINER_HOST_ALIAS` | `host.docker.internal` | 宿主机别名 |
+| `AGENT_LLM_PROXY_BASE` | `http://backend:8000/llm-proxy` | 容器内 provider 的统一回源地址：消毒时所有 provider 的 baseURL 被改写为 `{base}/{provider_id}`，经平台 LLM 代理转发并归一化 SSE tool-call delta（.env 未覆盖，用代码默认值） |
 | `AGENT_SEARXNG_URL` | `http://searxng:8080` | 内置 web_search MCP 使用的 SearXNG 实例地址 |
 | `AGENT_CONTAINER_CPU_LIMIT` | `2.0` | 容器 CPU 限额 |
 | `AGENT_CONTAINER_MEMORY_LIMIT` | `2g` | 容器内存限额 |
 | `AGENT_CONTAINER_PIDS_LIMIT` | `200` | 容器进程数限额 |
 | `AGENT_IDLE_THRESHOLD` | `1800` | 空闲回收阈值（秒，默认 30 分钟） |
-| `AGENT_ADMIN_USERNAMES` | `""` | 管理员用户名列表（逗号分隔，登录时自动提升）；首个注册用户也自动成为 admin |
-| `AGENT_CORS_ORIGINS` | `["*"]` | CORS 允许来源 |
+| `AGENT_ADMIN_USERNAMES` | `admin` | 管理员用户名列表（逗号分隔，登录时自动提升）；首个注册用户也自动成为 admin |
+| `AGENT_CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | CORS 允许来源 |
 
 ## API 端点概览
 
@@ -344,6 +370,8 @@ curl http://localhost:9123/api/health                # 验证 → {"status":"ok"
 | POST | `/api/tunnel/config/reload` | 重新注入宿主配置并重启容器 |
 | GET | `/api/tunnel/events` | SSE：opencode 事件扇出（支持 `lastEventId` 重放） |
 
+> 容器内的 LLM 请求**不走隧道**：provider 的 baseURL 已被消毒改写为 `http://backend:8000/llm-proxy/{provider}`，由 backend 在 `agent-net` 上直接反向代理到真实上游（API key 原样透传，SSE tool-call delta 归一化）。
+
 ### 全局配置管理
 
 | 方法 | 路径 | 说明 |
@@ -370,14 +398,19 @@ curl http://localhost:9123/api/health                # 验证 → {"status":"ok"
 
 ## 项目结构
 
+核心目录与职责如下：
+
 ```
 agent-docker-demo/
 ├── docker-compose.yml                 # 全栈编排（frontend + backend + 双网络）
 ├── .env.example                       # 环境变量模板
 ├── agent-image/                       # 容器执行层
-│   ├── Dockerfile                     # 两阶段：取 opencode 二进制 → 加固运行时
-│   ├── entrypoint.sh                  # 准备 XDG 目录 → 清除模型缓存 → exec opencode serve
-│   └── opencode.default.json          # 无凭据回落配置
+│   ├── Dockerfile                     # 两阶段：取 opencode 二进制 + 预烘焙插件 → 加固运行时
+│   ├── entrypoint.sh                  # 准备 XDG 目录 → 链接预烘焙 SDK → 种子插件配置 → exec opencode serve
+│   ├── opencode.default.json          # 无凭据回落配置
+│   ├── builtin-mcp/                   # 内置 MCP server（web_search，SearXNG 后端）
+│   ├── builtin-plugins/               # 内置插件 manifest（oh-my-opencode-slim，依赖树预烘焙于镜像）
+│   └── builtin-tools/packages.list    # 额外 CLI 工具清单（构建时 apt 安装）
 ├── backend/                           # 平台控制层 (FastAPI)
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -394,11 +427,12 @@ agent-docker-demo/
 │       │   ├── admin.py               # 管理员 API：总览 / 容器列表 / 日志 / 重启 / 停止 / 销毁
 │       │   ├── tunnel.py              # 透明反向代理 + SSE + /providers
 │       │   ├── config.py              # 全局配置：Provider/MCP/Skill CRUD
-│       │   └── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览
+│       │   ├── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览
+│       │   └── llm_proxy.py           # OpenAI 兼容 LLM 反向代理（SSE tool-call delta 归一化）
 │       └── services/
 │           ├── container_manager.py   # Docker SDK、加固参数、配置注入、卷读写
 │           ├── agent_controller.py    # 状态机、健康探测、崩溃恢复、空闲回收
-│           ├── opencode_config.py     # 宿主配置消毒 / 回环重写 / 默认值
+│           ├── opencode_config.py     # 宿主配置消毒 / 内置注入 / LLM Proxy 改写 / 默认值
 │           ├── host_config.py         # 宿主 Provider/MCP/Skill CRUD 操作
 │           ├── tunnel_relay.py        # 到容器的 HTTP 调用（raw bytes 透传）
 │           └── sse_pump.py            # 单上游连接 + 环形缓冲 + 扇出
@@ -419,7 +453,11 @@ agent-docker-demo/
 │   ├── REQUIREMENTS.md                # 需求分解（R1-R16）
 │   └── API.md                         # API 完整文档
 └── scripts/
-    ├── up.sh                          # 一键启动：等 dockerd → 补建 agent 镜像 → compose up --build → 健康检查
+    ├── build-agent.sh                 # 构建 Agent 运行时镜像
+    ├── build-backend.sh               # 构建后端镜像
+    ├── build-frontend.sh              # 构建前端镜像
+    ├── start.sh                       # 启动平台服务并执行健康检查
+    ├── stop.sh                        # 停止平台服务（保留卷与用户 Agent）
     ├── verify.sh                      # 栈体检：容器 / 镜像 / 端点 / 前端产物抽查
     ├── wsl-sync.sh                    # Windows 工作副本 → WSL ext4（含 CRLF 修复）
     ├── wsl-keepalive.vbs              # WSL 常驻会话，防止 VM 空闲自动关机
@@ -451,15 +489,16 @@ HEALTHCHECK curl -fsS /api/health
 
 ## opencode 契约要点
 
-版本 1.18.16，路径参数为 `{sessionID}`：
+版本 1.18.16，路径参数为 `{sessionID}`。前端通过隧道调用以下核心接口：
 
 ```
 POST /api/session                       { agent?, model?, location?: { directory } }
                                         -> { data: { id: "ses_..." } }
-POST /api/session/{sessionID}/prompt    { "prompt": { "text": "...", "parts": [...] } }  ← PromptInput 对象
+POST /session/{sessionID}/prompt_async  { parts: [{ type: "text", text: "..." }, ...] }
+                                        -> 204；回复通过 /event SSE 增量返回
 POST /api/session/{sessionID}/model     { "model": { "providerID": "x", "id": "y" } }  ← ModelRef 对象
-GET  /api/session/{sessionID}/message   -> { data: SessionMessage[], cursor }
-GET  /api/event                         全局 SSE
+GET  /session/{sessionID}/message       -> [{ info: Message, parts: Part[] }]（历史消息）
+GET  /event                             全局 SSE；assistant 增量为 message.part.delta
 GET  /api/health                        健康检查
 GET  /config                            生效的合并配置
 GET  /config/providers                  已配置的 provider
@@ -491,19 +530,20 @@ POST   /api/session/{sid}/question/{rid}/reject                            → 2
 
 审批 UI 靠 SSE 的 `permission.v2.asked/replied`、`question.v2.asked/replied/rejected` 事件触发列表刷新。
 
-`SessionMessage` 是按 `type` 区分的联合类型：`user` / `assistant` / `system` / `synthetic` / `shell` / `compaction` / `agent-switched` / `model-switched`。`assistant.content[]` 内再分 `text` / `reasoning` / `tool`。
+历史消息采用 V1 结构：`[{ info: Message, parts: Part[] }]`。`info.role` 标识 `user` / `assistant`，正文和 reasoning 在 `parts[]` 中，tool part 的状态在 `part.state` 中。
 
-SSE 事件（`data` 内均带 `sessionID`）：
+SSE 事件由平台 `/api/tunnel/events` 转发，`/event` 的业务 payload 位于 `properties`：
 
 ```
-session.next.prompt.admitted / prompted
-session.next.step.started / ended / failed
-session.next.text.started / delta / ended         delta 用 textID 聚合
-session.next.reasoning.started / delta / ended
-session.next.tool.called / input.delta / progress / success / failed
-session.next.model.switched · session.next.agent.switched
-session.idle · session.created · session.updated · session.error
+message.updated          # 全量替换 info
+message.part.delta       # 增量：按 partID 追加 delta
+message.part.updated     # 全量替换 part
+message.part.removed / message.removed
+session.created / session.updated / session.status / session.idle
+permission.* / question.*
 ```
+
+前端收到 `prompt_async` 的 204 后，依赖 `message.part.delta` 即时更新 assistant 气泡；消息完成或断线时再通过 legacy message 接口拉取完整历史进行校准。
 
 ## 技术栈
 
@@ -512,12 +552,12 @@ session.idle · session.created · session.updated · session.error
 | 浏览器层 | React 18 + TypeScript + Vite 5 + nginx |
 | 平台控制层 | Python 3.12 + FastAPI + uvicorn + SQLAlchemy + httpx + Docker SDK |
 | 容器执行层 | Debian + opencode 1.18.16 (Node.js runtime) |
-| 共享服务层 | SQLite (aiosqlite) / 可扩展 PostgreSQL |
+| 共享服务层 | PostgreSQL 16（默认，可切回 SQLite）· SearXNG 元搜索（web_search MCP 后端） |
 
 ## 生产部署建议
 
 1. **修改密钥** — `AGENT_SECRET_KEY` 与 postgres 的 `POSTGRES_PASSWORD`/连接串必须改为强随机值
-2. **数据库已使用 PostgreSQL** — 栈内自带 postgres:16-alpine 服务；如需外部数据库，改 `backend/.env` 的 `AGENT_DATABASE_URL` 后 `docker compose up -d` 即可（SQLite→PG 历史数据可用 `scripts/migrate-sqlite-to-pg.py` 迁移）
+2. **数据库已使用 PostgreSQL** — 栈内自带 postgres:16-alpine 服务；如需外部数据库，修改 `backend/.env` 的 `AGENT_DATABASE_URL` 后重新执行 `bash scripts/start.sh`
 3. **Docker API 代理** — 后端挂载了 Docker socket，生产环境应替换为 Docker API 代理或远程 Docker daemon
 4. **HTTPS** — 在 nginx 前加 TLS 终端（如 Caddy / Traefik）
 5. **资源限制** — 根据实际负载调整 `AGENT_CONTAINER_CPU_LIMIT`、`AGENT_CONTAINER_MEMORY_LIMIT`、`AGENT_CONTAINER_PIDS_LIMIT`

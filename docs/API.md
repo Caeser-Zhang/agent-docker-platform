@@ -624,7 +624,9 @@ MIME 按扩展名推导（覆盖 html/md/txt/json/csv/js/ts/tsx/py/sh/css/png/jp
 
 ### `GET /api/tunnel/events` — opencode 事件扇出（SSE）
 
-把容器内 opencode 的 `GET /api/event` 事件流（经 SSE Pump：单上游连接 + 200 条环形缓冲 + 多订阅者扇出）中继给浏览器。
+把容器内 opencode 的 `GET /event` 事件流（经 SSE Pump：单上游连接 + 200 条环形缓冲 + 多订阅者扇出）中继给浏览器。
+
+`/event` 是 opencode 官方 Web UI 使用的事件面。与只覆盖部分生命周期事件的 `/api/event` 相比，它会发出 assistant 的 `message.part.delta` 增量，平台前端据此逐段渲染回复。
 
 **鉴权**（例外方式）：query 参数
 
@@ -650,29 +652,30 @@ Connection: keep-alive
 
 ```
 id: 42
-data: {"type":"session.next.text.delta","data":{...,"sessionID":"ses_..."}}
+data: {"type":"message.part.delta","properties":{"sessionID":"ses_...","messageID":"msg_...","partID":"prt_...","field":"text","delta":"你好"}}
 
 ```
 
 - 每个事件两行：`id:`（用于断线重连游标）+ `data:`（完整事件对象 JSON）
+- `/event` 的业务 payload 位于 `properties`；前端会同时兼容旧事件面的 `data`
 - 空闲 20 秒发送注释保活行：`: keep-alive`
 - Agent 未运行时发送单条事件后结束流：`data: {"type":"agent.disconnected","data":{"message":"Agent not running"}}`
 
 ### 前端关心的 SSE 事件类型
 
-`data` 内均带 `sessionID`：
+V1 durable 事件是当前前端的主路径。`message.updated` 与 `message.part.updated` 都是**全量替换**；`message.part.delta` 是增量文本，必须按 `partID` 追加到既有内容。
 
 ```
-session.next.prompt.admitted / prompted
-session.next.step.started / ended / failed
-session.next.text.started / delta / ended           # delta 用 textID 聚合
-session.next.reasoning.started / delta / ended
-session.next.tool.called / input.delta / progress / success / failed
-session.next.model.switched · session.next.agent.switched
-session.idle · session.created · session.updated · session.error
-permission.v2.asked / replied                       # 触发工具审批卡片
-question.v2.asked / replied / rejected              # 触发提问应答卡片
+message.updated          # properties: { sessionID, info: Message }
+message.part.delta       # properties: { sessionID, messageID, partID, field: "text"|"reasoning", delta }
+message.part.updated     # properties: { sessionID, part: Part, time }
+message.part.removed     # properties: { messageID, partID }
+message.removed          # properties: { sessionID, messageID }
+session.created / session.updated / session.status / session.idle
+permission.* / question.*
 ```
+
+旧版 `session.next.*` / `permission.v2.*` / `question.v2.*` 事件仍被前端 reducer 兼容，但不应作为 v1.18.16 流式渲染的依赖。
 
 ---
 
@@ -743,30 +746,41 @@ global/dispose · instance/dispose · global/upgrade · global/config · auth/
 ### 会话
 
 ```http
-# 创建会话（必须传 agent，否则 title generation 会 403）
+# 创建会话
 POST /api/tunnel/oc/api/session
-{ "agent": "coder", "model": { "providerID": "bailian", "id": "deepseek-v4-flash" } }
+{ "agent": "build", "model": { "providerID": "bailian", "id": "deepseek-v4-flash" }, "location": { "directory": "/workspace" } }
 → { "data": { "id": "ses_..." } }
 
-# 发送 prompt（注意嵌套结构）
+# 异步发送 prompt（前端使用；立即返回 204，后续内容走 SSE）
+POST /api/tunnel/oc/session/{sessionID}/prompt_async
+{ "parts": [
+  { "type": "text", "text": "总结一下" },
+  { "type": "file", "mime": "application/pdf", "filename": "a.pdf", "url": "file:///workspace/tmp/a.pdf" },
+  { "type": "agent", "name": "reviewer" }
+] }
+→ 204 No Content
+
+# 同步 prompt（兼容接口；会等待整个 agent run，不适合浏览器流式 UI）
 POST /api/tunnel/oc/api/session/{sessionID}/prompt
-{ "prompt": { "text": "总结一下", "parts": [ { "type": "file", "mime": "application/pdf", "filename": "a.pdf", "url": "/workspace/tmp/a.pdf" } ] } }
-→ { "data": { ... } }
+{ "prompt": { "text": "总结一下", "parts": [ ... ] } }
 
 # 切换模型（ModelRef 对象，不是字符串）
 POST /api/tunnel/oc/api/session/{sessionID}/model
 { "model": { "providerID": "bailian", "id": "deepseek-v4-flash" } }
 
-# 拉取消息
-GET /api/tunnel/oc/api/session/{sessionID}/message
-→ { "data": SessionMessage[], "cursor": ... }
+# 拉取消息：v1.18.16 的真实历史在 legacy 路径，返回裸数组
+GET /api/tunnel/oc/session/{sessionID}/message
+→ [{ "info": { "id": "msg_...", "role": "assistant", "time": { ... } }, "parts": [ ... ] }]
+
+# 注意：/api/session/{sessionID}/message 可返回 { "data": [], "cursor": {} }
+# 对当前 V1 会话并非前端历史消息来源
 
 # 重命名 / 删除会话（legacy 面）
 PATCH  /api/tunnel/oc/session/{id}    { "title": "新标题" }
 DELETE /api/tunnel/oc/session/{id}
 ```
 
-**prompt body 的坑**：`prompt.text` 必填，多模态 `parts` 嵌套在 `prompt` 内。顶层传 `parts` → 400 `Missing key at ["prompt"]`。
+**发送方式选择**：浏览器对话应使用 `prompt_async`，其请求体顶层是 `parts`，204 后以 `/api/tunnel/events` 的 `message.part.delta` 流式展示。同步 `prompt` 的 body 才是 `{ "prompt": { "text", "parts" } }`，会等待整个执行完成，不应用于交互式流式界面。
 
 ### 审批与提问
 
