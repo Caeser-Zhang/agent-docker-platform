@@ -47,6 +47,7 @@ export interface AgentStatus {
   container_name: string | null;
   workspace: string | null;
   message: string;
+  error?: string | null;
 }
 
 export interface AgentRuntime {
@@ -405,7 +406,12 @@ export const api = {
   async sendPrompt(
     sessionId: string,
     text: string,
-    opts?: { files?: { mime: string; url: string; filename?: string }[]; agents?: string[] }
+    opts?: {
+      files?: { mime: string; url: string; filename?: string }[];
+      agents?: string[];
+      agent?: string;
+      model?: ModelRef;
+    }
   ): Promise<any> {
     const parts: any[] = [];
     for (const f of opts?.files ?? []) {
@@ -417,7 +423,13 @@ export const api = {
     parts.push({ type: "text", text: text || (opts?.files?.length ? "(attachments)" : "") });
     return apiCall(`${OC}/session/${sessionId}/prompt_async`, {
       method: "POST",
-      body: JSON.stringify({ parts }),
+      body: JSON.stringify({
+        parts,
+        ...(opts?.agent ? { agent: opts.agent } : {}),
+        ...(opts?.model
+          ? { model: { providerID: opts.model.providerID, modelID: opts.model.id } }
+          : {}),
+      }),
     });
   },
 

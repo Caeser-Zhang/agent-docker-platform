@@ -37,6 +37,7 @@ class AgentStatusResponse(BaseModel):
     container_name: str | None = None
     workspace: str | None = None
     message: str = ""
+    error: str | None = None
 
 
 class CreateSessionRequest(BaseModel):

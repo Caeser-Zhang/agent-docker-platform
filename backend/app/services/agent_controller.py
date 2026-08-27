@@ -46,6 +46,9 @@ class AgentController:
         # In-memory only — get_status() surfaces it to the polling UI while
         # the background task advances; cleared when the task finishes.
         self._start_phases: dict[str, str] = {}
+        # Retain the last background startup failure so status polling can
+        # report the actual Docker/configuration error even without a DB row.
+        self._start_errors: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     #  Start — the main entry point when a user enters the platform
@@ -95,6 +98,7 @@ class AgentController:
                 "message": "Agent startup already in progress",
             }
 
+        self._start_errors.pop(user_id, None)
         self._start_phases[user_id] = "creating"
         self._start_tasks[user_id] = asyncio.create_task(
             self._run_start(user_id, workspace)
@@ -112,11 +116,12 @@ class AgentController:
         """Background wrapper around start_for_user; cleans up tracking."""
         try:
             await self.start_for_user(user_id, workspace)
-        except Exception:
+        except Exception as exc:
             # start_for_user handles its own errors; this only guards the
             # fast-path / record reads that happen outside its try block.
             logger.exception("Background start for user %s crashed", user_id)
-            await self._update_status(user_id, "failed", error="background start crashed")
+            self._start_errors[user_id] = str(exc)
+            await self._update_status(user_id, "failed", error=str(exc))
         finally:
             self._start_tasks.pop(user_id, None)
             self._start_phases.pop(user_id, None)
@@ -232,7 +237,9 @@ class AgentController:
 
         except Exception as e:
             logger.error("Failed to start agent for user %s: %s", user_id, e)
-            await self._update_status(user_id, "failed", error=str(e))
+            error = str(e)
+            self._start_errors[user_id] = error
+            await self._update_status(user_id, "failed", error=error)
             return {
                 "running": False,
                 "healthy": False,
@@ -382,14 +389,17 @@ class AgentController:
         """
         record = await self._get_container_record(user_id)
         phase = self._start_phases.get(user_id)
+        last_error = self._start_errors.get(user_id)
 
         if not record and not phase:
             return {
                 "running": False,
                 "healthy": False,
-                "status": "absent",
+                "status": "failed" if last_error else "absent",
                 "container_name": None,
                 "workspace": None,
+                "message": last_error or "",
+                "error": last_error,
             }
 
         # Check actual container state
@@ -399,9 +409,11 @@ class AgentController:
         return {
             "running": is_running,
             "healthy": is_healthy,
-            "status": phase or (record.status if is_running else "stopped"),
+            "status": phase or (record.status if is_running else (record.status if record.status == "failed" else "stopped")),
             "container_name": record.container_name if record else None,
             "workspace": None,
+            "message": record.last_error or "",
+            "error": record.last_error,
         }
 
     # ------------------------------------------------------------------

@@ -87,6 +87,8 @@ export function Chat({
   const [currentSession, setCurrentSession] = useState<OcSession | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
+  const [promptAgent, setPromptAgent] = useState<string | undefined>(undefined);
+  const [promptModel, setPromptModel] = useState<ModelRef | undefined>(undefined);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
   const [logs, setLogs] = useState("");
@@ -376,7 +378,7 @@ export function Chat({
           setStarting(false); // fast path: container was already up
         } else if (r.status === "failed") {
           setStarting(false);
-          setError(r.message || "自动启动 Agent 失败");
+          setError(r.error || r.message || "自动启动 Agent 失败");
         }
       } catch (e) {
         console.error("status check failed", e);
@@ -405,7 +407,7 @@ export function Chat({
           if (["running", "failed", "stopped"].includes(st.status)) {
             setStarting(false);
             if (st.status === "failed") {
-              setError("Agent 启动失败：" + (st.message || "健康检查超时"));
+              setError("Agent 启动失败：" + (st.error || st.message || "健康检查超时"));
             }
             break;
           }
@@ -704,7 +706,11 @@ export function Chat({
       await api.sendPrompt(currentSession.id, finalText, {
         files: files.length ? files : undefined,
         agents: agentNames.length ? agentNames : undefined,
+        agent: promptAgent,
+        model: promptModel,
       });
+      setPromptAgent(undefined);
+      setPromptModel(undefined);
     } catch (e: any) {
       setError(e.message);
       setIsGenerating(false);
@@ -1452,6 +1458,61 @@ export function Chat({
             </div>
 
             <div style={styles.inputArea}>
+              <div style={styles.attachBar}>
+                {primaryAgents.length > 0 && (
+                  <>
+                    <select
+                      aria-label="本条消息 Agent"
+                      style={{ ...styles.select, maxWidth: "180px" }}
+                      value={promptAgent ?? ""}
+                      onChange={(e) => setPromptAgent(e.target.value || undefined)}
+                    >
+                      <option value="">本条 Agent（会话默认）</option>
+                      {primaryAgents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.id}
+                        </option>
+                      ))}
+                    </select>
+                    {promptAgent && (
+                      <button
+                        style={styles.chipRemove}
+                        onClick={() => setPromptAgent(undefined)}
+                        title="清除本条消息 Agent 选择"
+                        aria-label="清除本条消息 Agent 选择"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </>
+                )}
+                <select
+                  aria-label="本条消息模型"
+                  style={{ ...styles.select, maxWidth: "220px" }}
+                  value={modelKey(promptModel)}
+                  onChange={(e) =>
+                    setPromptModel(modelOptions.find((option) => option.key === e.target.value)?.ref)
+                  }
+                >
+                  <option value="">本条模型（会话默认）</option>
+                  {modelOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                {promptModel && (
+                  <button
+                    style={styles.chipRemove}
+                    onClick={() => setPromptModel(undefined)}
+                    title="清除本条消息模型选择"
+                    aria-label="清除本条消息模型选择"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
               {/* Attachment chips + selected skills, shown above the textarea */}
               {(attachments.length > 0 || selectedSkills.length > 0) && (
                 <div style={styles.attachBar}>
