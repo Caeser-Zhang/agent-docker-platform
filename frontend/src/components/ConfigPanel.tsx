@@ -135,7 +135,7 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
 
           <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
             {scope === "global" && tab === "providers" && <ProviderTab overview={overview} onChange={loadAll} />}
-            {scope === "global" && tab === "mcp" && <McpTab overview={overview} onChange={loadAll} />}
+            {scope === "global" && tab === "mcp" && <McpTab overview={overview} onChange={loadAll} onReload={handleReload} />}
             {scope === "global" && tab === "skills" && <SkillTab skills={allSkills} onChange={loadAll} scope="global" />}
             {scope === "project" && tab === "config" && (
               <ProjectConfigTab config={projectConfig} onChange={loadAll} />
@@ -329,7 +329,7 @@ function ProviderTab({ overview, onChange }: { overview: any; onChange: () => vo
 //  MCP tab (global only)
 // ------------------------------------------------------------------
 
-function McpTab({ overview, onChange }: { overview: any; onChange: () => void }) {
+function McpTab({ overview, onChange, onReload }: { overview: any; onChange: () => void; onReload: () => Promise<void> }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", type: "remote" as "remote" | "local", url: "", command: "", enabled: true });
 
@@ -364,6 +364,7 @@ function McpTab({ overview, onChange }: { overview: any; onChange: () => void })
   const handleToggle = async (name: string, enabled: boolean) => {
     await api.toggleMcp(name, enabled);
     onChange();
+    await onReload();
   };
 
   if (editing) {
@@ -408,12 +409,21 @@ function McpTab({ overview, onChange }: { overview: any; onChange: () => void })
               <span style={{ marginLeft: 8, fontSize: 12, padding: "2px 6px", borderRadius: 4, background: data.type === "remote" ? "#e6f1fb" : "#e1f5ee" }}>
                 {data.type}
               </span>
+              {data.builtin && (
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11, background: "#ede9fe", color: "#6d28d9", fontWeight: 500 }}>
+                  内置
+                </span>
+              )}
               {scopeBadge("global")}
             </div>
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <input type="checkbox" checked={data.enabled} onChange={(e) => handleToggle(name, e.target.checked)} />
-              <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => startEdit(name, data)}>编辑</button>
-              <button style={{ ...styles.abortBtn, fontSize: 12 }} onClick={() => handleDelete(name)}>删除</button>
+              <input type="checkbox" checked={!!data.enabled} onChange={(e) => handleToggle(name, e.target.checked)} />
+              {!data.builtin && (
+                <>
+                  <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => startEdit(name, data)}>编辑</button>
+                  <button style={{ ...styles.abortBtn, fontSize: 12 }} onClick={() => handleDelete(name)}>删除</button>
+                </>
+              )}
             </div>
           </div>
           <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>

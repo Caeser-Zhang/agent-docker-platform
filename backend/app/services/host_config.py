@@ -158,6 +158,27 @@ def toggle_mcp_server(name: str, enabled: bool) -> dict | None:
     return mcp[name]
 
 
+def list_builtin_mcp_overrides() -> dict[str, dict]:
+    """Return the host ``builtin_mcp`` override section (built-in MCP enable state)."""
+    return _read_host_config().get("builtin_mcp") or {}
+
+
+def toggle_builtin_mcp(name: str, enabled: bool) -> dict:
+    """Persist an enable/disable override for a built-in MCP server.
+
+    Built-in MCP servers are discovered from read-only manifests under
+    /builtin-mcp, so their ``enabled`` state is stored here, in the host
+    opencode.json, under the top-level ``builtin_mcp`` key. The name is used
+    verbatim as a dict key (built-in names are not constrained to the
+    user-facing MCP name regex).
+    """
+    config_data = _read_host_config()
+    builtin_mcp = config_data.setdefault("builtin_mcp", {})
+    builtin_mcp[name] = {"enabled": enabled}
+    _write_host_config(config_data)
+    return builtin_mcp[name]
+
+
 # ------------------------------------------------------------------
 #  Skill CRUD (file-based)
 # ------------------------------------------------------------------

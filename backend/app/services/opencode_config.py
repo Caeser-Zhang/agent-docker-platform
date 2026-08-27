@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 # `mcp` is now managed via the host_config API and filtered
 # per-entry: remote MCP servers (URL-based) are kept, local ones (command-based)
 # are stripped because they reference host executables.
-HOST_ONLY_KEYS = ("plugin",)
+# `builtin_mcp` is a platform-internal override map for the built-in MCP
+# servers discovered from /builtin-mcp; it must never be injected into the
+# container as an opencode config key.
+HOST_ONLY_KEYS = ("plugin", "builtin_mcp")
 
 # Any of these appearing inside a URL means "the machine running Docker", which
 # from the container's point of view is reachable as host.docker.internal.
@@ -214,6 +217,34 @@ def _discover_builtin_mcp() -> dict[str, dict]:
     return result
 
 
+def _apply_builtin_overrides(servers: dict[str, dict], overrides: dict) -> dict[str, dict]:
+    """Apply host-config ``builtin_mcp`` enabled overrides to discovered servers.
+
+    The manifolds under /builtin-mcp are read-only, so a user's enable/disable
+    toggle is persisted in the host opencode.json under the top-level
+    ``builtin_mcp`` key instead. Only the ``enabled`` field is honored.
+    """
+    for name, override in (overrides or {}).items():
+        if name not in servers or not isinstance(override, dict):
+            continue
+        if "enabled" in override:
+            servers[name]["enabled"] = bool(override["enabled"])
+    return servers
+
+
+def builtin_mcp_servers() -> dict[str, dict]:
+    """Built-in MCP servers with any host-config enabled overrides applied.
+
+    This is the single source of truth for what the platform considers a
+    built-in MCP server, used both by :func:`build_container_config` (to
+    inject them) and by the /api/config router (to list / toggle them).
+    """
+    servers = _discover_builtin_mcp()
+    source, _ = load_source_config()
+    overrides = (source.get("builtin_mcp") or {}) if isinstance(source, dict) else {}
+    return _apply_builtin_overrides(servers, overrides)
+
+
 def _discover_builtin_plugins() -> list[str]:
     """Auto-discover built-in opencode plugins from manifest files.
 
@@ -279,7 +310,7 @@ def build_container_config() -> dict:
     # paths reference /opt/agent/builtin-mcp/...), so they cannot be removed
     # by the user. Environment variables with ${VAR} placeholders are resolved
     # against platform settings at discovery time.
-    builtin_mcp = _discover_builtin_mcp()
+    builtin_mcp = builtin_mcp_servers()
     if builtin_mcp:
         sanitized.setdefault("mcp", {}).update(builtin_mcp)
 

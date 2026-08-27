@@ -30,7 +30,7 @@ from pydantic import BaseModel
 
 from ..auth import get_current_user
 from ..models import User
-from ..services import host_config
+from ..services import host_config, opencode_config
 from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 
@@ -83,11 +83,42 @@ class ReloadResponse(BaseModel):
 #  Overview
 # ------------------------------------------------------------------
 
+def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
+    """Serialize an MCP server entry without leaking secrets."""
+    entry = {
+        "type": cfg.get("type"),
+        "enabled": cfg.get("enabled", True),
+        "builtin": builtin,
+    }
+    if cfg.get("type") == "remote":
+        entry["url"] = cfg.get("url")
+        entry["hasHeaders"] = bool(cfg.get("headers"))
+    elif cfg.get("type") == "local":
+        entry["command"] = cfg.get("command")
+        entry["hasEnv"] = bool(cfg.get("environment"))
+    return entry
+
+
+def _all_mcp() -> dict[str, dict]:
+    """Merged view of built-in MCP servers + user-declared MCP servers.
+
+    Built-in servers are discovered from /builtin-mcp (with enabled overrides
+    from the host config applied); user servers come from the host opencode.json
+    ``mcp`` section. Built-in entries are marked ``builtin=True`` so the client
+    can restrict edit/delete while still toggling them.
+    """
+    result: dict[str, dict] = {}
+    for name, cfg in opencode_config.builtin_mcp_servers().items():
+        result[name] = _safe_mcp_entry(name, cfg, builtin=True)
+    for name, cfg in host_config.list_mcp_servers().items():
+        result[name] = _safe_mcp_entry(name, cfg, builtin=False)
+    return result
+
+
 @router.get("")
 async def config_overview(user: User = Depends(get_current_user)):
     """Get an overview of all config sections."""
     providers = host_config.list_providers_raw()
-    mcp = host_config.list_mcp_servers()
     skills = host_config.list_skills()
 
     # Never leak API keys
@@ -101,18 +132,9 @@ async def config_overview(user: User = Depends(get_current_user)):
         }
         safe_providers[pid] = safe_cfg
 
-    safe_mcp = {}
-    for name, cfg in mcp.items():
-        safe_mcp[name] = {
-            "type": cfg.get("type"),
-            "enabled": cfg.get("enabled", True),
-            "url": cfg.get("url") if cfg.get("type") == "remote" else None,
-            "command": cfg.get("command") if cfg.get("type") == "local" else None,
-        }
-
     return {
         "providers": safe_providers,
-        "mcp": safe_mcp,
+        "mcp": _all_mcp(),
         "skills": skills,
     }
 
@@ -172,22 +194,8 @@ async def delete_provider(
 
 @router.get("/mcp")
 async def list_mcp(user: User = Depends(get_current_user)):
-    """List all MCP servers (secrets in headers/environment masked)."""
-    mcp = host_config.list_mcp_servers()
-    result = {}
-    for name, cfg in mcp.items():
-        entry = {
-            "type": cfg.get("type"),
-            "enabled": cfg.get("enabled", True),
-        }
-        if cfg.get("type") == "remote":
-            entry["url"] = cfg.get("url")
-            entry["hasHeaders"] = bool(cfg.get("headers"))
-        elif cfg.get("type") == "local":
-            entry["command"] = cfg.get("command")
-            entry["hasEnv"] = bool(cfg.get("environment"))
-        result[name] = entry
-    return {"mcp": result}
+    """List all MCP servers (built-in + user-declared; secrets masked)."""
+    return {"mcp": _all_mcp()}
 
 
 @router.post("/mcp/{name}")
@@ -199,8 +207,10 @@ async def upsert_mcp(
     """Create or update an MCP server.
 
     Accepts either local or remote config. The `type` field determines which
-    fields are required.
+    fields are required. Built-in MCP servers cannot be overwritten.
     """
+    if name in opencode_config.builtin_mcp_servers():
+        raise HTTPException(status_code=403, detail=f"Built-in MCP server '{name}' cannot be modified")
     try:
         host_config.upsert_mcp_server(name, body)
         logger.info("MCP server '%s' upserted by %s", name, user.username)
@@ -216,11 +226,15 @@ async def toggle_mcp(
     user: User = Depends(get_current_user),
 ):
     """Enable or disable an MCP server without removing it."""
-    result = host_config.toggle_mcp_server(name, body.enabled)
-    if result is None:
-        raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
+    builtin = opencode_config.builtin_mcp_servers()
+    if name in builtin:
+        host_config.toggle_builtin_mcp(name, body.enabled)
+    else:
+        result = host_config.toggle_mcp_server(name, body.enabled)
+        if result is None:
+            raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
     logger.info("MCP server '%s' %s by %s", name, "enabled" if body.enabled else "disabled", user.username)
-    return {"status": "ok", "name": name, "enabled": body.enabled}
+    return {"status": "ok", "name": name, "enabled": body.enabled, "builtin": name in builtin}
 
 
 @router.delete("/mcp/{name}")
@@ -229,6 +243,8 @@ async def delete_mcp(
     user: User = Depends(get_current_user),
 ):
     """Delete an MCP server."""
+    if name in opencode_config.builtin_mcp_servers():
+        raise HTTPException(status_code=403, detail=f"Built-in MCP server '{name}' cannot be deleted")
     if not host_config.delete_mcp_server(name):
         raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
     logger.info("MCP server '%s' deleted by %s", name, user.username)
