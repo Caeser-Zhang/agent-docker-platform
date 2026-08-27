@@ -393,7 +393,10 @@ export const api = {
    *   via the Read tool) and image/* (base64 media part) are accepted by
    *   OpenAI-Chat providers; anything else (e.g. text/markdown for .md) is
    *   rejected with "does not support media type", so text-ish files must be
-   *   sent as text/plain and images with their real mime.
+   *   sent as text/plain and images with their real mime. `url` accepts both
+   *   file:// paths (container workspace) and data: URLs — the browser-side
+   *   base64 encoding the chat attachments use for images, so nothing has to
+   *   be uploaded into the container first.
    * - agent: { type: "agent", name }  (@-mentions of subagents)
    *
    * Unlike the synchronous POST /session/{id}/message (which blocks until the

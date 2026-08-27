@@ -109,7 +109,7 @@ export function Chat({
   const [allSkills, setAllSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [attachments, setAttachments] = useState<{ filename: string; path: string; mime: string; isImage: boolean; size: number }[]>([]);
+  const [attachments, setAttachments] = useState<{ filename: string; path: string; mime: string; isImage: boolean; size: number; dataUrl?: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -623,12 +623,14 @@ export function Chat({
       }
     }
 
-    // Attachments + "@path" file references → parts of POST /session/{id}/message
-    // (v2 message API). FilePartInput requires an explicit `mime`, which decides
-    // how opencode routes the attachment: "text/plain" is inlined through the
-    // Read tool, image/* becomes a base64 media part. OpenAI-Chat providers
-    // reject every other media type (e.g. text/markdown), so text-ish files are
-    // always sent as text/plain and only real images keep their mime.
+    // Attachments + "@path" file references → parts of POST /session/{id}/prompt_async.
+    // FilePartInput requires an explicit `mime`, which decides how opencode
+    // routes the attachment:
+    //   - image/* with a data: URL → inline base64 media part, the model sees
+    //     the pixels directly (no upload into the container involved);
+    //   - "text/plain" with a file:// URL → inlined through the Read tool;
+    //   - OpenAI-Chat providers reject every other media type (e.g.
+    //     text/markdown), so text-ish files are always sent as text/plain.
     // "@agent" tokens matching a registered agent go into agent parts instead.
     // Unknown tokens stay as plain text — same as opencode's own @mention
     // behaviour, where the mention is turned into a file/agent attachment
@@ -637,11 +639,12 @@ export function Chat({
     const agentNames: string[] = [];
     const seen = new Set<string>();
     for (const a of attachments) {
-      if (seen.has(a.path)) continue;
-      seen.add(a.path);
+      const key = a.dataUrl ?? a.path;
+      if (seen.has(key)) continue;
+      seen.add(key);
       files.push({
         mime: a.isImage ? a.mime : "text/plain",
-        url: `file:///workspace/${a.path}`,
+        url: a.dataUrl ?? `file:///workspace/${a.path}`,
         filename: a.filename,
       });
     }
@@ -691,7 +694,9 @@ export function Chat({
         role: "user",
         type: "user",
         agents: agentNames.length ? agentNames : undefined,
-        files: files.length ? files.map((f) => f.url) : undefined,
+        files: files.length
+          ? files.map((f) => (f.url.startsWith("data:") ? f.filename ?? "image" : f.url))
+          : undefined,
         blocks: [
           { kind: "text", id: "pending-user:text", text: selectedSkills.length ? `🧩 ${selectedSkills.join(", ")}\n${text}` : text },
           ...(attachments.map((a, i) => ({
@@ -717,12 +722,32 @@ export function Chat({
     }
   };
 
+  /** Read a browser File as a base64 data URL (for inline image parts). */
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error(`读取 ${file.name} 失败`));
+      reader.readAsDataURL(file);
+    });
+
   const handleFilesPicked = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploading(true);
     setError("");
     try {
       for (const f of Array.from(files)) {
+        if (f.type.startsWith("image/")) {
+          // Images never touch the container: the browser encodes them as a
+          // base64 data URL that goes straight into the prompt's file part,
+          // so the model sees the pixels directly.
+          const dataUrl = await readFileAsDataUrl(f);
+          setAttachments((prev) => [
+            ...prev,
+            { filename: f.name, path: "", mime: f.type, isImage: true, size: f.size, dataUrl },
+          ]);
+          continue;
+        }
         const r = await api.uploadChatFile(f);
         setAttachments((prev) => [
           ...prev.filter((a) => a.path !== r.path),
@@ -1529,11 +1554,19 @@ export function Chat({
                     </span>
                   ))}
                   {attachments.map((a) => (
-                    <span key={a.path} style={styles.attachChip} title={`${a.path} (${Math.ceil(a.size / 1024)}KB)`}>
+                    <span
+                      key={a.dataUrl ?? a.path}
+                      style={styles.attachChip}
+                      title={`${a.path || a.filename} (${Math.ceil(a.size / 1024)}KB)${a.dataUrl ? " · base64 直传" : ""}`}
+                    >
                       {a.isImage ? "🖼️" : "📎"} {a.filename}
                       <button
                         style={styles.chipRemove}
-                        onClick={() => setAttachments((prev) => prev.filter((x) => x.path !== a.path))}
+                        onClick={() =>
+                          setAttachments((prev) =>
+                            prev.filter((x) => (x.dataUrl ?? x.path) !== (a.dataUrl ?? a.path))
+                          )
+                        }
                         title="移除"
                       >
                         ×
@@ -1596,7 +1629,7 @@ export function Chat({
                 <button
                   style={styles.skillBtn}
                   onClick={() => fileInputRef.current?.click()}
-                  title="上传图片/文件到工作空间"
+                  title="附加图片（base64 直传）或上传文件到工作空间"
                   disabled={uploading}
                 >
                   {uploading ? "⏳" : "📎"}

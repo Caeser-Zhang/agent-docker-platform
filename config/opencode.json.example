@@ -30,7 +30,12 @@
           "name": "Your Model"
         },
         "qwen3.7-plus": {
-          "name": "Qwen 3.7 Plus"
+          "name": "Qwen 3.7 Plus",
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         }
       }
     }
