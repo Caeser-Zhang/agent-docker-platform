@@ -13,7 +13,7 @@
  *   POST /api/session/{id}/model        { model: ModelRef }   → 204
  *   POST /api/session/{id}/agent        { agent: string }     → 204
  *   POST /api/session/{id}/interrupt    → 204
- *   GET  /api/session/{id}/message      { data: SessionMessage[], cursor }
+ *   GET  /session/{id}/message           [{ info, parts }]  (legacy surface, bare array)
  *   GET  /api/model                     { location, data: ModelV2Info[] }
  *   GET  /api/agent                     { location, data: AgentV2Info[] } (native only — listAgents uses legacy /agent for plugin agents)
  *   GET  /api/permission/request        { location, data: PermissionV2Request[] }
@@ -136,6 +136,8 @@ export interface OcAgent {
   description?: string;
   mode?: "subagent" | "primary" | "all";
   hidden?: boolean;
+  /** Present on the legacy /agent surface: true for opencode's own agents. */
+  native?: boolean;
   steps?: number;
 }
 
@@ -372,24 +374,50 @@ export const api = {
     return r.data;
   },
 
-  async getMessages(sessionId: string): Promise<any[]> {
-    const r = await apiCall<OcPage<any>>(`${OC}/api/session/${sessionId}/message`);
-    return r.data ?? [];
+  async getMessages(sessionId: string): Promise<Array<{ info: any; parts: any[] }>> {
+    // v1.18.16: the v2 route (/api/session/{id}/message) returns an empty
+    // {data:[],cursor} envelope for these sessions — the real messages live
+    // on the legacy surface, as a bare array of { info, parts } records.
+    const r = await apiCall<any[]>(`${OC}/session/${sessionId}/message`);
+    return Array.isArray(r) ? r : [];
   },
 
   /**
-   * Send a prompt. Returns as soon as opencode admits the message; the actual
-   * answer arrives as `session.next.text.delta` events on the SSE stream.
-   * Payload shape (verified against the running opencode server):
-   *   { prompt: { text: "...", parts?: [ {type:"text"|"file", ...} ] } }
-   * `prompt.text` is required; extra `parts` attach files by container path.
+   * Send a prompt via POST /session/{id}/prompt_async (async variant).
+   * Payload shape (verified against the running opencode server's OpenAPI doc):
+   *   { parts: TextPartInput | FilePartInput | AgentPartInput[] }
+   * - text:  { type: "text", text }
+   * - file:  { type: "file", mime, url, filename? }  — `mime` is REQUIRED and
+   *   decides how opencode handles the attachment: only "text/plain" (inlined
+   *   via the Read tool) and image/* (base64 media part) are accepted by
+   *   OpenAI-Chat providers; anything else (e.g. text/markdown for .md) is
+   *   rejected with "does not support media type", so text-ish files must be
+   *   sent as text/plain and images with their real mime.
+   * - agent: { type: "agent", name }  (@-mentions of subagents)
+   *
+   * Unlike the synchronous POST /session/{id}/message (which blocks until the
+   * whole agent run finishes and is therefore prone to proxy/browser timeouts
+   * on long tasks), prompt_async forks the run and returns 204 immediately —
+   * this is exactly what the official opencode Web UI does. Message content
+   * is delivered afterwards via the SSE `session.next.prompted` event, which
+   * our reconcile logic in oc/messages.ts already handles.
    */
-  async sendPrompt(sessionId: string, text: string, parts?: any[]): Promise<any> {
-    const prompt: any = { text: text || (parts && parts.length ? "(attachments)" : "") };
-    if (parts && parts.length > 0) prompt.parts = parts;
-    return apiCall(`${OC}/api/session/${sessionId}/prompt`, {
+  async sendPrompt(
+    sessionId: string,
+    text: string,
+    opts?: { files?: { mime: string; url: string; filename?: string }[]; agents?: string[] }
+  ): Promise<any> {
+    const parts: any[] = [];
+    for (const f of opts?.files ?? []) {
+      parts.push({ type: "file", mime: f.mime, url: f.url, ...(f.filename ? { filename: f.filename } : {}) });
+    }
+    for (const name of opts?.agents ?? []) {
+      parts.push({ type: "agent", name });
+    }
+    parts.push({ type: "text", text: text || (opts?.files?.length ? "(attachments)" : "") });
+    return apiCall(`${OC}/session/${sessionId}/prompt_async`, {
       method: "POST",
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ parts }),
     });
   },
 

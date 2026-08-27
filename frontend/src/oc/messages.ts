@@ -1,26 +1,26 @@
 /** Normalisation + streaming reducer for opencode's message model.
  *
- * Shapes below are taken from opencode 1.18.16's OpenAPI document, not guessed:
+ * Shapes are taken from opencode 1.18.16's OpenAPI document, not guessed.
+ * v1.18.16 speaks the durable V1 protocol:
  *
- *   GET /api/session/{sessionID}/message -> { data: SessionMessage[], cursor }
+ *   GET /api/session/{sessionID}/message -> [{ info: Message, parts: Part[] }]
  *
- *   SessionMessage is a discriminated union on `type`:
- *     user            { id, time, text, files[], agents[] }
- *     assistant       { id, time, agent, model, content[], cost, tokens, error }
- *     system          { id, time, text }
- *     synthetic       { id, time, sessionID, text }
- *     shell           { id, time, callID, command, output }
- *     compaction      { id, time, reason, summary, recent }
- *     agent-switched  { id, time, agent }
- *     model-switched  { id, time, model }
+ *   Message ("info") is a discriminated union on `role`:
+ *     user       { id, sessionID, role:"user", time:{created}, agent, model }
+ *     assistant  { id, sessionID, role:"assistant", time:{created, completed},
+ *                  error, agent, model, cost, tokens }
  *
- *   assistant.content[] is a union on `type`:
- *     text       { type, id, text }
- *     reasoning  { type, id, text, time }
- *     tool       { type, id, name, state: { status, input, content[], error }, time }
+ *   Part[] holds the actual content, unioned on `type`:
+ *     text       { id, messageID, type:"text", text, time }
+ *     reasoning  { id, messageID, type:"reasoning", text, time }
+ *     tool       { id, messageID, type:"tool", tool, callID,
+ *                  state:{ status, input, output?, error?, title? } }
+ *     step-start / step-finish / patch / snapshot / ... (not rendered)
  *
- * The SSE stream (GET /api/event) reports the same information incrementally
- * via `session.next.*` events, so both paths converge on the `Turn` type here.
+ * The SSE stream (GET /api/event) reports the same data via the V1 events
+ * `message.updated` (full-replace `info`) and `message.part.updated`
+ * (full-replace `part`) — exactly how the official opencode web UI consumes
+ * them. The older V2 `session.next.*` events are kept for compatibility.
  */
 import type { ModelRef } from "../api";
 
@@ -47,6 +47,10 @@ export interface Turn {
   blocks: Block[];
   model?: ModelRef;
   agent?: string;
+  /** @-mentioned agents on a user message (prompt.agents[].name). */
+  agents?: string[];
+  /** Attached file paths on a user message (prompt.files[]). */
+  files?: string[];
   cost?: number;
   tokens?: { input?: number; output?: number; reasoning?: number };
   error?: string;
@@ -98,6 +102,10 @@ export function toTurn(msg: any): Turn | null {
         ...base,
         role: "user",
         blocks: [{ kind: "text", id: `${msg.id}:text`, text: msg.text ?? "" }],
+        agents: Array.isArray(msg.agents)
+          ? msg.agents.map((a: any) => a?.name ?? a).filter((x: any) => typeof x === "string")
+          : undefined,
+        files: Array.isArray(msg.files) ? msg.files : undefined,
       };
 
     case "assistant": {
@@ -198,8 +206,94 @@ export function toTurn(msg: any): Turn | null {
   }
 }
 
+// Part types that carry transient UI-only state and are intentionally not
+// rendered (mirrors the official opencode web UI's SKIP_PARTS set).
+const SKIP_PART_TYPES = new Set(["step-start", "step-finish", "patch"]);
+
+/** Map one V1 Part into a renderable Block, or null if it isn't rendered. */
+function partToBlock(part: any): Block | null {
+  switch (part?.type) {
+    case "text":
+      return { kind: "text", id: part.id, text: part.text ?? "" };
+    case "reasoning":
+      return { kind: "reasoning", id: part.id, text: part.text ?? "" };
+    case "tool": {
+      const st = part.state ?? {};
+      const status = (st.status as ToolStatus) ?? "pending";
+      return {
+        kind: "tool",
+        id: part.id,
+        name: part.tool ?? "",
+        status,
+        input: st.input,
+        output: status === "completed" ? (st.output ?? "") : undefined,
+        error: status === "error" ? (st.error ?? "tool failed") : undefined,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Build a Turn from a V1 Message (`info`) plus optional content parts. */
+function turnFromInfo(info: any, parts?: any[]): Turn {
+  const role =
+    info?.role === "user" ? "user" : info?.role === "assistant" ? "assistant" : "system";
+  const blocks: Block[] = [];
+  for (const p of parts ?? []) {
+    if (!p || SKIP_PART_TYPES.has(p.type)) continue;
+    const b = partToBlock(p);
+    if (b) blocks.push(b);
+  }
+  if (role === "assistant") {
+    return {
+      id: info.id,
+      role: "assistant",
+      type: "assistant",
+      blocks,
+      model: info.model,
+      agent: info.agent,
+      cost: info.cost,
+      tokens: info.tokens,
+      error: info.error ? errText(info.error) : undefined,
+      streaming: !info.time?.completed && !info.error,
+      created: info.time?.created,
+    };
+  }
+  return {
+    id: info.id,
+    role,
+    type: role,
+    blocks,
+    agent: info.agent,
+    model: info.model,
+    created: info.time?.created,
+  };
+}
+
+/** Convert one V1 `{ info, parts }` record into a renderable Turn. */
+export function toTurnFromInfoParts(info: any, parts?: any[]): Turn | null {
+  if (!info || typeof info !== "object" || !info.id) return null;
+  return turnFromInfo(info, parts);
+}
+
+/**
+ * Convert the response of GET /session/{id}/message (a bare array of
+ * `{ info, parts }` records in v1.18.16) into Turns. Legacy discriminated
+ * `SessionMessage` items are still accepted for compatibility.
+ */
 export function toTurns(messages: any[]): Turn[] {
-  return (messages ?? []).map(toTurn).filter((t): t is Turn => t !== null);
+  const out: Turn[] = [];
+  for (const m of messages ?? []) {
+    if (m && typeof m === "object" && m.info) {
+      const t = toTurnFromInfoParts(m.info, m.parts);
+      if (t) out.push(t);
+      continue;
+    }
+    const t = toTurn(m);
+    if (t) out.push(t);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +343,20 @@ export function reduceEvent(turns: Turn[], type: string, data: any): ReduceResul
     case "session.next.prompt.admitted": {
       // Reconcile the optimistic user bubble with the real message id.
       const text = data?.prompt?.text ?? data?.prompt?.parts?.[0]?.text;
+      const mentioned: string[] | undefined = Array.isArray(data?.prompt?.agents)
+        ? data.prompt.agents.map((a: any) => a?.name ?? a).filter((x: any) => typeof x === "string")
+        : undefined;
+      const attached: string[] | undefined = Array.isArray(data?.prompt?.files)
+        ? data.prompt.files
+        : undefined;
       const pending = turns.findIndex((t) => t.id === "pending-user");
       if (pending !== -1 && data?.messageID) {
         const next = turns.slice();
         next[pending] = {
           ...next[pending],
           id: data.messageID,
+          agents: mentioned ?? next[pending].agents,
+          files: attached ?? next[pending].files,
           blocks: text
             ? [{ kind: "text", id: `${data.messageID}:text`, text }]
             : next[pending].blocks,
@@ -270,6 +372,8 @@ export function reduceEvent(turns: Turn[], type: string, data: any): ReduceResul
               role: "user",
               type: "user",
               blocks: [{ kind: "text", id: `${data.messageID}:text`, text }],
+              agents: mentioned,
+              files: attached,
             },
           ],
         };
@@ -422,6 +526,94 @@ export function reduceEvent(turns: Turn[], type: string, data: any): ReduceResul
 
     case "session.error":
       return { turns, idle: true, error: errText(data.error) || "会话错误" };
+
+    // --- V1 durable events (what v1.18.16 actually emits) -----------------
+    //
+    // `info` is the full Message, `part` is the full Part — both are
+    // full-replace, matching the official opencode web UI reducer.
+
+    case "message.updated": {
+      const info = data?.info;
+      if (!info?.id) return { turns };
+      const finished = info.role === "assistant" && (info.time?.completed || info.error);
+
+      // Reconcile the optimistic user bubble with the real message id.
+      const pendingIdx = turns.findIndex((t) => t.id === "pending-user");
+      if (info.role === "user" && pendingIdx !== -1) {
+        const next = turns.slice();
+        const pending = next[pendingIdx];
+        // Blocks are left empty: the authoritative text arrives via
+        // `message.part.updated` right after this event.
+        next[pendingIdx] = {
+          ...turnFromInfo(info, []),
+          agents: pending.agents,
+          files: pending.files,
+        };
+        return { turns: next, ...(finished ? { idle: true } : {}) };
+      }
+
+      const idx = turns.findIndex((t) => t.id === info.id);
+      if (idx === -1) {
+        return { turns: [...turns, turnFromInfo(info, [])], ...(finished ? { idle: true } : {}) };
+      }
+      // Replace info but keep already-streamed blocks (parts carry content).
+      const prev = turns[idx];
+      const next = turns.slice();
+      next[idx] = { ...turnFromInfo(info, []), blocks: prev.blocks, agents: prev.agents, files: prev.files };
+      return { turns: next, ...(finished ? { idle: true } : {}) };
+    }
+
+    case "message.part.delta": {
+      const messageID = data?.messageID;
+      const partID = data?.partID;
+      const delta = data?.delta;
+      if (!messageID || !partID || typeof delta !== "string") return { turns };
+      const kind = data.field === "reasoning" ? "reasoning" : "text";
+      return {
+        turns: upsertTurn(turns, messageID, (t) =>
+          upsertBlock(t, partID, (b) => ({
+            kind,
+            id: partID,
+            text: ((b as any)?.text ?? "") + delta,
+          }))
+        ),
+      };
+    }
+
+    case "message.part.updated": {
+      const part = data?.part;
+      if (!part?.messageID || !part?.id || SKIP_PART_TYPES.has(part.type)) return { turns };
+      const block = partToBlock(part);
+      if (!block) return { turns };
+      const mid = part.messageID;
+      return {
+        turns: upsertTurn(turns, mid, (t) => {
+          const idx = t.blocks.findIndex((b) => b.id === part.id);
+          const blocks = t.blocks.slice();
+          if (idx === -1) blocks.push(block);
+          else blocks[idx] = block; // full-replace this block
+          return { ...t, blocks };
+        }),
+      };
+    }
+
+    case "message.removed": {
+      const messageID = data?.messageID;
+      if (!messageID) return { turns };
+      return { turns: turns.filter((t) => t.id !== messageID) };
+    }
+
+    case "message.part.removed": {
+      const messageID = data?.messageID;
+      const partID = data?.partID;
+      if (!messageID || !partID) return { turns };
+      const idx = turns.findIndex((t) => t.id === messageID);
+      if (idx === -1) return { turns };
+      const next = turns.slice();
+      const t = next[idx];
+      next[idx] = { ...t, blocks: t.blocks.filter((b) => b.id !== partID) };
+      return { turns: next };
+    }
 
     default:
       return { turns };

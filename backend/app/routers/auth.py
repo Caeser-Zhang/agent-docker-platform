@@ -35,7 +35,7 @@ async def register(req: RegisterRequest):
             if clash.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Employee number (uid) already taken")
         else:
-            taken = [u.uid for u in (await db.execute(select(User.uid))).scalars()]
+            taken = list((await db.execute(select(User.uid))).scalars())
             uid = _next_uid(taken)
 
         user = User(

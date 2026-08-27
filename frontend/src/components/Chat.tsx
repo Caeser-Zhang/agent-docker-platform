@@ -25,31 +25,29 @@ function parseModel(value: string | null | undefined): ModelRef | undefined {
 }
 const modelKey = (m?: ModelRef) => (m ? `${m.providerID}/${m.id}` : "");
 
-/** Same extension→mime table the backend preview endpoint uses. */
-const MIME_BY_EXT: Record<string, string> = {
-  ".html": "text/html", ".htm": "text/html",
-  ".md": "text/markdown", ".markdown": "text/markdown",
-  ".txt": "text/plain", ".json": "application/json", ".csv": "text/csv",
-  ".js": "text/javascript", ".mjs": "text/javascript",
-  ".ts": "text/javascript", ".tsx": "text/javascript", ".jsx": "text/javascript",
-  ".py": "text/x-python", ".sh": "text/x-sh", ".css": "text/css",
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-  ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
-  ".pdf": "application/pdf", ".zip": "application/zip",
-};
-
-const extOf = (p: string) => {
-  const base = p.split("/").pop() || "";
-  const i = base.lastIndexOf(".");
-  return i === -1 ? "" : base.slice(i).toLowerCase();
-};
-const mimeOf = (p: string) => MIME_BY_EXT[extOf(p)] || "application/octet-stream";
-
 /** All "@path" references in the text (start of line or after whitespace). */
 const collectAtTokens = (text: string): string[] => {
   const out = new Set<string>();
   for (const m of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) out.add(m[1]);
   return [...out];
+};
+
+/**
+ * Best-effort mime for a workspace file referenced via @mention. opencode only
+ * handles image/* attachments natively; everything else must be sent as
+ * text/plain so it goes through the Read tool instead of a media part that
+ * OpenAI-Chat providers reject. (SVG stays text/plain — it is textual.)
+ */
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+};
+const mimeForPath = (p: string): string => {
+  const ext = p.includes(".") ? p.split(".").pop()!.toLowerCase() : "";
+  return IMAGE_MIME_BY_EXT[ext] ?? "text/plain";
 };
 
 /**
@@ -59,6 +57,14 @@ const collectAtTokens = (text: string): string[] => {
 type SlashOption =
   | { kind: "command"; name: string; description?: string; source?: string }
   | { kind: "agentsCmd"; name: "agents"; description: string }
+  | { kind: "agent"; name: string; description?: string };
+
+/**
+ * @-menu entries: workspace files plus — when the orchestrator is selected —
+ * the subagents it manages (sent as prompt.agents mentions).
+ */
+type AtOption =
+  | { kind: "file"; path: string }
   | { kind: "agent"; name: string; description?: string };
 
 export function Chat({
@@ -108,7 +114,7 @@ export function Chat({
   // @-mention autocomplete: activated while typing "@query" in the textarea.
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [atQuery, setAtQuery] = useState<string | null>(null);
-  const [atOptions, setAtOptions] = useState<string[]>([]);
+  const [atOptions, setAtOptions] = useState<AtOption[]>([]);
   const [atIndex, setAtIndex] = useState(0);
   const atTimerRef = useRef<number | null>(null);
 
@@ -126,11 +132,24 @@ export function Chat({
   const [preview, setPreview] = useState<{ path: string; type: string; mime: string; content?: string; base64?: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Workspace panel uploads: files land in the container workspace (tmp/) and
+  // the tree is refreshed afterwards. `wsNotice` is a short-lived success hint.
+  const [wsUploading, setWsUploading] = useState(false);
+  const [wsNotice, setWsNotice] = useState("");
+  const wsNoticeTimerRef = useRef<number | null>(null);
+
   const esRef = useRef<EventSource | null>(null);
   const lastEventIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   // The SSE callback is registered once; it reads the live session id from here.
   const sessionIdRef = useRef<string | null>(null);
+  // Timestamp of the last received `message.*` SSE event, and a debounce timer
+  // for message refetches. The platform's SSE pump can drop events while the
+  // agent is streaming (opencode severs the upstream connection every ~1s),
+  // so the UI re-pulls GET /session/{id}/message as a fallback: when a
+  // message completes, and on a slow poll while isGenerating.
+  const lastMsgEvtRef = useRef(0);
+  const refreshDebounceRef = useRef<number | null>(null);
 
   // Readiness = container running AND the controller marked it "running"
   // (which only happens after its own health probe + session warmup).
@@ -207,6 +226,34 @@ export function Chat({
   // ------------------------------------------------------------------
   //  SSE — opencode's own event stream, relayed by the platform
   // ------------------------------------------------------------------
+  /** Replace the open session's turns with the server truth. */
+  const refreshSessionMessages = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      const msgs = await api.getMessages(sid);
+      if (sessionIdRef.current !== sid || msgs.length === 0) return;
+      const next = toTurns(msgs);
+      setTurns(next);
+      // Server truth beats the streaming flag: if no assistant turn is still
+      // streaming, the round is over (covers SSE events lost in transit).
+      if (next.some((t) => t.role === "assistant") && !next.some((t) => t.streaming)) {
+        setIsGenerating(false);
+      }
+    } catch {
+      /* transient tunnel error — the next poll retries */
+    }
+  }, []);
+
+  /** Debounced refresh (SSE reports a completed message). */
+  const scheduleRefresh = useCallback(() => {
+    if (refreshDebounceRef.current !== null) window.clearTimeout(refreshDebounceRef.current);
+    refreshDebounceRef.current = window.setTimeout(() => {
+      refreshDebounceRef.current = null;
+      refreshSessionMessages();
+    }, 400);
+  }, [refreshSessionMessages]);
+
   const connectSSE = useCallback(() => {
     esRef.current?.close();
     const es = api.createEventSource(lastEventIdRef.current);
@@ -222,7 +269,11 @@ export function Chat({
       if (typeof evt.id === "number") lastEventIdRef.current = evt.id;
 
       const type: string = evt.type || "";
-      const data = evt.data || {};
+      // `/event` is opencode's streaming SSE surface (the one used by its
+      // official web app). It carries payloads in `properties`; the v2
+      // `/api/event` surface uses `data`. Accept both at the boundary so the
+      // reducer has one normalized shape.
+      const data = evt.properties || evt.data || {};
 
       // Session list events apply regardless of which session is open.
       if (type === "session.created" || type === "session.updated") {
@@ -270,6 +321,20 @@ export function Chat({
       const sid = data.sessionID;
       if (sid && sid !== sessionIdRef.current) return;
 
+      // Track live message traffic so the generation poll can stand down
+      // while SSE is actually delivering (it only kicks in as a fallback
+      // when the pump has dropped events).
+      if (type.startsWith("message.")) lastMsgEvtRef.current = Date.now();
+      if (
+        type === "message.updated" &&
+        data.info?.role === "assistant" &&
+        (data.info.time?.completed || data.info.error)
+      ) {
+        // Final (or failed) assistant message — pull the authoritative
+        // record: its text parts may have been lost to SSE drops.
+        scheduleRefresh();
+      }
+
       setTurns((prev) => {
         const r = reduceEvent(prev, type, data);
         if (r.idle) setIsGenerating(false);
@@ -283,7 +348,7 @@ export function Chat({
       // EventSource reconnects on its own; lastEventId replays the gap.
       console.warn("SSE dropped, browser will retry");
     };
-  }, [refreshPending]);
+  }, [refreshPending, scheduleRefresh]);
 
   // On mount: fetch the status once, then auto-warm the container if it
   // isn't up — the user should never have to click "start" and wait. The
@@ -441,6 +506,21 @@ export function Chat({
     }
   }, [refreshPending]);
 
+  // Fallback poll while a prompt is in flight. opencode severs its event
+  // stream ~every second during agent activity, so the platform pump can
+  // silently drop the assistant's parts; when that happens no SSE event
+  // ever clears isGenerating and the reply never renders. While SSE is
+  // delivering message events this poll stands down; otherwise it re-pulls
+  // the whole message list every 2.5s until the round completes.
+  useEffect(() => {
+    if (!isGenerating) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastMsgEvtRef.current < 4000) return; // SSE is live
+      refreshSessionMessages();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [isGenerating, refreshSessionMessages]);
+
   const handleNewSession = async () => {
     setError("");
     try {
@@ -541,25 +621,33 @@ export function Chat({
       }
     }
 
-    // File parts: uploads first, then "@path" references in the text that
-    // resolve to a real workspace file (deduped by path). Unknown @tokens
-    // stay as plain text. This mirrors opencode's own @mention behaviour,
-    // where the mention is turned into a FilePart before the prompt is sent.
-    const fileParts: any[] = [];
+    // Attachments + "@path" file references → parts of POST /session/{id}/message
+    // (v2 message API). FilePartInput requires an explicit `mime`, which decides
+    // how opencode routes the attachment: "text/plain" is inlined through the
+    // Read tool, image/* becomes a base64 media part. OpenAI-Chat providers
+    // reject every other media type (e.g. text/markdown), so text-ish files are
+    // always sent as text/plain and only real images keep their mime.
+    // "@agent" tokens matching a registered agent go into agent parts instead.
+    // Unknown tokens stay as plain text — same as opencode's own @mention
+    // behaviour, where the mention is turned into a file/agent attachment
+    // before the prompt is sent.
+    const files: { mime: string; url: string; filename?: string }[] = [];
+    const agentNames: string[] = [];
     const seen = new Set<string>();
     for (const a of attachments) {
       if (seen.has(a.path)) continue;
       seen.add(a.path);
-      fileParts.push({
-        type: "file",
-        mime: a.mime,
+      files.push({
+        mime: a.isImage ? a.mime : "text/plain",
+        url: `file:///workspace/${a.path}`,
         filename: a.filename,
-        url: `/workspace/${a.path}`,
       });
     }
 
     const atTokens = collectAtTokens(text);
     if (atTokens.length > 0) {
+      // Only subagents (the ones the @-menu offers) become agent mentions.
+      const agentSet = new Set(mentionableAgents.map((a) => a.id));
       let knownPaths = new Set(wsFiles.filter((f) => f.type === "file").map((f) => f.path));
       if (knownPaths.size === 0) {
         // The file browser was never opened; fetch the tree once to resolve.
@@ -572,23 +660,23 @@ export function Chat({
         }
       }
       for (const tok of atTokens) {
-        if (seen.has(tok) || !knownPaths.has(tok)) continue;
+        if (seen.has(tok)) continue;
+        if (agentSet.has(tok)) {
+          seen.add(tok);
+          agentNames.push(tok);
+          continue;
+        }
+        if (!knownPaths.has(tok)) continue;
         seen.add(tok);
-        fileParts.push({ type: "file", mime: mimeOf(tok), url: `/workspace/${tok}` });
+        files.push({ mime: mimeForPath(tok), url: `file:///workspace/${tok}` });
       }
     }
 
-    let parts: any[] | undefined;
-    if (fileParts.length > 0 || selectedSkills.length > 0) {
-      const segs: string[] = [];
-      if (selectedSkills.length > 0) {
-        // Explicitly request these skills for this turn; opencode's skill
-        // tool picks them up by name.
-        segs.push(`请使用 skill: ${selectedSkills.join(", ")}`);
-      }
-      if (text) segs.push(text);
-      parts = [{ type: "text", text: segs.join("\n\n") }, ...fileParts];
-    }
+    // Skills: opencode has no dedicated prompt field for them, so request them
+    // explicitly in the text (the skill tool picks them up by name).
+    const finalText = selectedSkills.length > 0
+      ? `请使用 skill: ${selectedSkills.join(", ")}\n\n${text}`
+      : text;
 
     setInput("");
     setAttachments([]);
@@ -600,6 +688,8 @@ export function Chat({
         id: "pending-user",
         role: "user",
         type: "user",
+        agents: agentNames.length ? agentNames : undefined,
+        files: files.length ? files.map((f) => f.url) : undefined,
         blocks: [
           { kind: "text", id: "pending-user:text", text: selectedSkills.length ? `🧩 ${selectedSkills.join(", ")}\n${text}` : text },
           ...(attachments.map((a, i) => ({
@@ -611,7 +701,10 @@ export function Chat({
       },
     ]);
     try {
-      await api.sendPrompt(currentSession.id, text, parts);
+      await api.sendPrompt(currentSession.id, finalText, {
+        files: files.length ? files : undefined,
+        agents: agentNames.length ? agentNames : undefined,
+      });
     } catch (e: any) {
       setError(e.message);
       setIsGenerating(false);
@@ -700,39 +793,57 @@ export function Chat({
     }
     if (atTimerRef.current) window.clearTimeout(atTimerRef.current);
     atTimerRef.current = window.setTimeout(async () => {
+      // Agent mentions first when the orchestrator is active.
+      const agentOpts: AtOption[] = showAgentMentions
+        ? mentionableAgents
+            .filter((a) => q === "" || a.id.toLowerCase().includes(q.toLowerCase()))
+            .map((a) => ({ kind: "agent" as const, name: a.id, description: a.description }))
+        : [];
       try {
         // Empty query right after "@": show workspace files as a starter list.
+        let fileOpts: AtOption[] = [];
         if (q === "") {
-          const files = wsFiles.filter((f) => f.type === "file").slice(0, 15).map((f) => f.path);
-          setAtOptions(files);
+          fileOpts = wsFiles
+            .filter((f) => f.type === "file")
+            .slice(0, 15)
+            .map((f) => ({ kind: "file" as const, path: f.path }));
         } else {
           const found = await api.findFiles(q, 15);
-          setAtOptions(Array.isArray(found) ? found : []);
+          fileOpts = (Array.isArray(found) ? found : []).map((p) => ({
+            kind: "file" as const,
+            path: p,
+          }));
         }
+        setAtOptions([...agentOpts, ...fileOpts]);
       } catch {
-        setAtOptions([]);
+        setAtOptions(agentOpts);
       }
       setAtIndex(0);
     }, 200);
   };
 
-  /** Replace the active "@query" with "@path " and keep the caret after it. */
-  const insertFileRef = (path: string) => {
+  /** Replace the active "@query" with "@name " and keep the caret after it. */
+  const insertAtToken = (token: string) => {
     const ta = inputRef.current;
     const caret = ta?.selectionStart ?? input.length;
     const before = input.slice(0, caret);
     const at = before.lastIndexOf("@");
     if (at === -1) return;
-    const next = input.slice(0, at) + "@" + path + " " + input.slice(caret);
+    const next = input.slice(0, at) + "@" + token + " " + input.slice(caret);
     setInput(next);
     setAtQuery(null);
     setAtOptions([]);
     // Move caret past the inserted reference.
     requestAnimationFrame(() => {
-      const pos = at + path.length + 2;
+      const pos = at + token.length + 2;
       ta?.focus();
       ta?.setSelectionRange(pos, pos);
     });
+  };
+
+  /** Apply the highlighted @-menu entry: agent mention or file reference. */
+  const applyAtSelection = (opt: AtOption) => {
+    insertAtToken(opt.kind === "agent" ? opt.name : opt.path);
   };
 
   /** Keyboard routing while the @-menu is open. Returns true if handled. */
@@ -750,7 +861,7 @@ export function Chat({
     }
     if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
-      insertFileRef(atOptions[atIndex]);
+      applyAtSelection(atOptions[atIndex]);
       return true;
     }
     if (e.key === "Escape") {
@@ -779,6 +890,39 @@ export function Chat({
       loadWsFiles();
     }
   }, [showFiles, isAgentRunning, loadWsFiles]);
+
+  /** Show a short-lived hint under the workspace panel header. */
+  const showWsNotice = useCallback((msg: string) => {
+    setWsNotice(msg);
+    if (wsNoticeTimerRef.current) window.clearTimeout(wsNoticeTimerRef.current);
+    wsNoticeTimerRef.current = window.setTimeout(() => setWsNotice(""), 4000);
+  }, []);
+
+  /**
+   * Upload picked files straight into the container workspace (they land in
+   * tmp/, the same endpoint chat attachments use) and refresh the file tree.
+   * The files are then addressable via @-mention — no prompt is sent.
+   */
+  const handleWsFilesPicked = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setWsUploading(true);
+    setError("");
+    try {
+      const uploaded: string[] = [];
+      for (const f of Array.from(files)) {
+        const r = await api.uploadChatFile(f);
+        uploaded.push(r.path);
+      }
+      await loadWsFiles();
+      showWsNotice(
+        `已上传 ${uploaded.length} 个文件至 ${uploaded[0].split("/")[0] || "工作区"}，可在对话中 @ 引用`
+      );
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setWsUploading(false);
+    }
+  };
 
   const openPreview = async (path: string) => {
     setPreviewLoading(true);
@@ -907,6 +1051,13 @@ export function Chat({
     () => agents.filter((a) => !a.hidden && a.mode !== "subagent"),
     [agents]
   );
+  // Subagents the orchestrator manages — surfaced in the @-menu so the user
+  // can @-mention them (sent as prompt.agents).
+  const mentionableAgents = useMemo(
+    () => agents.filter((a) => !a.hidden && a.mode === "subagent"),
+    [agents]
+  );
+  const showAgentMentions = agentId === "orchestrator";
 
   // Slash menu options, filtered locally from the cached command list. Once
   // the query fully reads "agents", the list swaps to the agent picker.
@@ -1440,17 +1591,31 @@ export function Chat({
                   {atQuery !== null && atOptions.length > 0 && (
                     <div style={styles.atMenu}>
                       <div style={styles.atMenuHeader}>
-                        引用工作区文件 · ↑↓ 选择 · Enter/Tab 插入 · Esc 关闭
+                        {showAgentMentions
+                          ? "提及 Agent / 引用文件 · ↑↓ 选择 · Enter/Tab 插入 · Esc 关闭"
+                          : "引用工作区文件 · ↑↓ 选择 · Enter/Tab 插入 · Esc 关闭"}
                       </div>
-                      {atOptions.map((p, i) => (
+                      {atOptions.map((o, i) => (
                         <div
-                          key={p}
+                          key={o.kind === "agent" ? `a:${o.name}` : `f:${o.path}`}
                           style={{ ...styles.atItem, ...(i === atIndex ? styles.atItemActive : {}) }}
-                          onClick={() => insertFileRef(p)}
+                          onClick={() => applyAtSelection(o)}
                           onMouseEnter={() => setAtIndex(i)}
                         >
-                          <span style={styles.atItemIcon}>📄</span>
-                          <span style={styles.atItemPath}>{p}</span>
+                          {o.kind === "agent" ? (
+                            <>
+                              <span style={styles.atItemIcon}>🤖</span>
+                              <span style={styles.atItemAgentName}>{o.name}</span>
+                              {o.description && (
+                                <span style={styles.atItemAgentDesc}>{o.description}</span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <span style={styles.atItemIcon}>📄</span>
+                              <span style={styles.atItemPath}>{o.path}</span>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1483,6 +1648,9 @@ export function Chat({
             onInsert={insertAtReference}
             onBack={() => setPreview(null)}
             onClose={() => setShowFiles(false)}
+            onUpload={handleWsFilesPicked}
+            uploading={wsUploading}
+            notice={wsNotice}
           />
         )}
         </div>
@@ -1615,7 +1783,7 @@ function TreeView({
             label={n.name}
             onClick={() => onOpenFile(n.path)}
           >
-            {activePath === n.path && <span style={{ fontSize: "10px", color: "#6366f1" }}>预览中</span>}
+            {activePath === n.path && <span style={{ fontSize: "10px", color: "#2563eb" }}>预览中</span>}
             <span style={styles.treeFileSize}>{fmtSize(n.size)}</span>
             <button
               style={styles.previewBack}
@@ -1701,6 +1869,7 @@ function MiniMarkdown({ src }: { src: string }) {
 
 function FilesPanel({
   files, preview, previewLoading, onOpen, onRefresh, onInsert, onBack, onClose,
+  onUpload, uploading, notice,
 }: {
   files: WsFile[];
   preview: PreviewState | null;
@@ -1710,8 +1879,12 @@ function FilesPanel({
   onInsert: (path: string) => void;
   onBack: () => void;
   onClose: () => void;
+  onUpload: (files: FileList | null) => void;
+  uploading: boolean;
+  notice?: string;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const toggle = (path: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -1726,6 +1899,17 @@ function FilesPanel({
 
   return (
     <div style={styles.filesPanel}>
+      {/* Hidden picker feeding the workspace upload endpoint. */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          onUpload(e.target.files);
+          e.target.value = ""; // allow re-picking the same file
+        }}
+      />
       <div style={styles.filesPanelHeader}>
         {preview ? (
           <>
@@ -1742,12 +1926,22 @@ function FilesPanel({
           </>
         ) : (
           <>
-            <span>📁 工作区（{fileCount} 个文件）</span>
+            <span style={{ flex: 1 }}>📁 工作区（{fileCount} 个文件）</span>
+            <button
+              style={{ ...styles.wsUploadBtn, ...(uploading ? { opacity: 0.6 } : {}) }}
+              onClick={() => uploadInputRef.current?.click()}
+              title="上传文件到后端工作空间（存入 tmp/）"
+              disabled={uploading}
+            >
+              {uploading ? "⏳ 上传中…" : "⬆ 上传"}
+            </button>
             <button style={styles.previewBack} onClick={onRefresh} title="刷新">刷新</button>
             <button style={styles.previewBack} onClick={onClose} title="关闭面板">×</button>
           </>
         )}
       </div>
+
+      {!preview && notice && <div style={styles.wsNotice}>✓ {notice}</div>}
 
       {preview ? (
         preview.type === "loading" ? (
@@ -1794,7 +1988,7 @@ function FilesPanel({
       ) : (
         <div style={styles.filesPanelBody}>
           {files.length === 0 ? (
-            <div style={{ padding: "16px 12px", fontSize: "12px", color: "#52525b" }}>
+            <div style={{ padding: "16px 12px", fontSize: "12px", color: "#5b6472" }}>
               工作区为空（或读取失败，请刷新重试）
             </div>
           ) : (
@@ -1835,7 +2029,7 @@ function TurnView({ turn, username }: { turn: Turn; username: string }) {
       </div>
       <div style={styles.msgContent}>
         <div style={styles.msgRole}>
-          <span>{isUser ? "You" : "opencode (容器内)"}</span>
+          <span>{isUser ? "You" : turn.agent ? `opencode · ${turn.agent}` : "opencode (容器内)"}</span>
           {turn.model && (
             <span style={styles.modelTag}>
               {turn.model.providerID}/{turn.model.id}
@@ -1843,6 +2037,15 @@ function TurnView({ turn, username }: { turn: Turn; username: string }) {
           )}
           {turn.streaming && <span style={styles.streaming}>streaming…</span>}
         </div>
+
+        {/* @-mentioned agents on this user message */}
+        {isUser && turn.agents && turn.agents.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px", justifyContent: "flex-end" }}>
+            {turn.agents.map((a) => (
+              <span key={a} style={styles.agentChip}>🤖 @{a}</span>
+            ))}
+          </div>
+        )}
 
         {turn.blocks.map((b) => (
           <BlockView key={b.id} block={b} streaming={!!turn.streaming} />

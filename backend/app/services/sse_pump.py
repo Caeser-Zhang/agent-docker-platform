@@ -1,8 +1,8 @@
 """SSE Pump — continuously reads SSE events from a container and pushes to subscribers.
 
 Each running container gets one pump task that:
-  1. Connects to opencode's GET /api/event SSE endpoint inside the container
-  2. Parses incoming events (opencode emits `session.next.*`, `server.connected`, ...)
+  1. Connects to opencode's GET /event SSE endpoint inside the container
+  2. Parses incoming events (including `message.part.delta` streaming chunks)
   3. Pushes them to all subscribed browser clients via asyncio.Queue
   4. Reconnects automatically on disconnect
 
@@ -124,7 +124,11 @@ class SSEPumpManager:
         probe lived in an unreachable branch and the loop spun forever
         without ever reconnecting.)
         """
-        url = f"{bus.base_url}/api/event"
+        # opencode v1.18.16 exposes two event surfaces. `/api/event` only
+        # publishes the user-side durable lifecycle; `/event` is the surface
+        # consumed by the official web app and additionally emits assistant
+        # `message.part.delta` chunks needed for streaming UI updates.
+        url = f"{bus.base_url}/event"
         backoff = 1.0
         max_backoff = 15.0
         while True:
@@ -165,8 +169,11 @@ class SSEPumpManager:
                 )
             # Real traffic flowed on this connection before it ended, so the
             # server was alive — reconnect fast instead of growing the backoff.
+            # opencode severs the stream ~every second during agent activity,
+            # so a 1s sleep here would drop every event emitted in the gap;
+            # 0.2s keeps the loss window minimal.
             if received:
-                backoff = 1.0
+                backoff = 0.2
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, max_backoff)
 
