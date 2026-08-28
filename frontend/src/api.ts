@@ -27,6 +27,8 @@
  *   PATCH  /session/{id}   { title } → bare legacy Session
  */
 
+import type { FileDiff } from "./oc/messages";
+
 const API_BASE = "/api";
 /** Prefix that reverse-proxies straight into the container's opencode server. */
 const OC = "/tunnel/oc";
@@ -44,6 +46,12 @@ export interface AgentStatus {
   running: boolean;
   healthy: boolean;
   status: string;
+  /**
+   * Epoch seconds when the CURRENT start flow began (P1-4): set server-side
+   * on entering "creating" and kept across phase advances, so any browser —
+   * even one that attached mid-start — can show an accurate total wait.
+   */
+  phase_since?: number | null;
   container_name: string | null;
   workspace: string | null;
   message: string;
@@ -85,6 +93,35 @@ export interface ProvidersResponse {
   smallModel?: string | null;
   error?: string;
   source?: AgentRuntime["config"];
+}
+
+/** One user-owned LLM provider stored in the platform DB (masked view). */
+export interface UserLlmProvider {
+  id: string;
+  provider_id: string;
+  name: string | null;
+  npm: string;
+  baseURL: string | null;
+  hasApiKey: boolean;
+  models: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The user's active LLM selection (empty when none is set). */
+export interface ActiveLlm {
+  provider_id: string | null;
+  model: string | null;
+}
+
+/** Payload for creating a user LLM provider. */
+export interface UserLlmProviderInput {
+  provider_id: string;
+  name?: string | null;
+  npm?: string;
+  base_url?: string | null;
+  api_key?: string | null;
+  models?: Record<string, any> | null;
 }
 
 /** Subset of opencode's SessionV2Info that the UI renders. */
@@ -252,20 +289,28 @@ export interface AdminOverview {
   };
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = localStorage.getItem("token");
   const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...getAuthHeaders(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
+  // Session-expired interception: a 401 on an authenticated call means the
+  // JWT is invalid/expired — every subsequent call would fail identically,
+  // so drop the stale session and return to the login page. Unauthenticated
+  // calls (login/register) carry no token, so their 401s still surface to
+  // the caller as normal error messages.
+  if (resp.status === 401 && token) {
+    for (const key of ["token", "username", "userId", "role"]) {
+      localStorage.removeItem(key);
+    }
+    window.location.reload();
+    throw new Error("登录已过期，请重新登录");
+  }
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     // Platform errors use {detail}; opencode errors use {message}.
@@ -440,6 +485,44 @@ export const api = {
     return apiCall(`${OC}/api/session/${sessionId}/interrupt`, { method: "POST" });
   },
 
+  /**
+   * File diffs of one completed round (P1-1). Legacy surface, bare array —
+   * same per-file shape the user message's `info.summary.diffs` carries.
+   */
+  async getSessionDiff(sessionId: string, messageID: string): Promise<FileDiff[]> {
+    const r = await apiCall<any[]>(`${OC}/session/${sessionId}/diff?messageID=${encodeURIComponent(messageID)}`);
+    return Array.isArray(r) ? r : [];
+  },
+
+  /** Revert the file changes a round produced (P1-1, legacy surface). */
+  async revertSession(sessionId: string, messageID: string): Promise<any> {
+    return apiCall(`${OC}/session/${sessionId}/revert`, {
+      method: "POST",
+      body: JSON.stringify({ messageID }),
+    });
+  },
+
+  /** Restore the changes of the last revert (P1-1, legacy surface). */
+  async unrevertSession(sessionId: string): Promise<any> {
+    return apiCall(`${OC}/session/${sessionId}/unrevert`, { method: "POST" });
+  },
+
+  /** Fork a session at (or before) a message into a new session (P1-1). */
+  async forkSession(sessionId: string, messageID?: string): Promise<OcSession> {
+    return apiCall(`${OC}/session/${sessionId}/fork`, {
+      method: "POST",
+      body: JSON.stringify(messageID ? { messageID } : {}),
+    });
+  },
+
+  /** Ask the model to summarize the session (P1-1, compaction summary). */
+  async summarizeSession(sessionId: string, model: ModelRef): Promise<any> {
+    return apiCall(`${OC}/session/${sessionId}/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ providerID: model.providerID, modelID: model.id }),
+    });
+  },
+
   /** Switch the model for an existing session (opencode ModelRef payload). */
   async setSessionModel(sessionId: string, model: ModelRef): Promise<any> {
     return apiCall(`${OC}/api/session/${sessionId}/model`, {
@@ -564,6 +647,40 @@ export const api = {
   /** Raw escape hatch onto any opencode route not wrapped above. */
   async oc<T>(path: string, options: RequestInit = {}): Promise<T> {
     return apiCall<T>(`${OC}${path.startsWith("/") ? path : `/${path}`}`, options);
+  },
+
+  // --- User-scoped LLM providers + active selection (/api/user-config) ---
+  async listUserLlmProviders(): Promise<{ providers: UserLlmProvider[] }> {
+    return apiCall("/user-config/llm");
+  },
+
+  async createUserLlmProvider(payload: UserLlmProviderInput): Promise<UserLlmProvider> {
+    return apiCall("/user-config/llm", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateUserLlmProvider(id: string, payload: Partial<UserLlmProviderInput>): Promise<UserLlmProvider> {
+    return apiCall(`/user-config/llm/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteUserLlmProvider(id: string): Promise<void> {
+    return apiCall(`/user-config/llm/${id}`, { method: "DELETE" });
+  },
+
+  async getActiveLlm(): Promise<ActiveLlm> {
+    return apiCall("/user-config/active-llm");
+  },
+
+  async setActiveLlm(providerId: string | null, model?: string | null): Promise<ActiveLlm> {
+    return apiCall("/user-config/active-llm", {
+      method: "PUT",
+      body: JSON.stringify({ provider_id: providerId, model: model ?? null }),
+    });
   },
 
   // --- Config management (host opencode.json) ---------------------------
@@ -731,10 +848,17 @@ export const api = {
   },
 
   // --- SSE --------------------------------------------------------------
-  createEventSource(lastEventId: number = 0): EventSource {
-    const token = localStorage.getItem("token");
-    const url = `${API_BASE}/tunnel/events?token=${encodeURIComponent(
-      token || ""
+  // P1-5: the long-lived JWT never goes in the SSE URL anymore (it leaks via
+  // logs/history). Swap it for a one-time, 60s ticket first. Because the
+  // ticket is single-use, the browser's native EventSource auto-reconnect
+  // can't replay it — Chat.tsx drives reconnection manually with fresh
+  // tickets instead.
+  async createEventSource(lastEventId: number = 0): Promise<EventSource> {
+    const { ticket } = await apiCall<{ ticket: string }>("/tunnel/ticket", {
+      method: "POST",
+    });
+    const url = `${API_BASE}/tunnel/events?ticket=${encodeURIComponent(
+      ticket
     )}&lastEventId=${lastEventId}`;
     return new EventSource(url);
   },

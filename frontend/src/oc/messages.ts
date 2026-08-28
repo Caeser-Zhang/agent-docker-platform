@@ -15,7 +15,24 @@
  *     reasoning  { id, messageID, type:"reasoning", text, time }
  *     tool       { id, messageID, type:"tool", tool, callID,
  *                  state:{ status, input, output?, error?, title? } }
- *     step-start / step-finish / patch / snapshot / ... (not rendered)
+ *     patch      { id, messageID, type:"patch", hash, files: string[] }
+ *                — live per-step workspace snapshot (git tree hash + touched
+ *                file paths); the full per-file diff arrives after the round
+ *                on the user message's `info.summary.diffs`.
+ *     compaction { id, messageID, type:"compaction", auto, overflow?,
+ *                  tail_start_id } — context was compacted (auto or manual).
+ *     subtask    { id, messageID, type:"subtask", prompt, description, agent,
+ *                  model?, command? } — delegation to a subagent.
+ *     agent      { id, messageID, type:"agent", name } — which agent produced
+ *                the message / was @-mentioned.
+ *     retry      { id, messageID, type:"retry", attempt, error, time } — a
+ *                failed model attempt that was retried.
+ *     file       { id, messageID, type:"file", mime, filename?, url } —
+ *                attachment part (user side).
+ *     step-start / step-finish / snapshot  (not rendered)
+ *
+ * NOTE: the session todo list is NOT a part — it arrives as its own SSE event
+ * `todo.updated` with payload { sessionID, todos: Todo[] }.
  *
  * The SSE stream (GET /api/event) reports the same data via the V1 events
  * `message.updated` (full-replace `info`) and `message.part.updated`
@@ -25,6 +42,39 @@
 import type { ModelRef } from "../api";
 
 export type ToolStatus = "pending" | "running" | "completed" | "error";
+
+/** One file change of a completed round (user message `info.summary.diffs`). */
+export interface FileDiff {
+  file: string;
+  patch?: string;
+  additions?: number;
+  deletions?: number;
+  status?: string;
+}
+
+/**
+ * Session todo list entry. NOT a message part — the list arrives as its own
+ * SSE event `todo.updated` with payload { sessionID, todos: Todo[] } and is
+ * rendered as one session-level card (like the official opencode UI).
+ */
+export interface TodoItem {
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  priority?: "high" | "medium" | "low";
+}
+
+/** Defensively normalise the `todos` array of a `todo.updated` event. */
+export function parseTodos(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const statuses = new Set(["pending", "in_progress", "completed", "cancelled"]);
+  return raw
+    .filter((t: any) => t && typeof t.content === "string")
+    .map((t: any) => ({
+      content: t.content,
+      status: statuses.has(t.status) ? t.status : "pending",
+      priority: t.priority,
+    }));
+}
 
 export type Block =
   | { kind: "text"; id: string; text: string }
@@ -37,7 +87,19 @@ export type Block =
       input?: unknown;
       output?: string;
       error?: string;
-    };
+    }
+  /** Live workspace snapshot emitted after each tool step (part type "patch"). */
+  | { kind: "patch"; id: string; hash: string; files: string[] }
+  /** Context-compaction marker (part type "compaction"). */
+  | { kind: "compaction"; id: string; auto: boolean; overflow: boolean }
+  /** Delegation of work to a subagent (part type "subtask"). */
+  | { kind: "subtask"; id: string; agent: string; description: string; prompt?: string }
+  /** Agent attribution marker (part type "agent"). */
+  | { kind: "agentTag"; id: string; name: string }
+  /** A failed model attempt that was retried (part type "retry"). */
+  | { kind: "retry"; id: string; attempt: number; error?: string }
+  /** File attachment part (part type "file"). */
+  | { kind: "file"; id: string; filename?: string; mime: string; url: string };
 
 export interface Turn {
   id: string;
@@ -51,6 +113,8 @@ export interface Turn {
   agents?: string[];
   /** Attached file paths on a user message (prompt.files[]). */
   files?: string[];
+  /** Per-file diffs of the round that followed this user message. */
+  diffs?: FileDiff[];
   cost?: number;
   tokens?: { input?: number; output?: number; reasoning?: number };
   error?: string;
@@ -207,8 +271,10 @@ export function toTurn(msg: any): Turn | null {
 }
 
 // Part types that carry transient UI-only state and are intentionally not
-// rendered (mirrors the official opencode web UI's SKIP_PARTS set).
-const SKIP_PART_TYPES = new Set(["step-start", "step-finish", "patch"]);
+// rendered (mirrors the official opencode web UI's SKIP_PARTS set; "patch"
+// IS rendered — it drives the live workspace-change card; "snapshot" is an
+// internal checkpoint marker whose content duplicates the turn state).
+const SKIP_PART_TYPES = new Set(["step-start", "step-finish", "snapshot"]);
 
 /** Map one V1 Part into a renderable Block, or null if it isn't rendered. */
 function partToBlock(part: any): Block | null {
@@ -217,6 +283,47 @@ function partToBlock(part: any): Block | null {
       return { kind: "text", id: part.id, text: part.text ?? "" };
     case "reasoning":
       return { kind: "reasoning", id: part.id, text: part.text ?? "" };
+    case "patch":
+      return {
+        kind: "patch",
+        id: part.id,
+        hash: typeof part.hash === "string" ? part.hash : "",
+        files: Array.isArray(part.files)
+          ? part.files.filter((f: any) => typeof f === "string")
+          : [],
+      };
+    case "compaction":
+      return {
+        kind: "compaction",
+        id: part.id,
+        auto: !!part.auto,
+        overflow: !!part.overflow,
+      };
+    case "subtask":
+      return {
+        kind: "subtask",
+        id: part.id,
+        agent: typeof part.agent === "string" ? part.agent : "",
+        description: typeof part.description === "string" ? part.description : "",
+        prompt: typeof part.prompt === "string" ? part.prompt : undefined,
+      };
+    case "agent":
+      return { kind: "agentTag", id: part.id, name: typeof part.name === "string" ? part.name : "" };
+    case "retry":
+      return {
+        kind: "retry",
+        id: part.id,
+        attempt: typeof part.attempt === "number" ? part.attempt : 0,
+        error: part.error ? errText(part.error) : undefined,
+      };
+    case "file":
+      return {
+        kind: "file",
+        id: part.id,
+        filename: typeof part.filename === "string" ? part.filename : undefined,
+        mime: typeof part.mime === "string" ? part.mime : "",
+        url: typeof part.url === "string" ? part.url : "",
+      };
     case "tool": {
       const st = part.state ?? {};
       const status = (st.status as ToolStatus) ?? "pending";
@@ -260,11 +367,18 @@ function turnFromInfo(info: any, parts?: any[]): Turn {
       created: info.time?.created,
     };
   }
+  // User messages carry the round's full file diffs on `info.summary.diffs`
+  // (same payload as GET /session/{id}/diff?messageID=<user msg>).
+  const diffs: FileDiff[] | undefined =
+    role === "user" && Array.isArray(info?.summary?.diffs)
+      ? info.summary.diffs.filter((d: any) => d && typeof d.file === "string")
+      : undefined;
   return {
     id: info.id,
     role,
     type: role,
     blocks,
+    diffs: diffs && diffs.length ? diffs : undefined,
     agent: info.agent,
     model: info.model,
     created: info.time?.created,

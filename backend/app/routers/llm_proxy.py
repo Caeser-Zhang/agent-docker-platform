@@ -38,10 +38,13 @@ import json
 import logging
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from ..database import get_db
+from ..services import user_config
 from ..services.opencode_config import _rewrite_loopback, load_source_config
 
 logger = logging.getLogger(__name__)
@@ -186,15 +189,8 @@ async def _stream(upstream: httpx.Response, client: httpx.AsyncClient, rewrite: 
         await client.aclose()
 
 
-@router.api_route("/{provider_id}/{path:path}", methods=["GET", "POST"])
-async def proxy(provider_id: str, path: str, request: Request):
-    upstream_base = _upstream_base(provider_id)
-    if not upstream_base:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"message": f"Unknown provider '{provider_id}' — no baseURL in host config"}},
-        )
-
+async def _forward(request: Request, upstream_base: str, path: str):
+    """Forward one request to ``upstream_base/{path}`` with SSE normalization."""
     url = f"{upstream_base.rstrip('/')}/{path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
@@ -228,3 +224,44 @@ async def proxy(provider_id: str, path: str, request: Request):
         status_code=upstream.status_code,
         headers=passthrough,
     )
+
+
+# IMPORTANT: the ``_user`` route must be declared before the generic
+# ``/{provider_id}/{path:path}`` route. Starlette matches routes in declaration
+# order, and ``/{provider_id}/{path:path}`` would otherwise swallow a request
+# to ``/_user/u1/p1/v1/chat`` as ``provider_id="_user"`` /
+# ``path="u1/p1/v1/chat"`` — making the user-scoped route unreachable.
+@router.api_route("/_user/{user_id}/{provider_id}/{path:path}", methods=["GET", "POST"])
+async def proxy_user(
+    user_id: str,
+    provider_id: str,
+    path: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Forward a user-scoped provider's requests to its DB-stored upstream.
+
+    User providers are not part of the host config; their base URL is stored
+    (encrypted) on the ``user_llm_providers`` row. ``build_container_config``
+    routes them to ``/_user/{user_id}/{provider_id}`` precisely so the proxy
+    can resolve that upstream here, scoped to the owning user.
+    """
+    base = await user_config.resolve_user_provider_base(db, user_id, provider_id)
+    if not base:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"message": f"Unknown user provider '{provider_id}' for user '{user_id}'"}},
+        )
+    upstream_base = _rewrite_loopback(base, settings.container_host_alias)
+    return await _forward(request, upstream_base, path)
+
+
+@router.api_route("/{provider_id}/{path:path}", methods=["GET", "POST"])
+async def proxy(provider_id: str, path: str, request: Request):
+    upstream_base = _upstream_base(provider_id)
+    if not upstream_base:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"message": f"Unknown provider '{provider_id}' — no baseURL in host config"}},
+        )
+    return await _forward(request, upstream_base, path)

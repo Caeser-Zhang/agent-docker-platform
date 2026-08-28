@@ -27,10 +27,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
+from ..database import get_db
 from ..models import User
-from ..services import host_config, opencode_config
+from ..services import host_config, opencode_config, user_config
 from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 
@@ -303,14 +305,21 @@ async def delete_skill(
 # ------------------------------------------------------------------
 
 @router.post("/reload", response_model=ReloadResponse)
-async def reload_config(user: User = Depends(get_current_user)):
+async def reload_config(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Re-inject config into the user's container and restart it.
 
     Must actually restart the container (not just reuse the running one) —
     opencode reads the config at boot. Mirrors tunnel.py's /config/reload:
     stop → re-inject → start → rebuild the SSE pump.
+
+    The user's own providers / MCP servers / active LLM selection are merged
+    in, so a change to those takes effect here too.
     """
-    ok = await container_manager.reload_config(user.id)
+    config_json = await user_config.build_user_config_json(db, user.id)
+    ok = await container_manager.reload_config(user.id, config_json)
     if not ok:
         return ReloadResponse(
             reloaded=False,

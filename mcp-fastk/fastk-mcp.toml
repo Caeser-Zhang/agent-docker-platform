@@ -1,0 +1,50 @@
+# fastk-mcp.toml — container configuration for the platform-managed fastk-mcp service.
+# FastDB runs on the host (WSL); containers reach it via host.docker.internal,
+# which docker-compose maps to host-gateway.
+
+default_database = "global"
+
+[[databases]]
+name = "global"
+base_url = "http://host.docker.internal:8000"
+db_name = "specs_global"
+description = "Global shared knowledge for the AI platform"
+timeout = 30.0
+
+[databases.search]
+topk = 10
+use_rrf = false
+rrf_k = 60
+alpha = 0.5
+funnel_ratio = 5
+funnel_min = 50
+
+[[databases]]
+name = "aicode"
+base_url = "http://host.docker.internal:8000"
+db_name = "aicode"
+description = "AI code knowledge base"
+timeout = 30.0
+
+[databases.search]
+topk = 10
+
+[[databases]]
+name = "test"
+base_url = "http://host.docker.internal:8000"
+db_name = "test_db"
+description = "Test database"
+timeout = 30.0
+
+[databases.search]
+topk = 10
+
+[[databases]]
+name = "project"
+base_url = "http://host.docker.internal:8000"
+db_name = "project_a1ee21f10164"
+description = "Code index for D:\\Project\\知识治理"
+timeout = 30.0
+
+[databases.search]
+topk = 10

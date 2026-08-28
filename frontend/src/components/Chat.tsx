@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   api,
   type AgentRuntime,
@@ -12,7 +12,7 @@ import {
   type OcSession,
   type ProvidersResponse,
 } from "../api";
-import { reduceEvent, toTurns, type Block, type Turn } from "../oc/messages";
+import { parseTodos, reduceEvent, toTurns, type Block, type FileDiff, type TodoItem, type Turn } from "../oc/messages";
 import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
 
@@ -97,7 +97,18 @@ export function Chat({
   // start button). POST /agent/start returns immediately; this drives the
   // status polling + phase UI until the phase settles on running/failed.
   const [starting, setStarting] = useState(false);
+  // P1-4: SSE connection health — the browser's EventSource reconnects on its
+  // own; while it is down the banner warns that replies may lag.
+  const [sseDown, setSseDown] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+
+  // P1-1: revert/unrevert of the last round's file changes, the agent's live
+  // task list (todo.updated SSE events), and a second busy label for actions
+  // that must not run concurrently (fork / summarize).
+  const [revertedId, setRevertedId] = useState<string | null>(null);
+  const [revertBusy, setRevertBusy] = useState(false);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [busyLabel, setBusyLabel] = useState("");
 
   // opencode agent presets + pending approval requests.
   const [agents, setAgents] = useState<OcAgent[]>([]);
@@ -141,6 +152,13 @@ export function Chat({
   const wsNoticeTimerRef = useRef<number | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
+  // P1-5: one-time SSE tickets mean the browser can't auto-reconnect; we
+  // drive reconnection with this timer (fresh ticket each attempt).
+  const sseReconnectRef = useRef<number | null>(null);
+  // Retry indirection: SSE error handlers reach the current connectSSE
+  // through this ref, so the callbacks don't form a self-referential
+  // useCallback cycle.
+  const connectSSERef = useRef<() => void>(() => {});
   const lastEventIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   // The SSE callback is registered once; it reads the live session id from here.
@@ -152,6 +170,11 @@ export function Chat({
   // message completes, and on a slow poll while isGenerating.
   const lastMsgEvtRef = useRef(0);
   const refreshDebounceRef = useRef<number | null>(null);
+  // P1-4: one-shot session restore across page refreshes (localStorage).
+  const restoredRef = useRef(false);
+  // P1-4: browser-side fallback for "how long has the start been running"
+  // (the backend's phase_since is preferred whenever it is present).
+  const startupAtRef = useRef<number | null>(null);
 
   // Readiness = container running AND the controller marked it "running"
   // (which only happens after its own health probe + session warmup).
@@ -258,9 +281,33 @@ export function Chat({
 
   const connectSSE = useCallback(() => {
     esRef.current?.close();
-    const es = api.createEventSource(lastEventIdRef.current);
-    esRef.current = es;
+    if (sseReconnectRef.current !== null) {
+      window.clearTimeout(sseReconnectRef.current);
+      sseReconnectRef.current = null;
+    }
+    // P1-5: minting a one-time ticket is async; whoever resolves last wins
+    // (each resolution closes whatever ES is currently attached).
+    api
+      .createEventSource(lastEventIdRef.current)
+      .then((es) => {
+        esRef.current?.close();
+        esRef.current = es;
+        attachSSEHandlers(es);
+      })
+      .catch(() => {
+        // Ticket mint failed (backend down / session expired) — back off
+        // and redial; a 401 already forces a relogin via apiCall.
+        setSseDown(true);
+        if (sseReconnectRef.current !== null) return;
+        sseReconnectRef.current = window.setTimeout(() => {
+          sseReconnectRef.current = null;
+          connectSSERef.current();
+        }, 2000);
+      });
+  }, [refreshPending, scheduleRefresh]);
 
+  /** Register the event reducers on a freshly attached EventSource. */
+  const attachSSEHandlers = useCallback((es: EventSource) => {
     es.onmessage = (event) => {
       let evt: any;
       try {
@@ -323,6 +370,13 @@ export function Chat({
       const sid = data.sessionID;
       if (sid && sid !== sessionIdRef.current) return;
 
+      // P1-1: the agent's task list updates — session-scoped, but not a
+      // message turn, so it bypasses the turn reducer entirely.
+      if (type === "todo.updated") {
+        setTodos(parseTodos(data.todos));
+        return;
+      }
+
       // Track live message traffic so the generation poll can stand down
       // while SSE is actually delivering (it only kicks in as a fallback
       // when the pump has dropped events).
@@ -346,11 +400,29 @@ export function Chat({
       });
     };
 
+    es.onopen = () => setSseDown(false);
     es.onerror = () => {
-      // EventSource reconnects on its own; lastEventId replays the gap.
-      console.warn("SSE dropped, browser will retry");
+      // P1-5: the ticket in the URL is one-time, so the browser's native
+      // auto-reconnect can't replay it. Redial manually (fresh ticket via
+      // connectSSERef → connectSSE) after a short backoff; lastEventId
+      // replays the gap.
+      es.close();
+      esRef.current = null;
+      setSseDown(true);
+      console.warn("SSE dropped, redialing with a fresh ticket");
+      if (sseReconnectRef.current !== null) return;
+      sseReconnectRef.current = window.setTimeout(() => {
+        sseReconnectRef.current = null;
+        connectSSERef.current();
+      }, 2000);
     };
   }, [refreshPending, scheduleRefresh]);
+
+  // Keep the retry indirection pointed at the current connectSSE. Declared
+  // before the mount effect so the first connectSSE() call can't fire early.
+  useEffect(() => {
+    connectSSERef.current = connectSSE;
+  }, [connectSSE]);
 
   // On mount: fetch the status once, then auto-warm the container if it
   // isn't up — the user should never have to click "start" and wait. The
@@ -387,6 +459,11 @@ export function Chat({
     return () => {
       cancelled = true;
       esRef.current?.close();
+      esRef.current = null;
+      if (sseReconnectRef.current !== null) {
+        window.clearTimeout(sseReconnectRef.current);
+        sseReconnectRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -420,6 +497,35 @@ export function Chat({
       stop = true;
     };
   }, [starting]);
+
+  // P1-4: browser-side start timestamp — used only when the backend hasn't
+  // reported phase_since yet (e.g. the request hasn't landed).
+  useEffect(() => {
+    if (starting) {
+      if (startupAtRef.current === null) startupAtRef.current = Date.now();
+    } else {
+      startupAtRef.current = null;
+    }
+  }, [starting]);
+
+  // P1-4: total wait so far while a start is in flight. phase_since is set
+  // server-side when the flow began, so a browser that attached mid-start
+  // still shows an accurate count; the local timer is the fallback.
+  const startupElapsedSec = (() => {
+    if (!starting) return null;
+    const ps = agentStatus?.phase_since;
+    if (typeof ps === "number" && ps > 0) return Math.max(0, Math.round(Date.now() / 1e3 - ps));
+    const started = startupAtRef.current;
+    return started ? Math.max(0, Math.round((Date.now() - started) / 1e3)) : null;
+  })();
+  const startupPhaseIdx =
+    agentStatus?.status === "creating"
+      ? 1
+      : agentStatus?.status === "starting"
+      ? 2
+      : agentStatus?.status === "warming"
+      ? 3
+      : 0;
 
   // If the container was already up when the page loaded, attach to it.
   const attachedRef = useRef(false);
@@ -459,8 +565,17 @@ export function Chat({
     try {
       await api.stopAgent();
       esRef.current?.close();
+      esRef.current = null;
+      if (sseReconnectRef.current !== null) {
+        window.clearTimeout(sseReconnectRef.current);
+        sseReconnectRef.current = null;
+      }
       attachedRef.current = false;
       lastEventIdRef.current = 0;
+      // P1-4: clear connection-health + session-restore markers so a later
+      // restart reattaches cleanly and can restore the session once more.
+      setSseDown(false);
+      restoredRef.current = false;
       setSessions([]);
       setCurrentSession(null);
       sessionIdRef.current = null;
@@ -496,8 +611,13 @@ export function Chat({
   const openSession = useCallback(async (session: OcSession) => {
     setCurrentSession(session);
     sessionIdRef.current = session.id;
+    // P1-4: remember the open session so a page refresh can restore it.
+    window.localStorage.setItem("oc.lastSession", session.id);
     setTurns([]);
     setIsGenerating(false);
+    // P1-1: revert state + task list belong to the session, not the page.
+    setRevertedId(null);
+    setTodos([]);
     if (session.model) setModel(session.model);
     if (session.agent) setAgentId(session.agent);
     refreshPending();
@@ -507,6 +627,90 @@ export function Chat({
       setError(e.message);
     }
   }, [refreshPending]);
+
+  // P1-4: after a page refresh, reopen the session the user had open (once
+  // the list has loaded). Manual navigation writes sessionIdRef before this
+  // runs, so an explicit choice is never overridden.
+  useEffect(() => {
+    if (restoredRef.current || !isAgentRunning || sessions.length === 0) return;
+    restoredRef.current = true;
+    if (sessionIdRef.current) return;
+    const saved = window.localStorage.getItem("oc.lastSession");
+    if (!saved) return;
+    const found = sessions.find((s) => s.id === saved);
+    if (found) openSession(found);
+  }, [sessions, isAgentRunning, openSession]);
+
+  // ------------------------------------------------------------------
+  //  P1-1: revert / unrevert / fork / summarize — all opencode-native
+  //  session routes, forwarded verbatim through the tunnel.
+  // ------------------------------------------------------------------
+  const handleRevert = useCallback(
+    async (messageId: string) => {
+      const sid = sessionIdRef.current;
+      if (!sid || revertBusy) return;
+      if (!window.confirm("回退该回合产生的所有文件改动？")) return;
+      setRevertBusy(true);
+      try {
+        await api.revertSession(sid, messageId);
+        setRevertedId(messageId);
+        refreshSessionMessages();
+      } catch (e: any) {
+        setError(`回退失败：${e?.message ?? e}`);
+      } finally {
+        setRevertBusy(false);
+      }
+    },
+    [revertBusy, refreshSessionMessages]
+  );
+
+  const handleUnrevert = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid || revertBusy) return;
+    setRevertBusy(true);
+    try {
+      await api.unrevertSession(sid);
+      setRevertedId(null);
+      refreshSessionMessages();
+    } catch (e: any) {
+      setError(`恢复失败：${e?.message ?? e}`);
+    } finally {
+      setRevertBusy(false);
+    }
+  }, [revertBusy, refreshSessionMessages]);
+
+  const handleFork = useCallback(
+    async (messageId?: string) => {
+      const sid = sessionIdRef.current;
+      if (!sid || busyLabel) return;
+      setBusyLabel("分叉会话中…");
+      try {
+        const forked = await api.forkSession(sid, messageId);
+        setSessions((prev) => [forked, ...prev.filter((s) => s.id !== forked.id)]);
+        await openSession(forked);
+      } catch (e: any) {
+        setError(`分叉失败：${e?.message ?? e}`);
+      } finally {
+        setBusyLabel("");
+      }
+    },
+    [busyLabel, openSession]
+  );
+
+  const handleSummarize = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    const m = model ?? currentSession?.model;
+    if (!sid || !m || busyLabel) return;
+    setBusyLabel("生成摘要中…");
+    try {
+      await api.summarizeSession(sid, m);
+      refreshSessionMessages();
+    } catch (e: any) {
+      setError(`生成摘要失败：${e?.message ?? e}`);
+    } finally {
+      setBusyLabel("");
+    }
+  }, [busyLabel, model, currentSession, refreshSessionMessages]);
 
   // Fallback poll while a prompt is in flight. opencode severs its event
   // stream ~every second during agent activity, so the platform pump can
@@ -1392,6 +1596,14 @@ export function Chat({
               来源：容器内 opencode /config
               {providers?.source?.mounted ? "（宿主 opencode.json）" : ""}
             </span>
+            <button
+              style={styles.reloadBtn}
+              onClick={handleSummarize}
+              disabled={!!busy || !!busyLabel || !model}
+              title="让模型总结当前会话（生成摘要消息）"
+            >
+              {busyLabel === "生成摘要中…" ? busyLabel : "✨ 摘要"}
+            </button>
             <button style={styles.reloadBtn} onClick={handleReloadConfig} disabled={!!busy}>
               重载配置
             </button>
@@ -1408,6 +1620,14 @@ export function Chat({
           </div>
         )}
 
+        {/* P1-4: the stream self-heals, but the user deserves to know that
+            replies may lag while it reconnects. */}
+        {isAgentRunning && sseDown && (
+          <div style={styles.sseDownBanner}>
+            ⚠ 实时事件流已断开，正在自动重连…（新消息可能延迟显示）
+          </div>
+        )}
+
         <div style={styles.chatBody}>
         <div style={styles.chatColumn}>
         {!isAgentRunning ? (
@@ -1415,6 +1635,8 @@ export function Chat({
             onStart={handleStartAgent}
             disabled={!!busy}
             phase={starting ? agentStatus?.status || "creating" : undefined}
+            phaseIdx={startupPhaseIdx}
+            elapsedSec={startupElapsedSec}
           />
         ) : !currentSession ? (
           <div style={styles.noSession}>
@@ -1427,8 +1649,20 @@ export function Chat({
         ) : (
           <>
             <div style={styles.messagesArea}>
+              {/* P1-1: the agent's live task list (todo.updated events). */}
+              {todos.length > 0 && <TodoList todos={todos} />}
               {turns.map((t) => (
-                <TurnView key={t.id} turn={t} username={username} />
+                <TurnView
+                  key={t.id}
+                  turn={t}
+                  username={username}
+                  reverted={revertedId === t.id}
+                  revertBusy={revertBusy}
+                  canRevert={!!currentSession && !isGenerating}
+                  onRevert={handleRevert}
+                  onUnrevert={handleUnrevert}
+                  onFork={t.role === "user" && !isGenerating ? handleFork : undefined}
+                />
               ))}
               {isGenerating && !turns.some((t) => t.streaming) && (
                 <div style={styles.msgAssistant}>
@@ -1447,6 +1681,13 @@ export function Chat({
                   {p.resources.map((r, i) => (
                     <div key={i} style={styles.permRes}>{r}</div>
                   ))}
+                  {/* P1-5: show the tool's raw input arguments so the user can
+                      make an informed allow/reject decision. */}
+                  {p.metadata && Object.keys(p.metadata).length > 0 && (
+                    <pre style={styles.permMeta}>
+                      {JSON.stringify(p.metadata, null, 2)}
+                    </pre>
+                  )}
                   <div style={styles.permActions}>
                     <button
                       style={styles.permAllowBtn}
@@ -2105,7 +2346,41 @@ function FilesPanel({
 //  Sub-components
 // ---------------------------------------------------------------------------
 
-function TurnView({ turn, username }: { turn: Turn; username: string }) {
+/** "/workspace/foo" → "foo" (display only — paths are container-absolute). */
+const stripWorkspace = (p: string): string =>
+  p.startsWith("/workspace/") ? p.slice(11) : p;
+
+/** Diff line → syntax highlight style (adds/dels/hunk/headers). */
+const diffLineStyle = (line: string): CSSProperties | undefined =>
+  line.startsWith("+") && !line.startsWith("+++")
+    ? styles.diffLineAdd
+    : line.startsWith("-") && !line.startsWith("---")
+    ? styles.diffLineDel
+    : line.startsWith("@@")
+    ? styles.diffLineHunk
+    : line.startsWith("Index:") || line.startsWith("===")
+    ? styles.diffLineMeta
+    : undefined;
+
+function TurnView({
+  turn,
+  username,
+  reverted,
+  revertBusy,
+  canRevert,
+  onRevert,
+  onUnrevert,
+  onFork,
+}: {
+  turn: Turn;
+  username: string;
+  reverted: boolean;
+  revertBusy: boolean;
+  canRevert: boolean;
+  onRevert: (messageId: string) => void;
+  onUnrevert: () => void;
+  onFork?: (messageId?: string) => void;
+}) {
   if (turn.role === "system") {
     const text = turn.blocks.map((b) => ("text" in b ? b.text : "")).join(" ");
     return (
@@ -2130,6 +2405,15 @@ function TurnView({ turn, username }: { turn: Turn; username: string }) {
             </span>
           )}
           {turn.streaming && <span style={styles.streaming}>streaming…</span>}
+          {isUser && onFork && (
+            <button
+              style={styles.forkBtn}
+              title="从此处分叉：复制到新会话（保留到本回合为止的历史）"
+              onClick={() => onFork(turn.id)}
+            >
+              ⑂ 分叉
+            </button>
+          )}
         </div>
 
         {/* @-mentioned agents on this user message */}
@@ -2145,6 +2429,18 @@ function TurnView({ turn, username }: { turn: Turn; username: string }) {
           <BlockView key={b.id} block={b} streaming={!!turn.streaming} />
         ))}
 
+        {/* P1-1: per-round file diffs with revert / unrevert */}
+        {isUser && turn.diffs && turn.diffs.length > 0 && (
+          <DiffCard
+            diffs={turn.diffs}
+            reverted={reverted}
+            busy={revertBusy}
+            canAct={canRevert}
+            onRevert={onRevert ? () => onRevert(turn.id) : undefined}
+            onUnrevert={onUnrevert}
+          />
+        )}
+
         {turn.error && <div style={styles.turnError}>⚠ {turn.error}</div>}
 
         {(turn.cost != null || turn.tokens) && (
@@ -2155,6 +2451,136 @@ function TurnView({ turn, username }: { turn: Turn; username: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** P1-1: per-round diff card — expandable file rows with syntax-highlighted
+ *  patches, plus revert / unrevert actions for the whole round. */
+function DiffCard({
+  diffs,
+  reverted,
+  busy,
+  canAct,
+  onRevert,
+  onUnrevert,
+}: {
+  diffs: FileDiff[];
+  reverted: boolean;
+  busy: boolean;
+  canAct: boolean;
+  onRevert?: () => void;
+  onUnrevert?: () => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const totalAdd = diffs.reduce((s, d) => s + (d.additions ?? 0), 0);
+  const totalDel = diffs.reduce((s, d) => s + (d.deletions ?? 0), 0);
+  return (
+    <div style={styles.diffCard}>
+      <div style={styles.diffCardTitle}>
+        <span>📝 本回合文件变更 · {diffs.length} 个文件</span>
+        <span>
+          <span style={styles.diffStatAdd}>+{totalAdd}</span>{" "}
+          <span style={styles.diffStatDel}>−{totalDel}</span>
+        </span>
+      </div>
+      {diffs.map((d) => {
+        const open = expanded === d.file;
+        return (
+          <div key={d.file}>
+            <div
+              style={styles.diffFileRow}
+              onClick={() => setExpanded(open ? null : d.file)}
+            >
+              <span style={styles.diffFileStatus(d.status ?? "changed")}>
+                {d.status ?? "changed"}
+              </span>
+              <span style={styles.diffFileName} title={d.file}>
+                {stripWorkspace(d.file)}
+              </span>
+              <span style={{ fontSize: "11px", flexShrink: 0 }}>
+                <span style={styles.diffStatAdd}>+{d.additions ?? 0}</span>{" "}
+                <span style={styles.diffStatDel}>−{d.deletions ?? 0}</span>
+              </span>
+              <span style={styles.diffChevron}>
+                {d.patch ? (open ? "▾" : "▸") : ""}
+              </span>
+            </div>
+            {open && d.patch && (
+              <pre style={styles.diffPatchBody}>
+                {d.patch.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    style={{ ...styles.diffLine, ...(diffLineStyle(line) ?? {}) }}
+                  >
+                    {line || " "}
+                  </div>
+                ))}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+      {(onRevert || (reverted && onUnrevert)) && (
+        <div style={styles.diffActions}>
+          {reverted ? (
+            <>
+              <span style={styles.revertedNote}>✓ 已回退此回合的文件改动</span>
+              <button
+                style={styles.unrevertBtn}
+                onClick={onUnrevert}
+                disabled={busy || !canAct}
+              >
+                恢复改动
+              </button>
+            </>
+          ) : (
+            <button
+              style={styles.revertBtn}
+              onClick={onRevert}
+              disabled={busy || !canAct}
+            >
+              ⏪ 回退此回合的文件改动
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** P1-1: live todo list rendered from `todo.updated` SSE events. */
+function TodoList({ todos }: { todos: TodoItem[] }) {
+  const done = todos.filter((t) => t.status === "completed").length;
+  const labels: Record<string, string> = {
+    pending: "待办",
+    in_progress: "进行中",
+    completed: "完成",
+    cancelled: "已取消",
+  };
+  return (
+    <div style={styles.todoCard}>
+      <div style={styles.todoTitle}>
+        <span>📋 任务清单</span>
+        <span>
+          {done}/{todos.length}
+        </span>
+      </div>
+      {todos.map((t, i) => (
+        <div key={i} style={styles.todoItem}>
+          <span style={styles.todoStatus(t.status)}>{labels[t.status] || t.status}</span>
+          <span
+            style={{
+              ...styles.todoContent,
+              ...(t.status === "completed" || t.status === "cancelled"
+                ? styles.todoDone
+                : {}),
+            }}
+          >
+            {t.content}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2175,6 +2601,62 @@ function BlockView({ block, streaming }: { block: Block; streaming: boolean }) {
   if (block.kind === "reasoning") {
     if (!block.text) return null;
     return <div style={styles.reasoningBox}>💭 {block.text}</div>;
+  }
+
+  // Protocol-capability blocks (opencode part types) rendered inline instead
+  // of falling through to the generic tool accordion below.
+
+  if (block.kind === "patch") {
+    if (!block.files.length) return null;
+    const hash = block.hash ? block.hash.slice(0, 8) : "";
+    return (
+      <div style={styles.patchBox} title={block.files.join("\n")}>
+        <span>📝</span>
+        <span style={styles.patchFiles}>
+          {block.files.length === 1
+            ? stripWorkspace(block.files[0])
+            : `工作区变更 · ${block.files.length} 个文件`}
+        </span>
+        {hash && <span style={styles.patchHash}>@{hash}</span>}
+      </div>
+    );
+  }
+
+  if (block.kind === "compaction") {
+    return (
+      <div style={styles.compactionBox}>
+        ⚡ 上下文已压缩{block.auto ? "（自动）" : ""}——更早的消息被摘要替代
+        {block.overflow ? "（上下文溢出触发）" : ""}
+      </div>
+    );
+  }
+
+  if (block.kind === "subtask") {
+    return (
+      <div style={styles.subtaskBox} title={block.prompt}>
+        <span style={styles.subtaskAgent}>🧩 {block.agent}</span>
+        <span>{block.description || "子任务委派"}</span>
+      </div>
+    );
+  }
+
+  if (block.kind === "agentTag") {
+    return block.name ? <div style={styles.agentTagChip}>🤖 {block.name}</div> : null;
+  }
+
+  if (block.kind === "retry") {
+    return (
+      <div style={styles.retryBox} title={block.error}>
+        ⚠ 第 {block.attempt} 次尝试失败，已自动重试
+        {block.error ? `：${block.error}` : ""}
+      </div>
+    );
+  }
+
+  if (block.kind === "file") {
+    const name =
+      block.filename || stripWorkspace(block.url.replace(/^file:\/\//, ""));
+    return name ? <div style={styles.fileChip}>📎 {name}</div> : null;
   }
 
   const detail =
@@ -2294,10 +2776,14 @@ function Welcome({
   onStart,
   disabled,
   phase,
+  phaseIdx,
+  elapsedSec,
 }: {
   onStart: () => void;
   disabled: boolean;
   phase?: string;
+  phaseIdx?: number;
+  elapsedSec?: number | null;
 }) {
   const features = [
     ["🔒", "强隔离", "每用户独立容器：文件系统 / 进程 / 网络 / 资源命名空间隔离"],
@@ -2313,6 +2799,13 @@ function Welcome({
       : phase === "warming"
       ? "正在预热模型会话…"
       : "启动中…";
+  // P1-4: concrete startup progress, e.g. "阶段 2/3 · 已等待 6s"
+  const hint =
+    phase && (phaseIdx || elapsedSec != null)
+      ? `${phaseIdx ? `阶段 ${phaseIdx}/3` : ""}${
+          phaseIdx && elapsedSec != null ? " · " : ""
+        }${elapsedSec != null ? `已等待 ${elapsedSec}s` : ""}`
+      : null;
   return (
     <div style={styles.welcome}>
       <div style={styles.welcomeIcon}>🐳</div>
@@ -2334,7 +2827,10 @@ function Welcome({
       {phase ? (
         <div style={styles.welcomeStarting}>
           <span style={styles.welcomeSpinner}>⏳</span>
-          <span>{phaseText}</span>
+          <span>
+            {phaseText}
+            {hint && <span style={styles.welcomeProgress}>（{hint}）</span>}
+          </span>
         </div>
       ) : (
         <button style={styles.welcomeBtn} onClick={onStart} disabled={disabled}>

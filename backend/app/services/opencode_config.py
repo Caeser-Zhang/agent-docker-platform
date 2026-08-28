@@ -111,6 +111,18 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return out
 
 
+def _first_model_of(prov: Any) -> str | None:
+    """First model id of a single provider entry (deterministic order)."""
+    if not isinstance(prov, dict):
+        return None
+    models = prov.get("models") or {}
+    if not isinstance(models, dict):
+        return None
+    for model_id in sorted(models):
+        return model_id
+    return None
+
+
 def _first_model(provider: dict) -> str | None:
     """Pick a deterministic provider/model pair to use as the default.
 
@@ -119,8 +131,8 @@ def _first_model(provider: dict) -> str | None:
     context — the config file format is string.)
     """
     for provider_id in sorted(provider):
-        models = provider[provider_id].get("models") or {}
-        for model_id in sorted(models):
+        model_id = _first_model_of(provider[provider_id])
+        if model_id:
             return f"{provider_id}/{model_id}"
     return None
 
@@ -168,11 +180,33 @@ def _strip_incompatible_model_options(config: dict) -> dict:
     return config
 
 
+def _resolve_placeholders(value: Any) -> Any:
+    """Resolve ``${VAR}`` placeholders against platform settings (lowercased).
+
+    ``${SEARXNG_URL}`` -> ``settings.searxng_url``. Unresolvable placeholders
+    are kept verbatim so the misconfiguration stays visible in the container
+    config instead of silently becoming an empty string. Dicts and lists are
+    resolved recursively.
+    """
+    if isinstance(value, str):
+        if value.startswith("${") and value.endswith("}"):
+            var_name = value[2:-1]
+            return getattr(settings, var_name.lower(), value)
+        return value
+    if isinstance(value, dict):
+        return {k: _resolve_placeholders(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_placeholders(v) for v in value]
+    return value
+
+
 def _discover_builtin_mcp() -> dict[str, dict]:
     """Auto-discover built-in MCP servers from manifest files.
 
     Each subdirectory under :attr:`settings.builtin_mcp_dir` is expected to
-    contain a manifest.json:
+    contain a manifest.json. Two manifest types are supported:
+
+    Local (spawns a command inside the agent image)::
 
         {
           "name": "web_search",
@@ -182,8 +216,19 @@ def _discover_builtin_mcp() -> dict[str, dict]:
           "enabled": true
         }
 
-    ``${VAR}`` placeholders in environment values are resolved against the
-    platform settings (lowercased): ``${SEARXNG_URL}`` -> ``settings.searxng_url``.
+    Remote (connects to an MCP server reachable over the network — e.g. a
+    platform-managed service such as fastk-mcp on agent-net)::
+
+        {
+          "name": "fastk",
+          "type": "remote",
+          "url": "${FASTK_MCP_URL}",
+          "enabled": true
+        }
+
+    ``${VAR}`` placeholders in environment values and urls/headers are
+    resolved against the platform settings (lowercased):
+    ``${SEARXNG_URL}`` -> ``settings.searxng_url``.
     """
     mcp_dir = Path(settings.builtin_mcp_dir)
     if not mcp_dir.is_dir():
@@ -199,21 +244,25 @@ def _discover_builtin_mcp() -> dict[str, dict]:
         if not name:
             logger.warning("Manifest missing 'name': %s", manifest_path)
             continue
-        # Resolve ${VAR} placeholders in environment values
-        env = manifest.get("environment", {})
-        resolved_env: dict[str, str] = {}
-        for key, value in env.items():
-            if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-                var_name = value[2:-1]
-                resolved_env[key] = getattr(settings, var_name.lower(), value)
-            else:
-                resolved_env[key] = value
-        result[name] = {
-            "type": manifest.get("type", "local"),
-            "command": manifest.get("command", []),
-            "environment": resolved_env,
+        mcp_type = manifest.get("type", "local")
+        entry: dict[str, Any] = {
+            "type": mcp_type,
             "enabled": manifest.get("enabled", True),
         }
+        if mcp_type == "remote":
+            url = manifest.get("url")
+            if not url:
+                logger.warning("Remote manifest missing 'url': %s", manifest_path)
+                continue
+            entry["url"] = _resolve_placeholders(url)
+            headers = manifest.get("headers")
+            if headers:
+                entry["headers"] = _resolve_placeholders(headers)
+        else:
+            entry["command"] = manifest.get("command", [])
+            # Resolve ${VAR} placeholders in environment values
+            entry["environment"] = _resolve_placeholders(manifest.get("environment", {}))
+        result[name] = entry
     return result
 
 
@@ -284,8 +333,21 @@ def _discover_builtin_plugins() -> list[str]:
     return result
 
 
-def build_container_config() -> dict:
-    """Produce the config document to write into a user's container."""
+def build_container_config(
+    user_provider: dict | None = None,
+    user_mcp: dict | None = None,
+    active_provider_id: str | None = None,
+    active_model: str | None = None,
+    user_id: str | None = None,
+) -> dict:
+    """Produce the config document to write into a user's container.
+
+    Host config supplies the platform baseline (providers, remote MCP servers,
+    defaults); the three ``user_*`` arguments layer per-user content on top:
+    ``user_provider`` / ``user_mcp`` are the decrypted user LLM providers and
+    MCP servers, and ``active_provider_id`` / ``active_model`` decide the
+    default ``model``. ``user_id`` scopes user-provider proxy routing.
+    """
     source, origin = load_source_config()
 
     sanitized = copy.deepcopy(source)
@@ -330,8 +392,21 @@ def build_container_config() -> dict:
 
     merged = _deep_merge(CONTAINER_DEFAULTS, sanitized)
 
+    # Layer per-user MCP servers and LLM providers on top of the host baseline.
+    if user_mcp:
+        merged.setdefault("mcp", {}).update(user_mcp)
+    if user_provider:
+        merged.setdefault("provider", {}).update(user_provider)
+
     # opencode needs a default model or the first prompt has nothing to run on.
     provider = merged.get("provider") or {}
+
+    # An explicit active selection wins over the deterministic fallback.
+    if active_provider_id and active_provider_id in provider:
+        model_id = active_model or _first_model_of(provider[active_provider_id])
+        if model_id:
+            merged["model"] = f"{active_provider_id}/{model_id}"
+
     if not merged.get("model"):
         fallback = _first_model(provider)
         if fallback:
@@ -379,7 +454,15 @@ def build_container_config() -> dict:
             and isinstance(opts.get("baseURL"), str)
             and opts["baseURL"]
         ):
-            opts["baseURL"] = f"{settings.llm_proxy_base.rstrip('/')}/{provider_id}"
+            if user_id and user_provider and provider_id in user_provider:
+                # User providers are routed through a user-scoped proxy path so
+                # the backend can resolve them independently of the host config.
+                # The ``_user`` segment disambiguates from the host route
+                # (``/{provider_id}/{path}``); underscores are not valid in a
+                # provider slug, so it can never collide with a real id.
+                opts["baseURL"] = f"{settings.llm_proxy_base.rstrip('/')}/_user/{user_id}/{provider_id}"
+            else:
+                opts["baseURL"] = f"{settings.llm_proxy_base.rstrip('/')}/{provider_id}"
 
     # Only allow providers defined in the user's config. opencode ships with a
     # global model catalogue (wandb, nvidia, opencode Zen, etc.) that it
@@ -401,8 +484,25 @@ def build_container_config() -> dict:
     return merged
 
 
-def build_container_config_json() -> str:
-    return json.dumps(build_container_config(), ensure_ascii=False, indent=2)
+def build_container_config_json(
+    user_provider: dict | None = None,
+    user_mcp: dict | None = None,
+    active_provider_id: str | None = None,
+    active_model: str | None = None,
+    user_id: str | None = None,
+) -> str:
+    """Serialize :func:`build_container_config` to the injected JSON string."""
+    return json.dumps(
+        build_container_config(
+            user_provider=user_provider,
+            user_mcp=user_mcp,
+            active_provider_id=active_provider_id,
+            active_model=active_model,
+            user_id=user_id,
+        ),
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def describe_source() -> dict:

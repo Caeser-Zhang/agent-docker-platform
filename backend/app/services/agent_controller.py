@@ -21,8 +21,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from ..crypto import decrypt_password_compat, encrypt_secret
 from ..database import async_session
 from ..models import AgentContainer, User
+from . import user_config
+from .audit import log_audit
 from .container_manager import container_manager
 from .sse_pump import sse_pump_manager
 from .tunnel_relay import tunnel_relay
@@ -46,9 +49,20 @@ class AgentController:
         # In-memory only — get_status() surfaces it to the polling UI while
         # the background task advances; cleared when the task finishes.
         self._start_phases: dict[str, str] = {}
+        # user_id -> epoch seconds when the CURRENT start flow began (set on
+        # entering "creating", kept across phase advances). get_status()
+        # exposes it as `phase_since` so the UI can show an accurate total
+        # wait even for a browser that attached mid-start (P1-4).
+        self._phase_since: dict[str, float] = {}
         # Retain the last background startup failure so status polling can
         # report the actual Docker/configuration error even without a DB row.
         self._start_errors: dict[str, str] = {}
+        # Data-plane gate cache (P0-1b): user_id -> (expires_monotonic,
+        # running, password). The tunnel proxy consults the gate on EVERY
+        # proxied request; a cold check costs a Docker inspect + a DB query,
+        # which at chat polling rates would dwarf the proxied work itself.
+        # Short TTL so a stop/destroy outside these walls self-heals.
+        self._gate_cache: dict[str, tuple[float, bool, str | None]] = {}
 
     # ------------------------------------------------------------------
     #  Start — the main entry point when a user enters the platform
@@ -74,6 +88,7 @@ class AgentController:
                 "running": False,
                 "healthy": False,
                 "status": self._start_phases.get(user_id, "starting"),
+                "phase_since": self._phase_since.get(user_id),
                 "container_name": record.container_name if record else None,
                 "workspace": None,
                 "message": "Agent startup already in progress",
@@ -93,6 +108,7 @@ class AgentController:
                 "running": False,
                 "healthy": False,
                 "status": self._start_phases.get(user_id, "starting"),
+                "phase_since": self._phase_since.get(user_id),
                 "container_name": record.container_name if record else None,
                 "workspace": None,
                 "message": "Agent startup already in progress",
@@ -100,6 +116,7 @@ class AgentController:
 
         self._start_errors.pop(user_id, None)
         self._start_phases[user_id] = "creating"
+        self._phase_since[user_id] = time.time()
         self._start_tasks[user_id] = asyncio.create_task(
             self._run_start(user_id, workspace)
         )
@@ -107,6 +124,7 @@ class AgentController:
             "running": False,
             "healthy": False,
             "status": "creating",
+            "phase_since": self._phase_since.get(user_id),
             "container_name": record.container_name if record else None,
             "workspace": None,
             "message": "Agent startup initiated",
@@ -125,6 +143,7 @@ class AgentController:
         finally:
             self._start_tasks.pop(user_id, None)
             self._start_phases.pop(user_id, None)
+            self._phase_since.pop(user_id, None)
 
     async def start_for_user(self, user_id: str, workspace: str | None = None) -> dict:
         """Ensure the user's agent container is running.
@@ -146,7 +165,9 @@ class AgentController:
             # already verified it before the DB row was marked running).
             # Using is_healthy() here would trigger a full re-create on
             # every start request within the first ~15s of container life.
-            if container_manager.get_container_status(user_id) == "running":
+            if await asyncio.to_thread(
+                container_manager.get_container_status, user_id
+            ) == "running":
                 # The container survived, but the pump may not have: it dies if
                 # the backend was restarted between recover() runs or if the
                 # upstream stream was closed. Without it the browser gets a
@@ -156,7 +177,7 @@ class AgentController:
                     await sse_pump_manager.start_pump(
                         user_id,
                         container_manager.get_container_url(user_id),
-                        ("opencode", record.password_enc),
+                        ("opencode", decrypt_password_compat(record.password_enc)),
                     )
                 return {
                     "running": True,
@@ -168,11 +189,21 @@ class AgentController:
 
         # Update status → creating
         self._start_phases[user_id] = "creating"
+        self._phase_since.setdefault(user_id, time.time())
         await self._update_status(user_id, "creating")
 
         try:
-            # Ensure the Docker container exists and is started (idempotent)
-            container, password = await container_manager.ensure_container(user_id)
+            # Build the user's DB-backed opencode.json before delegating to the
+            # synchronous Docker thread (which cannot open an async session).
+            async with async_session() as db:
+                config_json = await user_config.build_user_config_json(db, user_id)
+
+            # Ensure the Docker container exists and is started (idempotent).
+            # config_ok tells whether the sanitized opencode.json actually
+            # landed inside the container.
+            container, password, config_ok = await container_manager.ensure_container(
+                user_id, config_json
+            )
             container_name = container.name
 
             # Persist or update the container record
@@ -186,6 +217,32 @@ class AgentController:
                 data_volume=data_vol,
                 status="starting",
             )
+
+            if not config_ok:
+                # A container that boots with the image's default config (no
+                # platform credentials, no proxy rewrite) is a "zombie
+                # healthy" agent: Docker reports healthy while every LLM call
+                # inside is broken. Fail the start explicitly and stop the
+                # container so the data-plane gate refuses to proxy to it —
+                # the next start retries the injection.
+                error = (
+                    "opencode 配置消毒/注入失败，容器已停止——"
+                    "请检查宿主机 opencode.json 与平台日志后重试"
+                )
+                logger.error(
+                    "Config injection failed for %s — stopping misconfigured container", user_id
+                )
+                self._start_errors[user_id] = error
+                await container_manager.stop_container(user_id, timeout=5)
+                self.invalidate_gate(user_id)
+                await self._update_status(user_id, "failed", error=error)
+                return {
+                    "running": False,
+                    "healthy": False,
+                    "status": "failed",
+                    "container_name": container_name,
+                    "message": error,
+                }
 
             # Health probe — wait for the container to be ready
             self._start_phases[user_id] = "starting"
@@ -226,6 +283,12 @@ class AgentController:
                 last_activity=now,
                 error=None,
             )
+            # Fresh container may carry a fresh password — drop any stale
+            # gate entry so the proxy picks it up immediately.
+            self.invalidate_gate(user_id)
+
+            # P1-6: audit the successful transition into running.
+            await log_audit(user_id, "container.start", {"container_name": container_name})
 
             return {
                 "running": True,
@@ -254,6 +317,7 @@ class AgentController:
             # "warming" phase makes GET /agent/status report warming forever,
             # so the UI shows an endless "starting" spinner.
             self._start_phases.pop(user_id, None)
+            self._phase_since.pop(user_id, None)
 
     # ------------------------------------------------------------------
     #  Stop — graceful shutdown (preserves volumes)
@@ -272,9 +336,14 @@ class AgentController:
 
         # Gracefully stop the container
         await container_manager.stop_container(user_id, timeout=10)
+        # The data-plane gate must refuse traffic immediately, not after TTL.
+        self.invalidate_gate(user_id)
 
         # Update DB
         await self._update_status(user_id, "stopped")
+
+        # P1-6: audit (also covers idle-reclaim stops, which route through here).
+        await log_audit(user_id, "container.stop")
 
         return {"running": False, "message": "Agent stopped"}
 
@@ -293,14 +362,20 @@ class AgentController:
         admin panel row disappears instead of lingering as a zombie.
         """
         record = await self._get_container_record(user_id)
-        has_container = container_manager.get_container(user_id) is not None
+        has_container = (
+            await asyncio.to_thread(container_manager.get_container, user_id) is not None
+        )
         if not has_container and record is None:
             return {"ok": False, "message": "No container or record for this user"}
 
         await sse_pump_manager.stop_pump(user_id)
-        await container_manager.destroy_container(user_id)
+        backup_meta = await container_manager.destroy_container(user_id)
         await self._delete_record(user_id)
-        return {"ok": True, "message": "Container and volumes destroyed"}
+        self.invalidate_gate(user_id)
+        # P1-6: audit with the backup metadata — the destroy audit row is the
+        # pointer to the tar.gz that outlives the removed volumes.
+        await log_audit(user_id, "container.destroy", {"backup": backup_meta})
+        return {"ok": True, "message": "Container and volumes destroyed", "backup": backup_meta or None}
 
     # ------------------------------------------------------------------
     #  Restart — in-place container restart with pump re-attach
@@ -321,7 +396,9 @@ class AgentController:
         await sse_pump_manager.stop_pump(user_id)
         await self._update_status(user_id, "starting")
 
-        restarted = await container_manager.restart_container(user_id)
+        async with async_session() as db:
+            config_json = await user_config.build_user_config_json(db, user_id)
+        restarted = await container_manager.restart_container(user_id, config_json=config_json)
 
         async with async_session() as db:
             await db.execute(
@@ -333,18 +410,22 @@ class AgentController:
 
         if not restarted:
             await self._update_status(user_id, "failed", error="Docker restart failed")
+            await log_audit(user_id, "container.restart", {"ok": False, "reason": "docker_restart_failed"})
             return {"ok": False, "message": "Docker restart failed (container absent?)"}
 
-        if not await self._health_probe(user_id, record.password_enc):
+        if not await self._health_probe(user_id, decrypt_password_compat(record.password_enc)):
             await self._update_status(user_id, "failed", error="Health probe failed after restart")
+            await log_audit(user_id, "container.restart", {"ok": False, "reason": "health_probe_failed"})
             return {"ok": False, "message": "Restarted, but health probe failed"}
 
         await sse_pump_manager.start_pump(
             user_id,
             container_manager.get_container_url(user_id),
-            ("opencode", record.password_enc),
+            ("opencode", decrypt_password_compat(record.password_enc)),
         )
         await self._update_status(user_id, "running", error=None)
+        self.invalidate_gate(user_id)
+        await log_audit(user_id, "container.restart", {"ok": True})
         return {"ok": True, "message": "Container restarted"}
 
     # ------------------------------------------------------------------
@@ -361,7 +442,7 @@ class AgentController:
         record = await self._get_container_record(user_id)
         if not record:
             return False
-        password = record.password_enc
+        password = decrypt_password_compat(record.password_enc)
         if not await self._health_probe(user_id, password):
             logger.warning("Container for %s did not come back healthy", user_id)
             return False
@@ -373,6 +454,39 @@ class AgentController:
     # ------------------------------------------------------------------
     #  Status query
     # ------------------------------------------------------------------
+
+    _GATE_TTL = 5.0
+
+    async def get_agent_gate(self, user_id: str) -> tuple[bool, str | None]:
+        """Data-plane gate: (container running?, BasicAuth password).
+
+        TTL-cached for the tunnel proxy, which calls this on every proxied
+        request. Unlike get_status() this skips the health inspect — the
+        proxy only needs "is Docker running it" and the password, so a cold
+        check is one Docker inspect + one DB read instead of 2×Docker+2×DB.
+        """
+        now = time.monotonic()
+        entry = self._gate_cache.get(user_id)
+        if entry and entry[0] > now:
+            return entry[1], entry[2]
+
+        record = await self._get_container_record(user_id)
+        if not record:
+            self._gate_cache[user_id] = (now + self._GATE_TTL, False, None)
+            return False, None
+
+        running = (
+            await asyncio.to_thread(container_manager.get_container_status, user_id)
+            == "running"
+        )
+        password = decrypt_password_compat(record.password_enc) if running else None
+        self._gate_cache[user_id] = (now + self._GATE_TTL, running, password)
+        return running, password
+
+    def invalidate_gate(self, user_id: str) -> None:
+        """Drop the cached gate — call when the container is stopped/destroyed
+        or recreated, so the proxy refuses traffic immediately."""
+        self._gate_cache.pop(user_id, None)
 
     async def get_status(self, user_id: str) -> dict:
         """Get the current agent status for a user.
@@ -389,6 +503,7 @@ class AgentController:
         """
         record = await self._get_container_record(user_id)
         phase = self._start_phases.get(user_id)
+        phase_since = self._phase_since.get(user_id) if phase else None
         last_error = self._start_errors.get(user_id)
 
         if not record and not phase:
@@ -402,18 +517,28 @@ class AgentController:
                 "error": last_error,
             }
 
-        # Check actual container state
-        is_healthy = container_manager.is_healthy(user_id)
-        is_running = container_manager.get_container_status(user_id) == "running"
+        # Check actual container state. The Docker SDK is synchronous, and
+        # this endpoint is polled every few seconds by the UI — keep the
+        # inspect calls off the event loop.
+        is_healthy = await asyncio.to_thread(container_manager.is_healthy, user_id)
+        is_running = (
+            await asyncio.to_thread(container_manager.get_container_status, user_id)
+            == "running"
+        )
+
+        # `record` is None while a background start is in flight (the DB row
+        # is only upserted once the container exists) — guard the lookups.
+        record_error = record.last_error if record else None
 
         return {
             "running": is_running,
             "healthy": is_healthy,
             "status": phase or (record.status if is_running else (record.status if record.status == "failed" else "stopped")),
+            "phase_since": phase_since,
             "container_name": record.container_name if record else None,
             "workspace": None,
-            "message": record.last_error or "",
-            "error": record.last_error,
+            "message": record_error or "",
+            "error": record_error,
         }
 
     # ------------------------------------------------------------------
@@ -568,10 +693,13 @@ class AgentController:
             # created before the authed healthcheck fix read "unhealthy"
             # forever (curl 401), which used to mark live containers as
             # stopped on every backend restart and killed their pumps.
-            if container_manager.get_container_status(user_id) == "running":
+            if (
+                await asyncio.to_thread(container_manager.get_container_status, user_id)
+                == "running"
+            ):
                 # Container is still running — re-attach SSE pump
                 base_url = container_manager.get_container_url(user_id)
-                password = record.password_enc  # In production this would be decrypted
+                password = decrypt_password_compat(record.password_enc)
                 await sse_pump_manager.start_pump(user_id, base_url, ("opencode", password))
                 await self._update_status(user_id, "running")
                 recovered += 1
@@ -682,7 +810,7 @@ class AgentController:
 
             if record:
                 record.container_name = container_name
-                record.password_enc = password  # In production: encrypt this
+                record.password_enc = encrypt_secret(password)
                 record.image = settings.agent_image
                 record.workspace_volume = workspace_volume
                 record.data_volume = data_volume
@@ -691,7 +819,7 @@ class AgentController:
                 record = AgentContainer(
                     user_id=user_id,
                     container_name=container_name,
-                    password_enc=password,  # In production: encrypt this
+                    password_enc=encrypt_secret(password),
                     image=settings.agent_image,
                     workspace_volume=workspace_volume,
                     data_volume=data_volume,

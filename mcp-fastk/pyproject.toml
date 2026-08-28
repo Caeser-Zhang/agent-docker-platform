@@ -1,0 +1,27 @@
+[project]
+name = "fastk-mcp"
+version = "0.1.0"
+description = "MCP server for remote FastK knowledge bases with progressive (funnel) search and structured markdown display."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "fastk-mcp contributors" }]
+keywords = ["mcp", "fastk", "knowledge-base", "rag", "vector-search"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "httpx>=0.24.0",
+    "fastmcp>=3.4",
+]
+
+[project.scripts]
+fastk-mcp = "fastk_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fastk_mcp"]

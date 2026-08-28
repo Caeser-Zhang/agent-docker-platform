@@ -17,6 +17,8 @@ Key design decisions (from agent-docker-design.md):
     restart without rebuilding the image
 """
 import asyncio
+import gzip
+import hashlib
 import io
 import json
 import logging
@@ -157,16 +159,23 @@ class ContainerManager:
                 tar.addfile(info, io.BytesIO(payload))
         return buf.getvalue()
 
-    def inject_opencode_config(self, container: Container) -> bool:
-        """Copy the sanitized host opencode.json into the container's volume.
+    def inject_opencode_config(
+        self, container: Container, config_json: str | None = None
+    ) -> bool:
+        """Copy the sanitized opencode.json into the container's volume.
 
         `put_archive` is the Docker `cp` primitive and works on a created-but-
         not-yet-started container, so the config is already in place the moment
         opencode boots. It also writes straight through the read-only rootfs
         restriction because /data is a volume.
+
+        ``config_json`` is the pre-built document produced by the async layer
+        (a user's DB-backed config). When omitted — e.g. a legacy caller that
+        only knows about the host baseline — the host config is built here.
         """
         try:
-            config_json = build_container_config_json()
+            if config_json is None:
+                config_json = build_container_config_json()
         except Exception as exc:  # noqa: BLE001
             logger.error("Could not build opencode config: %s", exc)
             return False
@@ -352,15 +361,24 @@ class ContainerManager:
         except Exception:
             return False
 
-    async def ensure_container(self, user_id: str) -> tuple[Container, str]:
+    async def ensure_container(
+        self, user_id: str, config_json: str | None = None
+    ) -> tuple[Container, str, bool]:
         """Idempotently ensure a container exists and is running for the user.
 
-        Returns (container, password).
+        Returns (container, password, config_ok).
         - If container exists and is running → return it
         - If container exists but stopped → start it
         - If container doesn't exist → create + start it
+        - config_ok is False when the sanitized opencode.json could not be
+          injected — the caller (AgentController.start_for_user) then fails
+          the start instead of leaving a "zombie healthy" container whose
+          LLM calls are all broken.
 
         Implements the ensure_container pattern from design section 3.4.
+
+        ``config_json`` is the pre-built user config produced by the async
+        layer; when omitted the host baseline is built inside the sync thread.
 
         The Docker SDK work runs in a worker thread: container creation
         blocks for ~1-2s, and doing that on the event loop would stall the
@@ -368,9 +386,11 @@ class ContainerManager:
         flow depends on.
         """
         async with self._lock:
-            return await asyncio.to_thread(self._ensure_container_sync, user_id)
+            return await asyncio.to_thread(self._ensure_container_sync, user_id, config_json)
 
-    def _ensure_container_sync(self, user_id: str) -> tuple[Container, str]:
+    def _ensure_container_sync(
+        self, user_id: str, config_json: str | None = None
+    ) -> tuple[Container, str, bool]:
         client = self._get_client()
         self.ensure_network()
 
@@ -393,7 +413,9 @@ class ContainerManager:
             password = self._extract_password(container) or secrets.token_urlsafe(32)
             if container.status == "running":
                 logger.info("Container %s already running", container_name)
-                return container, password
+                # A running container was validated on its previous start:
+                # a config-injection failure would have stopped it then.
+                return container, password, True
             # Image upgrade: start/restart reuse the image the container was
             # CREATED with — after an agent image rebuild (new plugins, new
             # opencode version) stale containers would keep the old rootfs
@@ -408,11 +430,14 @@ class ContainerManager:
                 container.remove(force=True)
             else:
                 logger.info("Container %s exists but stopped — refreshing config and starting", container_name)
-                # Pick up any provider/credential edits the user made on the host.
-                self.inject_opencode_config(container)
+                # Pick up any provider/credential edits the user made, plus the
+                # user's DB-backed providers / active LLM selection.
+                config_ok = self.inject_opencode_config(container, config_json)
+                if not config_ok:
+                    logger.error("Config injection failed for %s before start", container_name)
                 container.start()
                 container.reload()
-                return container, password
+                return container, password, config_ok
 
         # Create new container
         password = secrets.token_urlsafe(32)
@@ -422,34 +447,42 @@ class ContainerManager:
         container = client.containers.create(**run_kwargs)
 
         # Config must land before the first start; the entrypoint falls back
-        # to the image default if this fails, so a failure is not fatal.
-        self.inject_opencode_config(container)
+        # to the image default if this fails. Propagate config_ok so the
+        # caller can fail the start instead of leaving a misconfigured
+        # (zombie healthy) container running.
+        config_ok = self.inject_opencode_config(container, config_json)
+        if not config_ok:
+            logger.error("Config injection failed for new container %s", container_name)
 
         container.start()
         container.reload()
 
         logger.info("Container %s created and started (opencode serve)", container_name)
-        return container, password
+        return container, password, config_ok
 
-    async def reload_config(self, user_id: str) -> bool:
-        """Re-inject the host opencode.json and restart the user's container.
+    async def reload_config(self, user_id: str, config_json: str | None = None) -> bool:
+        """Re-inject the opencode.json and restart the user's container.
 
         This is how a credential or provider change on the developer's machine
-        reaches a running agent.
+        reaches a running agent. ``config_json`` carries the pre-built user
+        config; when omitted the host baseline is built inside the sync thread.
         """
         async with self._lock:
-            container = self.get_container(user_id)
-            if container is None:
-                return False
-            try:
-                container.stop(timeout=10)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Stop before config reload failed: %s", exc)
-            ok = self.inject_opencode_config(container)
-            container.start()
-            container.reload()
-            logger.info("Reloaded opencode config for %s (injected=%s)", user_id, ok)
-            return ok
+            return await asyncio.to_thread(self._reload_config_sync, user_id, config_json)
+
+    def _reload_config_sync(self, user_id: str, config_json: str | None = None) -> bool:
+        container = self.get_container(user_id)
+        if container is None:
+            return False
+        try:
+            container.stop(timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Stop before config reload failed: %s", exc)
+        ok = self.inject_opencode_config(container, config_json)
+        container.start()
+        container.reload()
+        logger.info("Reloaded opencode config for %s (injected=%s)", user_id, ok)
+        return ok
 
     def _extract_password(self, container: Container) -> str | None:
         """Extract the OPENCODE_SERVER_PASSWORD from a running container's env."""
@@ -462,72 +495,176 @@ class ContainerManager:
             pass
         return None
 
-    async def restart_container(self, user_id: str, timeout: int = 10) -> bool:
+    async def restart_container(
+        self, user_id: str, timeout: int = 10, config_json: str | None = None
+    ) -> bool:
         """Restart a user's container in place via `docker restart`.
 
         Unlike stop+start this preserves the container object (env, mounts,
         labels), so the opencode password embedded in the env stays valid.
+        ``config_json`` carries the pre-built user config; when omitted the
+        host baseline is built inside the sync thread.
         """
         async with self._lock:
-            client = self._get_client()
-            container_name = f"agent-{user_id}"
-            try:
-                container = client.containers.get(container_name)
-                # Re-inject the host config before restarting: `docker restart`
-                # alone keeps whatever config file the container was created
-                # with, so provider/MCP edits on the host would never reach
-                # containers that only ever get restarted (never stopped).
-                # put_archive writes straight into the /data volume, so it
-                # works on a running container too.
-                self.inject_opencode_config(container)
-                container.restart(timeout=timeout)
-                container.reload()
-                logger.info("Container %s restarted", container_name)
-                return True
-            except NotFound:
-                logger.info("Container %s not found — nothing to restart", container_name)
-                return False
-            except Exception as e:
-                logger.error("Failed to restart container %s: %s", container_name, e)
-                return False
+            return await asyncio.to_thread(
+                self._restart_container_sync, user_id, timeout, config_json
+            )
+
+    def _restart_container_sync(
+        self, user_id: str, timeout: int, config_json: str | None = None
+    ) -> bool:
+        client = self._get_client()
+        container_name = f"agent-{user_id}"
+        try:
+            container = client.containers.get(container_name)
+            # Re-inject the config before restarting: `docker restart`
+            # alone keeps whatever config file the container was created
+            # with, so provider/MCP edits on the host would never reach
+            # containers that only ever get restarted (never stopped).
+            # put_archive writes straight into the /data volume, so it
+            # works on a running container too.
+            if not self.inject_opencode_config(container, config_json):
+                # Restart keeps the previously injected (working) config,
+                # so this is not fatal — but never fail silently.
+                logger.warning(
+                    "Config re-injection failed before restart of %s — "
+                    "container restarts with its previous config",
+                    container_name,
+                )
+            container.restart(timeout=timeout)
+            container.reload()
+            logger.info("Container %s restarted", container_name)
+            return True
+        except NotFound:
+            logger.info("Container %s not found — nothing to restart", container_name)
+            return False
+        except Exception as e:
+            logger.error("Failed to restart container %s: %s", container_name, e)
+            return False
 
     async def stop_container(self, user_id: str, timeout: int = 10):
         """Gracefully stop a user's container (preserves volumes)."""
         async with self._lock:
-            client = self._get_client()
-            container_name = f"agent-{user_id}"
-            try:
-                container = client.containers.get(container_name)
-                container.stop(timeout=timeout)
-                logger.info("Container %s stopped", container_name)
-            except NotFound:
-                logger.info("Container %s not found — nothing to stop", container_name)
-            except Exception as e:
-                logger.error("Failed to stop container %s: %s", container_name, e)
+            await asyncio.to_thread(self._stop_container_sync, user_id, timeout)
 
-    async def destroy_container(self, user_id: str):
+    def _stop_container_sync(self, user_id: str, timeout: int):
+        client = self._get_client()
+        container_name = f"agent-{user_id}"
+        try:
+            container = client.containers.get(container_name)
+            container.stop(timeout=timeout)
+            logger.info("Container %s stopped", container_name)
+        except NotFound:
+            logger.info("Container %s not found — nothing to stop", container_name)
+        except Exception as e:
+            logger.error("Failed to stop container %s: %s", container_name, e)
+
+    async def destroy_container(self, user_id: str) -> dict:
         """Destroy a user's container AND its volumes (irreversible).
 
         Per design section 3.2 — triggered after M days of inactivity or
-        user account deletion. Volumes should be backed up before calling this.
+        user account deletion. The workspace volume is exported to a
+        tar.gz under settings.backup_dir first (P1-6).
+
+        Returns backup metadata ({} when there was no volume to back up
+        or the backup failed — backup is soft-fail, never blocks cleanup).
         """
         async with self._lock:
-            client = self._get_client()
-            container_name = f"agent-{user_id}"
-            try:
-                container = client.containers.get(container_name)
-                container.remove(force=True)
-                logger.info("Container %s destroyed", container_name)
-            except NotFound:
-                pass
+            return await asyncio.to_thread(self._destroy_container_sync, user_id)
 
-            # Remove volumes
-            for vol_name in [self._workspace_volume_name(user_id), self._data_volume_name(user_id)]:
+    def _destroy_container_sync(self, user_id: str) -> dict:
+        client = self._get_client()
+        container_name = f"agent-{user_id}"
+        try:
+            container = client.containers.get(container_name)
+            container.remove(force=True)
+            logger.info("Container %s destroyed", container_name)
+        except NotFound:
+            pass
+
+        # P1-6: tar up the workspace volume before removing it — destroy is
+        # irreversible, so this is the last chance to save user data.
+        backup_meta = self._backup_workspace_sync(user_id)
+
+        # Remove volumes
+        for vol_name in [self._workspace_volume_name(user_id), self._data_volume_name(user_id)]:
+            try:
+                vol = client.volumes.get(vol_name)
+                vol.remove(force=True)
+                logger.info("Volume %s removed", vol_name)
+            except (NotFound, Exception):
+                pass
+        return backup_meta
+
+    def _backup_workspace_sync(self, user_id: str) -> dict:
+        """Export the user's workspace volume to {backup_dir}/{user_id}/{ts}.tar.gz.
+
+        P1-6. Mounts the volume read-only into a throwaway (created-but-never-
+        started) container and streams `get_archive` output through gzip, so
+        neither the user container's presence nor its state matters.
+
+        Soft-fails: any problem logs a warning and returns {} — a failed
+        backup must never block the irreversible cleanup it precedes.
+        """
+        client = self._get_client()
+        vol_name = self._workspace_volume_name(user_id)
+        try:
+            client.volumes.get(vol_name)
+        except NotFound:
+            return {}  # nothing to back up
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Backup pre-check failed for %s: %s", vol_name, exc)
+            return {}
+
+        holder: Container | None = None
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            dest_dir = Path(settings.backup_dir) / user_id
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / f"workspace-{ts}.tar.gz"
+
+            # Created-but-not-running container: the daemon still reads the
+            # mounted volume via the archive API. Never started, so the
+            # command is irrelevant.
+            holder = client.containers.create(
+                image=settings.agent_image,
+                entrypoint=["/bin/sh", "-c"],
+                command=["true"],
+                volumes={vol_name: {"bind": settings.agent_workdir, "mode": "ro"}},
+                user="1000:1000",
+                labels={"purpose": "workspace-backup", "temporary": "true"},
+            )
+            bits, _stat = holder.get_archive(settings.agent_workdir)
+
+            raw_size = 0
+            sha = hashlib.sha256()
+            with gzip.open(dest, "wb", compresslevel=6) as gz:
+                for chunk in bits:
+                    gz.write(chunk)
+                    raw_size += len(chunk)
+                    sha.update(chunk)
+
+            meta = {
+                "path": str(dest),
+                "volume": vol_name,
+                "size_bytes": dest.stat().st_size,
+                "raw_bytes": raw_size,
+                "sha256": sha.hexdigest(),
+                "created_at": ts,
+            }
+            logger.info(
+                "Workspace backup for %s written to %s (%d bytes compressed)",
+                user_id, dest, meta["size_bytes"],
+            )
+            return meta
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Workspace backup before destroy failed for %s: %s", user_id, exc)
+            return {}
+        finally:
+            if holder is not None:
                 try:
-                    vol = client.volumes.get(vol_name)
-                    vol.remove(force=True)
-                    logger.info("Volume %s removed", vol_name)
-                except (NotFound, Exception):
+                    holder.remove(force=True)
+                except Exception:  # noqa: BLE001
                     pass
 
     def get_container(self, user_id: str) -> Container | None:

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { api } from "../api";
+import { api, type ActiveLlm, type UserLlmProvider, type UserLlmProviderInput } from "../api";
 import { styles } from "./chatStyles";
 
-type Scope = "global" | "project";
+type Scope = "global" | "project" | "user";
 
 export function ConfigPanel({ onClose }: { onClose: () => void }) {
   const [scope, setScope] = useState<Scope>("global");
-  const [tab, setTab] = useState<"providers" | "mcp" | "skills" | "config">("providers");
+  const [tab, setTab] = useState<"providers" | "mcp" | "skills" | "config" | "userLlm">("providers");
   const [overview, setOverview] = useState<any>(null);
   const [projectConfig, setProjectConfig] = useState<{ content: string; valid: boolean; config: Record<string, any> } | null>(null);
   const [projectSkills, setProjectSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
@@ -52,17 +52,6 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
     ...projectSkills.map((s: any) => ({ ...s, scope: "project" as const })),
   ];
 
-  const scopeBadge = (s: "global" | "project") => (
-    <span style={{
-      marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11,
-      background: s === "global" ? "#fef3c7" : "#e0f2fe",
-      color: s === "global" ? "#92400e" : "#0369a1",
-      fontWeight: 500,
-    }}>
-      {s === "global" ? "全局" : "项目"}
-    </span>
-  );
-
   return (
     <div style={styles.modal} onClick={onClose}>
       <div style={{ ...styles.modalContent, width: "90%", maxWidth: 720, maxHeight: "85vh" }} onClick={(e) => e.stopPropagation()}>
@@ -75,18 +64,25 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
 
           {/* Scope selector */}
           <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e0e0e0", padding: "0 16px" }}>
-            {(["global", "project"] as const).map((s) => (
+            {(["global", "project", "user"] as const).map((s) => (
               <button
                 key={s}
-                onClick={() => { setScope(s); setTab(s === "project" ? "skills" : "providers"); }}
+                onClick={() => {
+                  setScope(s);
+                  setTab(s === "project" ? "skills" : s === "user" ? "userLlm" : "providers");
+                }}
                 style={{
                   padding: "10px 20px", border: "none", cursor: "pointer", fontSize: 13,
                   fontWeight: scope === s ? 600 : 400,
-                  background: scope === s ? (s === "global" ? "#fef9f0" : "#f0f7ff") : "transparent",
-                  borderBottom: scope === s ? `2px solid ${s === "global" ? "#f59e0b" : "#378ADD"}` : "2px solid transparent",
+                  background: scope === s
+                    ? s === "global" ? "#fef9f0" : s === "project" ? "#f0f7ff" : "#f5f3ff"
+                    : "transparent",
+                  borderBottom: scope === s
+                    ? `2px solid ${s === "global" ? "#f59e0b" : s === "project" ? "#378ADD" : "#8b5cf6"}`
+                    : "2px solid transparent",
                 }}
               >
-                {s === "global" ? "全局配置" : "项目配置"}
+                {s === "global" ? "全局配置" : s === "project" ? "项目配置" : "用户 LLM"}
                 {s === "project" && projectConfig && " ✓"}
               </button>
             ))}
@@ -143,11 +139,12 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
             {scope === "project" && tab === "skills" && (
               <SkillTab skills={projectSkills.map((s: any) => ({ ...s, scope: "project" }))} onChange={loadAll} scope="project" />
             )}
+            {scope === "user" && tab === "userLlm" && <UserLlmTab onReload={handleReload} />}
           </div>
 
           <div style={{ padding: "12px 16px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "#999" }}>
-              {scope === "global" ? "全局" : "项目"}配置 · 重启容器后生效
+              {scope === "global" ? "全局" : scope === "project" ? "项目" : "用户"}配置 · 重启容器后生效
             </span>
             <button style={{ ...styles.reloadBtn, opacity: busy ? 0.5 : 1 }} onClick={handleReload} disabled={!!busy}>
               {busy || "重载到容器"}
@@ -270,15 +267,23 @@ function ProviderTab({ overview, onChange }: { overview: any; onChange: () => vo
   const handleSave = async () => {
     const opts: Record<string, string> = { baseURL: form.baseURL };
     if (form.apiKey) opts.apiKey = form.apiKey;
-    await api.upsertProvider(form.id, { name: form.name, npm: form.npm, options: opts });
-    setEditing(null);
-    onChange();
+    try {
+      await api.upsertProvider(form.id, { name: form.name, npm: form.npm, options: opts });
+      setEditing(null);
+      onChange();
+    } catch (e: any) {
+      alert("保存失败: " + e.message);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(`删除 provider "${id}"?`)) return;
-    await api.deleteProvider(id);
-    onChange();
+    try {
+      await api.deleteProvider(id);
+      onChange();
+    } catch (e: any) {
+      alert("删除失败: " + e.message);
+    }
   };
 
   if (editing) {
@@ -350,21 +355,33 @@ function McpTab({ overview, onChange, onReload }: { overview: any; onChange: () 
     const cfg: any = { type: form.type, enabled: form.enabled };
     if (form.type === "remote") cfg.url = form.url;
     else cfg.command = form.command.split(/\s+/).filter(Boolean);
-    await api.upsertMcp(form.name, cfg);
-    setEditing(null);
-    onChange();
+    try {
+      await api.upsertMcp(form.name, cfg);
+      setEditing(null);
+      onChange();
+    } catch (e: any) {
+      alert("保存失败: " + e.message);
+    }
   };
 
   const handleDelete = async (name: string) => {
     if (!confirm(`删除 MCP "${name}"?`)) return;
-    await api.deleteMcp(name);
-    onChange();
+    try {
+      await api.deleteMcp(name);
+      onChange();
+    } catch (e: any) {
+      alert("删除失败: " + e.message);
+    }
   };
 
   const handleToggle = async (name: string, enabled: boolean) => {
-    await api.toggleMcp(name, enabled);
-    onChange();
-    await onReload();
+    try {
+      await api.toggleMcp(name, enabled);
+      onChange();
+      await onReload();
+    } catch (e: any) {
+      alert("切换失败: " + e.message);
+    }
   };
 
   if (editing) {
@@ -443,6 +460,234 @@ function McpTab({ overview, onChange, onReload }: { overview: any; onChange: () 
 }
 
 // ------------------------------------------------------------------
+//  User LLM tab (user scope): DB-backed providers + active selection
+// ------------------------------------------------------------------
+
+function UserLlmTab({ onReload }: { onReload: () => Promise<void> }) {
+  const [providers, setProviders] = useState<UserLlmProvider[]>([]);
+  const [active, setActive] = useState<ActiveLlm>({ provider_id: null, model: null });
+  const [editing, setEditing] = useState<string | null>(null);
+  const [form, setForm] = useState({ provider_id: "", name: "", base_url: "", api_key: "", npm: "@ai-sdk/openai-compatible", models: "" });
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const load = useCallback(async () => {
+    const [p, a] = await Promise.all([api.listUserLlmProviders(), api.getActiveLlm()]);
+    setProviders(p.providers);
+    setActive(a);
+  }, []);
+
+  useEffect(() => {
+    load().catch((e: any) => setMsg({ text: e.message, ok: false }));
+  }, [load]);
+
+  const activeProvider = providers.find((p) => p.provider_id === active.provider_id);
+  const activeModels = activeProvider ? Object.keys(activeProvider.models || {}) : [];
+
+  const flash = (text: string, ok: boolean) => setMsg({ text, ok });
+
+  const handleSetActiveProvider = async (providerId: string) => {
+    setBusy("激活中…");
+    try {
+      await api.setActiveLlm(providerId, null);
+      await load();
+      await onReload();
+      flash(`已激活 "${providerId}"（使用默认模型）`, true);
+    } catch (e: any) {
+      flash(e.message, false);
+    } finally { setBusy(""); }
+  };
+
+  const handleSetActiveModel = async (model: string | null) => {
+    if (!active.provider_id) return;
+    setBusy("设置模型…");
+    try {
+      await api.setActiveLlm(active.provider_id, model);
+      await load();
+      await onReload();
+      flash(model ? `已选择模型 "${model}"` : "已切换为默认模型", true);
+    } catch (e: any) {
+      flash(e.message, false);
+    } finally { setBusy(""); }
+  };
+
+  const handleClearActive = async () => {
+    setBusy("清除中…");
+    try {
+      await api.setActiveLlm(null);
+      await load();
+      await onReload();
+      flash("已清除激活 LLM", true);
+    } catch (e: any) {
+      flash(e.message, false);
+    } finally { setBusy(""); }
+  };
+
+  const startEdit = (id: string, data?: UserLlmProvider) => {
+    setEditing(id);
+    setForm({
+      provider_id: data?.provider_id || "",
+      name: data?.name || "",
+      base_url: data?.baseURL || "",
+      api_key: "",
+      npm: data?.npm || "@ai-sdk/openai-compatible",
+      models: data?.models ? JSON.stringify(data.models, null, 2) : "",
+    });
+  };
+
+  const handleSave = async () => {
+    let models: Record<string, any> | null = null;
+    if (form.models.trim()) {
+      try {
+        models = JSON.parse(form.models);
+      } catch {
+        flash("models 不是合法 JSON", false);
+        return;
+      }
+    }
+    const payload: UserLlmProviderInput = {
+      provider_id: form.provider_id,
+      name: form.name || null,
+      npm: form.npm,
+      base_url: form.base_url || null,
+      api_key: form.api_key || null,
+      models,
+    };
+    try {
+      if (editing === "__new") {
+        await api.createUserLlmProvider(payload);
+      } else if (editing) {
+        await api.updateUserLlmProvider(editing, payload);
+      }
+      setEditing(null);
+      await load();
+      flash("已保存", true);
+    } catch (e: any) {
+      flash(e.message, false);
+    }
+  };
+
+  const handleDelete = async (id: string, providerId: string) => {
+    if (!confirm(`删除用户 LLM Provider "${providerId}"?`)) return;
+    try {
+      await api.deleteUserLlmProvider(id);
+      await load();
+      flash(`已删除 "${providerId}"`, true);
+    } catch (e: any) {
+      flash(e.message, false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h3 style={{ margin: 0 }}>{editing === "__new" ? "新增" : "编辑"}用户 LLM Provider</h3>
+        <Field label="Provider ID" value={form.provider_id} onChange={(v) => setForm({ ...form, provider_id: v })} disabled={editing !== "__new"} placeholder="如 my-openai" />
+        <Field label="名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="可选" />
+        <Field label="Base URL" value={form.base_url} onChange={(v) => setForm({ ...form, base_url: v })} placeholder="https://api.openai.com/v1" />
+        <Field label="API Key" value={form.api_key} onChange={(v) => setForm({ ...form, api_key: v })} placeholder="留空不修改" />
+        <Field label="NPM 包" value={form.npm} onChange={(v) => setForm({ ...form, npm: v })} />
+        <div>
+          <label style={{ fontSize: 12, color: "#666" }}>Models (JSON, 可选)</label>
+          <textarea
+            style={{ ...styles.textInput, height: 120, fontFamily: "monospace", fontSize: 12 }}
+            value={form.models}
+            onChange={(e) => setForm({ ...form, models: e.target.value })}
+            placeholder='{"gpt-4o": { "name": "GPT-4o" }}'
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={styles.sendBtn} onClick={handleSave}>保存</button>
+          <button style={styles.abortBtn} onClick={() => setEditing(null)}>取消</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {msg && (
+        <div style={{ padding: "8px 12px", borderRadius: 6, fontSize: 12, marginBottom: 12, background: msg.ok ? "#f0fdf4" : "#fef2f2", color: msg.ok ? "#166534" : "#991b1b" }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Active selection */}
+      <div style={{ padding: 12, marginBottom: 16, border: "1px solid #e9d5ff", borderRadius: 8, background: "#faf5ff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <strong style={{ fontSize: 13 }}>激活 LLM</strong>
+          {active.provider_id && (
+            <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={handleClearActive} disabled={!!busy}>清除激活</button>
+          )}
+        </div>
+        {active.provider_id ? (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13 }}>
+              当前: <strong style={{ color: "#7c3aed" }}>{active.provider_id}</strong>
+              {active.model ? ` · ${active.model}` : " · 默认模型"}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <select
+                style={{ ...styles.select, flex: 1 }}
+                value={active.model ?? ""}
+                onChange={(e) => handleSetActiveModel(e.target.value === "" ? null : e.target.value)}
+                disabled={!!busy || activeModels.length === 0}
+              >
+                <option value="">默认（自动）</option>
+                {activeModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+              <span style={{ fontSize: 11, color: "#999" }}>{busy || "选择模型"}</span>
+            </div>
+          </div>
+        ) : (
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#999" }}>尚未选择激活 LLM，点击下方 Provider 的「设为激活」按钮。</p>
+        )}
+      </div>
+
+      {/* Provider list */}
+      {providers.length === 0 && !busy && (
+        <p style={{ textAlign: "center", color: "#999", padding: 20 }}>暂无用户 LLM Provider</p>
+      )}
+
+      {providers.map((p) => {
+        const isActive = active.provider_id === p.provider_id;
+        const modelIds = Object.keys(p.models || {});
+        return (
+          <div key={p.id} style={{ padding: 12, marginBottom: 8, border: isActive ? "2px solid #8b5cf6" : "1px solid #e0e0e0", borderRadius: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <strong>{p.name || p.provider_id}</strong>
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>{p.provider_id}</span>
+                {isActive && <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11, background: "#ede9fe", color: "#6d28d9", fontWeight: 500 }}>激活</span>}
+              </div>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                {!isActive && (
+                  <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => handleSetActiveProvider(p.provider_id)} disabled={!!busy}>设为激活</button>
+                )}
+                <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => startEdit(p.id, p)}>编辑</button>
+                <button style={{ ...styles.abortBtn, fontSize: 12 }} onClick={() => handleDelete(p.id, p.provider_id)}>删除</button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+              {p.baseURL || "(no baseURL)"} · API Key: {p.hasApiKey ? "✓" : "✗"}
+            </div>
+            {modelIds.length > 0 && (
+              <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>Models: {modelIds.join(", ")}</div>
+            )}
+          </div>
+        );
+      })}
+
+      <button style={{ ...styles.newSessionLargeBtn, marginTop: 12 }} onClick={() => startEdit("__new")} disabled={!!busy}>
+        + 新增用户 LLM Provider
+      </button>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
 //  Skill tab (global + project, or project-only depending on scope)
 // ------------------------------------------------------------------
 
@@ -469,23 +714,31 @@ function SkillTab({ skills, onChange, scope }: { skills: any[]; onChange: () => 
   };
 
   const handleSave = async () => {
-    if (editScope === "global") {
-      await api.upsertSkill(form.name, form.content);
-    } else {
-      await api.upsertProjectSkill(form.name, form.content);
+    try {
+      if (editScope === "global") {
+        await api.upsertSkill(form.name, form.content);
+      } else {
+        await api.upsertProjectSkill(form.name, form.content);
+      }
+      setEditing(null);
+      onChange();
+    } catch (e: any) {
+      alert("保存失败: " + e.message);
     }
-    setEditing(null);
-    onChange();
   };
 
   const handleDelete = async (name: string, s: "global" | "project") => {
     if (!confirm(`删除 ${s === "global" ? "全局" : "项目"} Skill "${name}"?`)) return;
-    if (s === "global") {
-      await api.deleteSkill(name);
-    } else {
-      await api.deleteProjectSkill(name);
+    try {
+      if (s === "global") {
+        await api.deleteSkill(name);
+      } else {
+        await api.deleteProjectSkill(name);
+      }
+      onChange();
+    } catch (e: any) {
+      alert("删除失败: " + e.message);
     }
-    onChange();
   };
 
   const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {

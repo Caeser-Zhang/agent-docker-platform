@@ -18,13 +18,19 @@ platform never has to be updated when opencode adds a capability.
 import asyncio
 import json
 import logging
+import secrets
+import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import get_current_user, get_current_user_from_token
+from ..auth import get_current_user
+from ..database import async_session, get_db
 from ..models import User
+from ..services import user_config
 from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 from ..services.opencode_config import describe_source
@@ -48,6 +54,38 @@ BLOCKED_PREFIXES = (
     "auth/",
 )
 
+
+def _normalize_tunnel_path(raw: str) -> str | None:
+    """Resolve a proxied path to canonical, dot-free segments.
+
+    Returns the slash-joined canonical path, or None when the path tries to
+    escape above the root (`..` underflow). A plain `startswith` blacklist
+    can be bypassed with dot segments — `./global/config` or
+    `foo/../global/config` pass the check, and httpx then re-normalises the
+    path on the wire into the blocked route.
+    """
+    stack: list[str] = []
+    for seg in raw.replace("\\", "/").split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if not stack:
+                return None
+            stack.pop()
+        else:
+            stack.append(seg)
+    return "/".join(stack)
+
+
+def _is_blocked(canonical: str) -> bool:
+    """Segment-level blacklist match (no `global/configX` false positives)."""
+    segs = canonical.split("/") if canonical else []
+    for prefix in BLOCKED_PREFIXES:
+        blocked = prefix.rstrip("/").split("/")
+        if segs[: len(blocked)] == blocked:
+            return True
+    return False
+
 # Hop-by-hop and length headers must not be copied onto our own response.
 STRIPPED_RESPONSE_HEADERS = {
     "content-length",
@@ -61,28 +99,19 @@ STRIPPED_RESPONSE_HEADERS = {
 
 
 async def _require_agent(user: User) -> tuple[User, str]:
-    """Ensure the user's container is running; return (user, container password)."""
-    status = await agent_controller.get_status(user.id)
-    if not status["running"]:
+    """Ensure the user's container is running; return (user, container password).
+
+    Uses the controller's TTL-cached gate (P0-1b): this runs on EVERY
+    proxied request, and the old uncached path cost 2 Docker inspects +
+    2 DB queries per request.
+    """
+    running, password = await agent_controller.get_agent_gate(user.id)
+    if not running or password is None:
         raise HTTPException(
             status_code=503,
             detail="Agent not running. Please start the agent first.",
         )
-
-    from sqlalchemy import select
-
-    from ..database import async_session
-    from ..models import AgentContainer
-
-    async with async_session() as db:
-        result = await db.execute(
-            select(AgentContainer).where(AgentContainer.user_id == user.id)
-        )
-        record = result.scalar_one_or_none()
-        if not record:
-            raise HTTPException(status_code=503, detail="Agent container record not found")
-
-    return user, record.password_enc
+    return user, password
 
 
 # ------------------------------------------------------------------
@@ -106,8 +135,12 @@ async def proxy_opencode(oc_path: str, req: Request, user: User = Depends(get_cu
     if method not in ALLOWED_METHODS:
         raise HTTPException(status_code=405, detail=f"Method {method} not allowed")
 
-    normalized = oc_path.lstrip("/")
-    if any(normalized.startswith(prefix) for prefix in BLOCKED_PREFIXES):
+    # Canonicalise BEFORE the blacklist check, and forward the canonical
+    # form — the blacklist and the wire path must see the same string.
+    normalized = _normalize_tunnel_path(oc_path)
+    if normalized is None:
+        raise HTTPException(status_code=400, detail="Path escapes the tunnel root")
+    if _is_blocked(normalized):
         raise HTTPException(status_code=403, detail=f"Path /{normalized} is not proxied")
 
     user, password = await _require_agent(user)
@@ -199,12 +232,17 @@ async def list_providers(user: User = Depends(get_current_user)):
 
 
 @router.post("/config/reload")
-async def reload_config(user: User = Depends(get_current_user)):
-    """Re-inject the host opencode.json and restart the container.
+async def reload_config(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-inject the opencode.json and restart the container.
 
-    Used after the developer edits credentials on the host machine.
+    Used after the developer edits credentials on the host machine, or after
+    a user changes their own providers / MCP servers / active LLM selection.
     """
-    ok = await container_manager.reload_config(user.id)
+    config_json = await user_config.build_user_config_json(db, user.id)
+    ok = await container_manager.reload_config(user.id, config_json)
     if not ok:
         raise HTTPException(status_code=503, detail="No container to reload")
     # The restart drops the upstream SSE connection; bring the pump back.
@@ -213,21 +251,70 @@ async def reload_config(user: User = Depends(get_current_user)):
 
 
 # ------------------------------------------------------------------
+#  SSE one-time tickets (P1-5)
+# ------------------------------------------------------------------
+
+# EventSource cannot send an Authorization header. Previously the long-lived
+# JWT rode along in the query string, where it leaks into proxy/access logs
+# and browser history. The browser now exchanges its JWT for a short-lived,
+# single-use ticket and puts that in the URL instead. In-memory store (the
+# backend runs as a single worker — same assumption as the rate limiter).
+SSE_TICKET_TTL = 60  # seconds
+_sse_tickets: dict[str, tuple[str, float]] = {}  # ticket -> (user_id, expires_at)
+
+
+def _issue_sse_ticket(user_id: str) -> str:
+    """Mint a one-time ticket bound to user_id, sweeping expired ones."""
+    now = time.monotonic()
+    for k in [k for k, (_, exp) in _sse_tickets.items() if exp < now]:
+        _sse_tickets.pop(k, None)
+    ticket = secrets.token_urlsafe(32)
+    _sse_tickets[ticket] = (user_id, now + SSE_TICKET_TTL)
+    return ticket
+
+
+def _redeem_sse_ticket(ticket: str) -> str:
+    """Consume a ticket and return its user_id; 401 when invalid/expired."""
+    entry = _sse_tickets.pop(ticket, None)  # pop = single use
+    if entry is None or entry[1] < time.monotonic():
+        raise HTTPException(status_code=401, detail="Invalid or expired SSE ticket")
+    return entry[0]
+
+
+@router.post("/ticket")
+async def issue_sse_ticket(user: User = Depends(get_current_user)):
+    """Exchange the caller's JWT for a one-time, 60-second SSE ticket.
+
+    The ticket is what the browser's EventSource then puts in its URL —
+    so a leaked URL is only good for one stream attach within 60s, unlike
+    the JWT which was valid for a full day.
+    """
+    return {"ticket": _issue_sse_ticket(user.id), "expires_in": SSE_TICKET_TTL}
+
+
+# ------------------------------------------------------------------
 #  SSE Event stream — relay container events to browser
 # ------------------------------------------------------------------
 
 @router.get("/events")
 async def tunnel_events(
-    token: str = Query(..., description="JWT token (EventSource can't send headers)"),
+    ticket: str = Query(..., description="One-time ticket from POST /api/tunnel/ticket"),
     last_event_id: int = Query(0, alias="lastEventId"),
 ):
     """SSE stream: relay opencode's events from the container to the browser.
 
-    EventSource cannot send an Authorization header, so the JWT arrives as a
-    query parameter. Events are buffered in a 200-entry ring so a brief
-    disconnect can replay what it missed via lastEventId.
+    EventSource cannot send an Authorization header, so the browser first
+    exchanges its JWT for a one-time ticket (P1-5) and passes that here.
+    Events are buffered in a 200-entry ring so a brief disconnect can replay
+    what it missed via lastEventId.
     """
-    user = await get_current_user_from_token(token)
+    user_id = _redeem_sse_ticket(ticket)
+    # Same DB hit the old JWT path did, just keyed off the ticket.
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired SSE ticket")
 
     bus = sse_pump_manager.get_bus(user.id)
     if not bus:

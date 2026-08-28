@@ -36,8 +36,9 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
-    ports:
-      - "9123:8000"
+    # P1-5: no host port. The browser reaches the backend only through the
+    # frontend nginx reverse proxy (/api/ → backend:8000), so the control
+    # plane isn't directly reachable from outside the compose network.
     depends_on:
       - postgres
     # All AGENT_* settings live in backend/.env (committed with demo
@@ -96,6 +97,21 @@ services:
     command: ["python", "/app/server.py"]
     volumes:
       - ./mcp-demo/server.py:/app/server.py:ro
+    networks:
+      - agent-net
+
+  # fastk-mcp — platform-managed remote MCP server for the FastDB knowledge
+  # bases (P1-3 knowledge-base MVP + P1-7 managed remote MCP pattern). Serves
+  # the 7 read-only KB tools (list_databases/list_files/get_stats/toc/search/
+  # query/grep) over streamable HTTP at /mcp. Agent containers connect with
+  # type=remote via the URL injected from AGENT_FASTK_MCP_URL. FastDB runs on
+  # the host (WSL localhost:8000), reached via host-gateway — same pattern as
+  # the backend service. Internal only: no host ports, agent-net only.
+  fastk-mcp:
+    build: ./mcp-fastk
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - agent-net
 

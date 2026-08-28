@@ -13,6 +13,7 @@ Endpoints:
   POST /api/admin/containers/{user_id}/restart   — restart in place
   POST /api/admin/containers/{user_id}/stop      — graceful stop (keeps volumes)
   POST /api/admin/containers/{user_id}/destroy   — remove container AND volumes
+  GET  /api/admin/audit                          — recent lifecycle audit events
 """
 import asyncio
 import logging
@@ -25,6 +26,7 @@ from ..config import settings
 from ..database import async_session
 from ..models import AgentContainer, User
 from ..services.agent_controller import agent_controller
+from ..services.audit import list_audit
 from ..services.container_manager import container_manager
 
 logger = logging.getLogger(__name__)
@@ -144,11 +146,11 @@ async def admin_containers(stats: bool = Query(True, description="Include CPU/me
     return {"containers": rows}
 
 
-def _require_record(user_id: str) -> AgentContainer:
+async def _require_record(user_id: str) -> AgentContainer:
     """404 when the user has no container record at all."""
     # Synchronous pre-check via the container manager: the Docker daemon is
     # the ground truth for "does anything exist to operate on".
-    container = container_manager.get_container(user_id)
+    container = await asyncio.to_thread(container_manager.get_container, user_id)
     if container is None:
         raise HTTPException(status_code=404, detail="No Docker container for this user")
     return container
@@ -157,7 +159,7 @@ def _require_record(user_id: str) -> AgentContainer:
 @router.get("/containers/{user_id}/logs")
 async def admin_container_logs(user_id: str, tail: int = Query(200, ge=1, le=2000)):
     """Fetch the last `tail` lines of a user's container logs."""
-    _require_record(user_id)
+    await _require_record(user_id)
     logs = await asyncio.to_thread(container_manager.get_container_logs, user_id, tail)
     return {"user_id": user_id, "tail": tail, "logs": logs}
 
@@ -175,7 +177,7 @@ async def admin_restart_container(user_id: str):
 @router.post("/containers/{user_id}/stop")
 async def admin_stop_container(user_id: str):
     """Gracefully stop the container (volumes are preserved)."""
-    _require_record(user_id)
+    await _require_record(user_id)
     result = await agent_controller.stop_for_user(user_id)
     return {"ok": True, "message": result.get("message", "Container stopped")}
 
@@ -193,3 +195,13 @@ async def admin_destroy_container(user_id: str):
         raise HTTPException(status_code=404, detail=result.get("message", "Destroy failed"))
     logger.warning("Admin destroyed container and volumes for user %s", user_id)
     return result
+
+
+@router.get("/audit")
+async def admin_audit(limit: int = Query(100, ge=1, le=500)):
+    """P1-6: recent lifecycle audit events, newest first.
+
+    Rows are written by agent_controller (start/stop/restart/destroy);
+    destroy rows embed the workspace backup metadata (path/size/sha256).
+    """
+    return {"events": await list_audit(limit)}

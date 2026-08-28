@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db, promote_admins, backfill_uids
-from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy
+from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy, user_config
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
 from .services.sse_pump import sse_pump_manager
@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
 
     # 2. Ensure Docker network exists
     try:
-        container_manager.ensure_network()
+        await asyncio.to_thread(container_manager.ensure_network)
         logger.info("Docker network ready: %s", settings.agent_network)
     except Exception as e:
         logger.warning("Docker network setup failed (Docker may not be available): %s", e)
@@ -111,6 +111,7 @@ app.include_router(config.router)
 app.include_router(workspace.router)
 app.include_router(admin.router)
 app.include_router(llm_proxy.router)
+app.include_router(user_config.router)
 
 
 @app.exception_handler(RequestValidationError)

@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # "backend" resolves on agent-net via the compose service name.
     llm_proxy_base: str = "http://backend:8000/llm-proxy"
 
+    # Base URL agent containers use to reach the platform-managed fastk-mcp
+    # service (mcp-fastk/ in this repo; docker-compose runs it on agent-net).
+    # The fastk builtin MCP manifest (agent-image/builtin-mcp/fastk) resolves
+    # ${FASTK_MCP_URL} against this setting, so every user container gets the
+    # knowledge-base search tools injected as a remote MCP server.
+    fastk_mcp_url: str = "http://fastk-mcp:8001/mcp"
+
     # Directory containing built-in MCP server manifests (mounted read-only
     # into the backend from the agent image source). Each subdirectory has a
     # manifest.json declaring the server's mcp config; these are discovered
@@ -75,6 +82,10 @@ class Settings(BaseSettings):
     # --- Workspace ---
     workspace_base: str = "/tmp/agent-workspaces"
 
+    # P1-6: destroy-time workspace backups land here (must live on the
+    # backend-data volume so tar.gz exports survive backend recreation).
+    backup_dir: str = "/app/data/backups"
+
     # --- CORS ---
     cors_origins: list[str] = ["*"]
 
@@ -89,3 +100,21 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# P1-5: refuse to boot on known-weak signing keys. The JWT secret derives
+# Fernet keys (crypto.py) too, so a hardcoded demo value would let anyone
+# mint admin tokens AND decrypt stored container passwords / API keys.
+_WEAK_SECRET_KEYS = {
+    "demo-secret-key-change-in-production",
+    "change-this-in-production",
+    "secret",
+    "changeme",
+    "change-me",
+}
+
+if settings.secret_key.strip().lower() in _WEAK_SECRET_KEYS or len(settings.secret_key) < 32:
+    raise RuntimeError(
+        "AGENT_SECRET_KEY is missing, too short (<32 chars), or set to a "
+        "known-weak default. Generate a strong value first, e.g.: "
+        'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+    )

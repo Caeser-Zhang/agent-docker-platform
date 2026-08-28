@@ -10,7 +10,12 @@ export function Login({ onLogin }: { onLogin: (t: TokenResponse) => void }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return;
+    // Empty fields must tell the user why nothing happened — a silent
+    // return looks exactly like a broken button.
+    if (!username || !password) {
+      setError("请输入用户名和密码");
+      return;
+    }
     setError("");
     setLoading(true);
     try {

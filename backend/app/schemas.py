@@ -34,6 +34,10 @@ class AgentStatusResponse(BaseModel):
     running: bool
     healthy: bool = False
     status: str = "absent"
+    # Epoch seconds when the current background start flow began (only set
+    # while a start is in flight) — lets the UI show an accurate total wait
+    # even for a browser that attached mid-start (P1-4).
+    phase_since: float | None = None
     container_name: str | None = None
     workspace: str | None = None
     message: str = ""

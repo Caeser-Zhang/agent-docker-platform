@@ -27,19 +27,32 @@ engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+async def get_db():
+    """FastAPI dependency yielding one request-scoped async session."""
+    async with async_session() as session:
+        yield session
+
+
 class Base(DeclarativeBase):
     pass
 
 
 async def init_db():
     """Create all tables and run lightweight migrations — called on startup."""
-    from .models import User, AgentContainer  # noqa: F401
+    from .models import (  # noqa: F401
+        User,
+        AgentContainer,
+        UserMcpServer,
+        UserLLMProvider,
+        AuditEvent,
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # No Alembic in this project — add columns that older databases
         # (created before the field existed) are missing.
         await conn.run_sync(_add_missing_columns)
+        await conn.run_sync(_drop_legacy_tables)
 
 
 def _add_missing_columns(sync_conn) -> None:
@@ -66,6 +79,24 @@ def _add_missing_columns(sync_conn) -> None:
         # ALTER TABLE ADD COLUMN cannot add UNIQUE on either backend —
         # uniqueness is enforced in the register route for migrated databases.
         sync_conn.execute(text("ALTER TABLE users ADD COLUMN uid VARCHAR(50)"))
+    if "active_llm_provider_id" not in user_cols:
+        sync_conn.execute(
+            text("ALTER TABLE users ADD COLUMN active_llm_provider_id VARCHAR(100)")
+        )
+    if "active_model" not in user_cols:
+        sync_conn.execute(
+            text("ALTER TABLE users ADD COLUMN active_model VARCHAR(100)")
+        )
+
+
+def _drop_legacy_tables(sync_conn) -> None:
+    """Drop tables superseded by a cleaner data model.
+
+    ``user_llm_selection`` was an unused 1:1 table that stored the LLM API key
+    in plaintext. It is replaced by two nullable ``users`` columns
+    (``active_llm_provider_id`` / ``active_model``); drop any pre-existing copy.
+    """
+    sync_conn.execute(text("DROP TABLE IF EXISTS user_llm_selection"))
 
 
 def _next_uid(existing: list[str | None]) -> str:

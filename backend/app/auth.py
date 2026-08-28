@@ -57,11 +57,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         return user
 
 
-async def get_current_user_from_token(token: str) -> User:
-    """Used by SSE endpoints where EventSource can't send Authorization headers."""
-    return await get_current_user(token=token)
-
-
 async def require_admin(user: User = Depends(get_current_user)) -> User:
     """Dependency for admin-only routes (Docker management etc.).
 

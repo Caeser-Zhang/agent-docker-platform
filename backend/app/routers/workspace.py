@@ -26,6 +26,7 @@ Endpoints:
   DELETE /api/workspace/skills/{name}     — delete one project skill
   POST   /api/workspace/skills/import     — upload a .zip, unpack into .opencode/skills/
 """
+import asyncio
 import io
 import json
 import logging
@@ -65,17 +66,20 @@ class SkillCreate(BaseModel):
 #  Helpers
 # ------------------------------------------------------------------
 
-def _require_container(user: User) -> None:
-    if container_manager.get_container(user.id) is None:
+async def _require_container(user: User) -> None:
+    # Docker SDK calls block; keep them off the event loop (P0-1a).
+    if await asyncio.to_thread(container_manager.get_container, user.id) is None:
         raise HTTPException(
             status_code=409,
             detail="Agent 容器尚未创建，请先启动 Agent 再管理项目级配置",
         )
 
 
-def _list_project_skills(user_id: str) -> list[dict]:
+async def _list_project_skills(user_id: str) -> list[dict]:
     """List project-scope skills from .opencode/skills/<name>/SKILL.md."""
-    tree = container_manager.read_workspace_tree(user_id, PROJECT_SKILLS_REL)
+    tree = await asyncio.to_thread(
+        container_manager.read_workspace_tree, user_id, PROJECT_SKILLS_REL
+    )
     if not tree:
         return []
     skills: list[dict] = []
@@ -95,7 +99,7 @@ def _list_project_skills(user_id: str) -> list[dict]:
     return skills
 
 
-def _list_all_skills(user_id: str) -> list[dict]:
+async def _list_all_skills(user_id: str) -> list[dict]:
     """Global (host) + project (workspace) skills, tagged by scope."""
     out: list[dict] = []
     try:
@@ -108,7 +112,7 @@ def _list_all_skills(user_id: str) -> list[dict]:
             })
     except Exception as exc:  # noqa: BLE001
         logger.warning("Global skill listing failed: %s", exc)
-    out.extend(_list_project_skills(user_id))
+    out.extend(await _list_project_skills(user_id))
     return out
 
 
@@ -212,15 +216,18 @@ def _extract_skills_from_zip(data: bytes) -> list[tuple[str, dict[str, bytes]]]:
 @router.get("/config")
 async def get_project_config(user: User = Depends(get_current_user)):
     """Read the project-scope opencode.json, creating a skeleton if absent."""
-    _require_container(user)
-    raw = container_manager.read_workspace_file(user.id, PROJECT_CONFIG_REL)
+    await _require_container(user)
+    raw = await asyncio.to_thread(
+        container_manager.read_workspace_file, user.id, PROJECT_CONFIG_REL
+    )
     created = False
     if raw is None:
         # Requirement: materialise the project config file when missing so the
         # user always has something editable in the workspace.
         skeleton = '{\n  "$schema": "https://opencode.ai/config.json"\n}\n'
-        if not container_manager.write_workspace_files(
-            user.id, {PROJECT_CONFIG_REL: skeleton.encode("utf-8")}
+        if not await asyncio.to_thread(
+            container_manager.write_workspace_files,
+            user.id, {PROJECT_CONFIG_REL: skeleton.encode("utf-8")},
         ):
             raise HTTPException(status_code=500, detail="无法在工作空间创建项目级配置文件")
         raw = skeleton.encode("utf-8")
@@ -246,7 +253,7 @@ async def get_project_config(user: User = Depends(get_current_user)):
 @router.put("/config")
 async def save_project_config(body: ProjectConfigSave, user: User = Depends(get_current_user)):
     """Save the project-scope opencode.json (full-file replacement)."""
-    _require_container(user)
+    await _require_container(user)
     try:
         parsed = json.loads(body.content) if body.content.strip() else {}
         if not isinstance(parsed, dict):
@@ -256,8 +263,9 @@ async def save_project_config(body: ProjectConfigSave, user: User = Depends(get_
     if len(body.content) > 1024 * 1024:
         raise HTTPException(status_code=400, detail="配置文件超过 1MB 上限")
 
-    ok = container_manager.write_workspace_files(
-        user.id, {PROJECT_CONFIG_REL: body.content.encode("utf-8")}
+    ok = await asyncio.to_thread(
+        container_manager.write_workspace_files,
+        user.id, {PROJECT_CONFIG_REL: body.content.encode("utf-8")},
     )
     if not ok:
         raise HTTPException(status_code=500, detail="写入工作空间失败")
@@ -273,8 +281,8 @@ async def save_project_config(body: ProjectConfigSave, user: User = Depends(get_
 async def list_all_skills(user: User = Depends(get_current_user)):
     """Global + project skills in one list, tagged with `scope` —
     feeds the input-box skill picker in the chat UI."""
-    _require_container(user)
-    return {"skills": _list_all_skills(user.id)}
+    await _require_container(user)
+    return {"skills": await _list_all_skills(user.id)}
 
 
 # Upload limits for chat attachments (kept modest; the workspace volume is
@@ -300,7 +308,7 @@ async def upload_chat_file(
     part), so the model sees a real file inside its own container instead of
     a browser-side blob.
     """
-    _require_container(user)
+    await _require_container(user)
     name = _safe_upload_name(file.filename or "")
     data = await file.read()
     if not data:
@@ -311,7 +319,9 @@ async def upload_chat_file(
         )
 
     rel = f"{UPLOADS_REL}/{name}"
-    if not container_manager.write_workspace_files(user.id, {rel: data}):
+    if not await asyncio.to_thread(
+        container_manager.write_workspace_files, user.id, {rel: data}
+    ):
         raise HTTPException(status_code=500, detail="写入工作空间失败")
 
     mime = file.content_type or "application/octet-stream"
@@ -364,8 +374,8 @@ async def list_workspace_files(user: User = Depends(get_current_user)):
     Returns [{path, type, size}] with workspace-relative paths; the frontend
     assembles the tree. Heavy dirs (.git, node_modules, caches) are pruned.
     """
-    _require_container(user)
-    entries = container_manager.list_workspace(user.id)
+    await _require_container(user)
+    entries = await asyncio.to_thread(container_manager.list_workspace, user.id)
     if entries is None:
         raise HTTPException(status_code=500, detail="无法读取工作空间目录")
     return {"files": entries}
@@ -382,8 +392,8 @@ async def read_workspace_file_content(
     {type:"image", mime, base64}. Anything larger than 2MB is refused —
     previews are for reading, not for hauling binaries.
     """
-    _require_container(user)
-    data = container_manager.read_workspace_file(user.id, path)
+    await _require_container(user)
+    data = await asyncio.to_thread(container_manager.read_workspace_file, user.id, path)
     if data is None:
         raise HTTPException(status_code=404, detail="文件不存在或不可读")
     if len(data) > 2 * 1024 * 1024:
@@ -414,8 +424,8 @@ async def read_workspace_file_content(
 
 @router.get("/skills")
 async def list_project_skills(user: User = Depends(get_current_user)):
-    _require_container(user)
-    return {"skills": _list_project_skills(user.id)}
+    await _require_container(user)
+    return {"skills": await _list_project_skills(user.id)}
 
 
 @router.post("/skills/import")
@@ -428,7 +438,7 @@ async def import_skills_zip(
     Must be defined BEFORE /skills/{name} so FastAPI matches the literal
     path "import" instead of capturing it as a {name} parameter.
     """
-    _require_container(user)
+    await _require_container(user)
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="请上传 .zip 格式的 skill 压缩包")
     data = await file.read()
@@ -443,13 +453,16 @@ async def import_skills_zip(
     # Replace semantics: drop any previous copy of each imported skill first,
     # so stale files from an older version don't linger in the directory.
     for name, _files in skills:
-        container_manager.delete_workspace_path(user.id, f"{PROJECT_SKILLS_REL}/{name}")
+        await asyncio.to_thread(
+            container_manager.delete_workspace_path,
+            user.id, f"{PROJECT_SKILLS_REL}/{name}",
+        )
 
     written: dict[str, bytes] = {}
     for name, files in skills:
         for rel, content in files.items():
             written[f"{PROJECT_SKILLS_REL}/{name}/{rel}"] = content
-    if not container_manager.write_workspace_files(user.id, written):
+    if not await asyncio.to_thread(container_manager.write_workspace_files, user.id, written):
         raise HTTPException(status_code=500, detail="写入工作空间失败")
 
     imported = [
@@ -475,13 +488,14 @@ async def import_skills_zip(
 
 @router.get("/skills/{name}")
 async def get_project_skill(name: str, user: User = Depends(get_current_user)):
-    _require_container(user)
+    await _require_container(user)
     try:
         _validate_name(name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    raw = container_manager.read_workspace_file(
-        user.id, f"{PROJECT_SKILLS_REL}/{name}/SKILL.md"
+    raw = await asyncio.to_thread(
+        container_manager.read_workspace_file,
+        user.id, f"{PROJECT_SKILLS_REL}/{name}/SKILL.md",
     )
     if raw is None:
         raise HTTPException(status_code=404, detail=f"项目级 skill '{name}' 不存在")
@@ -503,7 +517,7 @@ async def upsert_project_skill(
     user: User = Depends(get_current_user),
 ):
     """Create or update a project-scope skill's SKILL.md."""
-    _require_container(user)
+    await _require_container(user)
     try:
         _validate_name(name)
     except ValueError as exc:
@@ -517,8 +531,9 @@ async def upsert_project_skill(
     if len(body.content) > 512 * 1024:
         raise HTTPException(status_code=400, detail="SKILL.md 超过 512KB 上限")
 
-    ok = container_manager.write_workspace_files(
-        user.id, {f"{PROJECT_SKILLS_REL}/{name}/SKILL.md": body.content.encode("utf-8")}
+    ok = await asyncio.to_thread(
+        container_manager.write_workspace_files,
+        user.id, {f"{PROJECT_SKILLS_REL}/{name}/SKILL.md": body.content.encode("utf-8")},
     )
     if not ok:
         raise HTTPException(status_code=500, detail="写入工作空间失败")
@@ -534,17 +549,20 @@ async def upsert_project_skill(
 
 @router.delete("/skills/{name}")
 async def delete_project_skill(name: str, user: User = Depends(get_current_user)):
-    _require_container(user)
+    await _require_container(user)
     try:
         _validate_name(name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    existing = container_manager.read_workspace_file(
-        user.id, f"{PROJECT_SKILLS_REL}/{name}/SKILL.md"
+    existing = await asyncio.to_thread(
+        container_manager.read_workspace_file,
+        user.id, f"{PROJECT_SKILLS_REL}/{name}/SKILL.md",
     )
     if existing is None:
         raise HTTPException(status_code=404, detail=f"项目级 skill '{name}' 不存在")
-    if not container_manager.delete_workspace_path(user.id, f"{PROJECT_SKILLS_REL}/{name}"):
+    if not await asyncio.to_thread(
+        container_manager.delete_workspace_path, user.id, f"{PROJECT_SKILLS_REL}/{name}"
+    ):
         raise HTTPException(status_code=500, detail="删除失败")
     logger.info("Project skill '%s' deleted by %s", name, user.username)
     return {"status": "ok"}
