@@ -868,6 +868,18 @@ export const styles: Record<string, any> = {
     borderRadius: "6px",
     flexShrink: 0,
   },
+  // Regenerate button on the last assistant turn's role row.
+  regenBtn: {
+    marginLeft: "auto",
+    border: "none",
+    background: "transparent",
+    color: textMut,
+    cursor: "pointer",
+    fontSize: "11px",
+    padding: "1px 6px",
+    borderRadius: "6px",
+    flexShrink: 0,
+  },
   turnMeta: { fontSize: "10px", color: textMut, marginTop: "4px" },
   streaming: { color: accent, fontSize: "11px" },
   cursor: { color: accent },

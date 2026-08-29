@@ -804,6 +804,18 @@ export const api = {
     return apiCall("/workspace/skills/all");
   },
 
+  /**
+   * opencode 原生 skill 列表（v1 面 GET /skill，返回裸数组）。每项含
+   * name / description? / location（容器内绝对路径）/ content，是
+   * opencode 自己注册的权威来源；平台侧 /workspace/skills/all 仅作回退。
+   */
+  async listNativeSkills(): Promise<
+    { name: string; description?: string; location: string; content: string }[]
+  > {
+    const r = await apiCall<any[]>(`${OC}/skill`);
+    return Array.isArray(r) ? r : [];
+  },
+
   async uploadChatFile(file: File): Promise<{
     status: string;
     path: string;

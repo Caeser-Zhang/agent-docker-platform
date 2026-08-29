@@ -215,14 +215,39 @@ export function Chat({
     if (qs.status === "fulfilled") setQuestions(qs.value);
   }, []);
 
+  // Skill 列表：优先 opencode 原生 GET /skill（v1 面，opencode 自己注册的
+  // 权威来源，含 description 与容器内 location），失败时回退平台侧
+  // /workspace/skills/all。allSkills 状态 shape 保持 {name, description, dir, scope}。
+  const loadSkills = useCallback(async () => {
+    try {
+      const native = await api.listNativeSkills();
+      setAllSkills(
+        native.map((s) => ({
+          name: s.name,
+          description: s.description ?? "",
+          dir: s.location,
+          // 全局 skill 位于容器内 XDG 配置目录；其余（workspace 下）为项目级。
+          scope: s.location.includes("/data/config/opencode") ? "global" : "project",
+        }))
+      );
+    } catch {
+      try {
+        const r = await api.listAllSkills();
+        setAllSkills(r.skills ?? []);
+      } catch {
+        /* 保留现有列表 */
+      }
+    }
+  }, []);
+
   const loadContainerState = useCallback(async () => {
     // Everything below is served by opencode inside the container.
-    const [rt, prov, sess, ags, sks] = await Promise.allSettled([
+    loadSkills();
+    const [rt, prov, sess, ags] = await Promise.allSettled([
       api.getAgentRuntime(),
       api.getProviders(),
       api.listSessions(),
       api.listAgents(),
-      api.listAllSkills(),
     ]);
     if (rt.status === "fulfilled") setRuntime(rt.value);
     if (prov.status === "fulfilled") {
@@ -244,9 +269,8 @@ export function Chat({
           : list.find((a) => !a.hidden && a.mode !== "subagent")?.id ?? cur
       );
     }
-    if (sks.status === "fulfilled") setAllSkills(sks.value.skills ?? []);
     refreshPending();
-  }, [refreshPending]);
+  }, [refreshPending, loadSkills]);
 
   // ------------------------------------------------------------------
   //  SSE — opencode's own event stream, relayed by the platform
@@ -695,6 +719,55 @@ export function Chat({
       }
     },
     [busyLabel, openSession]
+  );
+
+  // 重新生成（方案一：直接替换）。对目标回合前的最后一条 user 消息调用
+  // revert —— opencode 只打软标记，下次 prompt 时才会硬删旧分支 —— 然后
+  // 从该 user turn 的 blocks 重建原始输入（文本 + file parts）并重发，等效
+  // "替换原回答"。SSE 的 message.removed / session.next.prompted 事件以及
+  // 既有的防抖刷新会驱动 UI 收敛到新回复。
+  const handleRegenerate = useCallback(
+    async (assistantId: string) => {
+      const sid = sessionIdRef.current;
+      if (!sid || isGenerating) return;
+      const aIdx = turns.findIndex((t) => t.id === assistantId);
+      if (aIdx < 0) return;
+      let userTurn: Turn | undefined;
+      for (let i = aIdx - 1; i >= 0; i--) {
+        if (turns[i].role === "user") {
+          userTurn = turns[i];
+          break;
+        }
+      }
+      if (!userTurn) return;
+      const text = userTurn.blocks
+        .filter((b) => b.kind === "text")
+        .map((b) => b.text)
+        .join("\n");
+      const files = userTurn.blocks
+        .filter((b) => b.kind === "file")
+        .map((b) => ({
+          mime: b.mime,
+          url: b.url,
+          ...(b.filename ? { filename: b.filename } : {}),
+        }));
+      setIsGenerating(true);
+      setRevertedId(null);
+      try {
+        await api.revertSession(sid, userTurn.id);
+        await api.sendPrompt(sid, text, {
+          files: files.length ? files : undefined,
+          agents: userTurn.agents?.length ? userTurn.agents : undefined,
+          agent: userTurn.agent,
+          model: userTurn.model,
+        });
+      } catch (e: any) {
+        setError(`重新生成失败：${e?.message ?? e}`);
+        setIsGenerating(false);
+        refreshSessionMessages();
+      }
+    },
+    [isGenerating, turns, refreshSessionMessages]
   );
 
   const handleSummarize = useCallback(async () => {
@@ -1651,19 +1724,30 @@ export function Chat({
             <div style={styles.messagesArea}>
               {/* P1-1: the agent's live task list (todo.updated events). */}
               {todos.length > 0 && <TodoList todos={todos} />}
-              {turns.map((t) => (
-                <TurnView
-                  key={t.id}
-                  turn={t}
-                  username={username}
-                  reverted={revertedId === t.id}
-                  revertBusy={revertBusy}
-                  canRevert={!!currentSession && !isGenerating}
-                  onRevert={handleRevert}
-                  onUnrevert={handleUnrevert}
-                  onFork={t.role === "user" && !isGenerating ? handleFork : undefined}
-                />
-              ))}
+              {/* 重新生成按钮只挂在最后一条 assistant 回复上（其后没有其它回合）。 */}
+              {turns.map((t) => {
+                const last = turns[turns.length - 1];
+                const regenTargetId =
+                  last && last.role === "assistant" && !last.streaming ? last.id : null;
+                return (
+                  <TurnView
+                    key={t.id}
+                    turn={t}
+                    username={username}
+                    reverted={revertedId === t.id}
+                    revertBusy={revertBusy}
+                    canRevert={!!currentSession && !isGenerating}
+                    onRevert={handleRevert}
+                    onUnrevert={handleUnrevert}
+                    onFork={t.role === "user" && !isGenerating ? handleFork : undefined}
+                    onRegenerate={
+                      t.id === regenTargetId && !!currentSession && !isGenerating
+                        ? handleRegenerate
+                        : undefined
+                    }
+                  />
+                );
+              })}
               {isGenerating && !turns.some((t) => t.streaming) && (
                 <div style={styles.msgAssistant}>
                   <div style={styles.msgAvatarAssistant}>🤖</div>
@@ -2371,6 +2455,7 @@ function TurnView({
   onRevert,
   onUnrevert,
   onFork,
+  onRegenerate,
 }: {
   turn: Turn;
   username: string;
@@ -2380,6 +2465,8 @@ function TurnView({
   onRevert: (messageId: string) => void;
   onUnrevert: () => void;
   onFork?: (messageId?: string) => void;
+  /** 传入即在该 assistant 回复的角色行显示"重新生成"按钮。 */
+  onRegenerate?: (assistantId: string) => void;
 }) {
   if (turn.role === "system") {
     const text = turn.blocks.map((b) => ("text" in b ? b.text : "")).join(" ");
@@ -2412,6 +2499,15 @@ function TurnView({
               onClick={() => onFork(turn.id)}
             >
               ⑂ 分叉
+            </button>
+          )}
+          {!isUser && onRegenerate && (
+            <button
+              style={styles.regenBtn}
+              title="重新生成：回退本回合并按原输入重新请求（替换当前回复）"
+              onClick={() => onRegenerate(turn.id)}
+            >
+              ↻ 重新生成
             </button>
           )}
         </div>
