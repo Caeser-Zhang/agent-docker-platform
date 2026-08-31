@@ -566,49 +566,60 @@ export const api = {
     return r.data ?? [];
   },
 
-  /** Pending permission requests (GET /api/permission/request). */
+  /**
+   * Pending permission requests — opencode v1 GET /permission (bare array).
+   * The v2 /api/permission/request endpoint does NOT see pendings registered
+   * by tools (separate route scope), so we must use the v1 surface.
+   */
   async listPermissionRequests(): Promise<OcPermissionRequest[]> {
-    const r = await apiCall<OcEnvelope<OcPermissionRequest>>(`${OC}/api/permission/request`);
-    return r.data ?? [];
+    const r = await apiCall<OcPermissionRequest[]>(`${OC}/permission`);
+    return Array.isArray(r) ? r : [];
   },
 
-  /** Answer a permission request — 204 on success. */
+  /**
+   * Answer a permission request — v1 POST /permission/{requestID}/reply.
+   * Path carries no sessionID; body {reply, message?}.
+   */
   async replyPermission(
     sessionId: string,
     requestId: string,
     reply: OcPermissionReply,
     message?: string
   ): Promise<void> {
-    return apiCall(`${OC}/api/session/${sessionId}/permission/${requestId}/reply`, {
+    void sessionId;
+    return apiCall(`${OC}/permission/${requestId}/reply`, {
       method: "POST",
       body: JSON.stringify(message ? { reply, message } : { reply }),
     });
   },
 
-  /** Pending question requests (GET /api/question/request). */
+  /** Pending question requests — opencode v1 GET /question (bare array). */
   async listQuestionRequests(): Promise<OcQuestionRequest[]> {
-    const r = await apiCall<OcEnvelope<OcQuestionRequest>>(`${OC}/api/question/request`);
-    return r.data ?? [];
+    const r = await apiCall<OcQuestionRequest[]>(`${OC}/question`);
+    return Array.isArray(r) ? r : [];
   },
 
   /**
-   * Answer questions. `answers` aligns with `questions` in order; each entry
-   * is an array of selected option labels. 204 on success.
+   * Answer questions — v1 POST /question/{requestID}/reply.
+   * `answers` aligns with `questions` in order; each entry is an array of
+   * selected option labels. Path carries no sessionID.
    */
   async replyQuestion(
     sessionId: string,
     requestId: string,
     answers: string[][]
   ): Promise<void> {
-    return apiCall(`${OC}/api/session/${sessionId}/question/${requestId}/reply`, {
+    void sessionId;
+    return apiCall(`${OC}/question/${requestId}/reply`, {
       method: "POST",
       body: JSON.stringify({ answers }),
     });
   },
 
-  /** Dismiss a question request — 204 on success. */
+  /** Dismiss a question request — v1 POST /question/{requestID}/reject. */
   async rejectQuestion(sessionId: string, requestId: string): Promise<void> {
-    return apiCall(`${OC}/api/session/${sessionId}/question/${requestId}/reject`, {
+    void sessionId;
+    return apiCall(`${OC}/question/${requestId}/reject`, {
       method: "POST",
     });
   },

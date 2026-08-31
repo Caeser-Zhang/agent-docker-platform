@@ -1348,8 +1348,8 @@ export function Chat({
     answers: string[][]
   ) => {
     try {
-      // Reply against the request's own session — a question raised inside a
-      // subagent session carries that session's id, not the open one's.
+      // v1 reply endpoint carries no sessionID in its path; sessionId is kept
+      // in the signature for call-site stability.
       await api.replyQuestion(sessionId, requestId, answers);
       setQuestions((prev) => prev.filter((q) => q.id !== requestId));
     } catch (e: any) {

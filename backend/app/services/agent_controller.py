@@ -770,12 +770,16 @@ class AgentController:
         """
         try:
             password = decrypt_password_compat(record.password_enc)
-            for path in ("/api/permission/request", "/api/question/request"):
+            # v1 surfaces only: tool-registered pendings (question.ask /
+            # permission.ask) live in a scope the v2 /api/*/request list
+            # endpoints never see — /question and /permission return the
+            # bare pending arrays.
+            for path in ("/permission", "/question"):
                 resp = await tunnel_relay.http_request(
                     record.user_id, "GET", path, password=password, timeout=5,
                 )
                 body = resp.get("body") if isinstance(resp, dict) else None
-                if isinstance(body, dict) and body.get("data"):
+                if isinstance(body, list) and body:
                     return True
         except Exception as e:
             logger.debug("Pending-approval probe failed for user %s: %s", record.user_id, e)
