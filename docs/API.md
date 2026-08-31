@@ -518,13 +518,13 @@ name 非法 → 400；不存在 → 404
 
 **响应** `{ "status": "ok" }` · 不存在 → 404
 
-#### `POST /api/workspace/skills/import` — zip 批量导入项目级 Skills
+#### `POST /api/workspace/skills/import` — 压缩包批量导入项目级 Skills
 
 > 路由定义在 `/skills/{name}` 之前，`import` 不会被当作 skill 名捕获。
 
-**请求** `multipart/form-data`，字段 `file`（`.zip`）
+**请求** `multipart/form-data`，字段 `file`。支持格式：`.zip`、`.rar`、`.7z`、`.tar`、`.tar.gz`/`.tgz`、`.tar.bz2`/`.tbz2`、`.tar.xz`/`.txz`；扩展名不在支持列表时按文件头魔数嗅探（误命名文件仍可导入），无法识别 → 400。
 
-**支持的 zip 布局**（自适应识别）：
+**支持的布局**（自适应识别，各格式通用）：
 
 | 布局 | 结构 |
 |---|---|
@@ -551,7 +551,7 @@ name 非法 → 400；不存在 → 404
 }
 ```
 
-**错误**：非 zip / 空文件 / 各类校验失败 → 400（中文 detail）
+**错误**：不支持的压缩包格式 / 空文件 / 超限（413）/ 损坏压缩包 / 各类校验失败 → 400（中文 detail）
 
 ### 文件服务
 

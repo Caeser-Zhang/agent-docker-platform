@@ -783,14 +783,14 @@ function SkillTab({ skills, onChange, scope }: { skills: any[]; onChange: () => 
 
   return (
     <div>
-      {/* Zip import — only for project scope */}
+      {/* Archive import — only for project scope */}
       {scope === "project" && (
         <div style={{ marginBottom: 16, padding: 12, border: "2px dashed #d0d5dd", borderRadius: 8, textAlign: "center" }}>
-          <p style={{ margin: "0 0 8px", fontSize: 13, color: "#666" }}>导入 Skill 压缩包 (.zip) 到项目级</p>
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: "#666" }}>导入 Skill 压缩包 (.zip/.rar/.7z/.tar.gz 等) 到项目级</p>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".zip"
+            accept=".zip,.rar,.7z,.tar,.tar.gz,.tgz,.tar.bz2,.tbz2,.tar.xz,.txz"
             onChange={handleZipImport}
             style={{ fontSize: 12 }}
           />

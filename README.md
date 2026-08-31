@@ -417,7 +417,7 @@ docker logs --tail=200 <agent-container-name>
 | GET/PUT | `/api/workspace/config` | 项目级 opencode.json 读取（缺省自动创建骨架）/ 保存 |
 | GET | `/api/workspace/skills/all` | 全局 + 项目级 skills 合并列表（供输入框下拉） |
 | GET/POST/DELETE | `/api/workspace/skills/{name}` | 项目级 Skill 增删改查 |
-| POST | `/api/workspace/skills/import` | **zip 批量导入**项目级 skills |
+| POST | `/api/workspace/skills/import` | **压缩包批量导入**项目级 skills（zip/rar/7z/tar.gz 等） |
 | POST | `/api/workspace/files/upload` | 聊天附件上传（`tmp/` 目录，≤10MB） |
 | GET | `/api/workspace/files` | 工作区文件树（扁平列表，剪除 .git/node_modules 等） |
 | GET | `/api/workspace/file-content?path=` | 单文件预览读取（text/image/binary，≤2MB） |

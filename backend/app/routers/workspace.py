@@ -24,13 +24,13 @@ Endpoints:
   GET    /api/workspace/skills/{name}     — get one project skill
   POST   /api/workspace/skills/{name}     — create/update one project skill
   DELETE /api/workspace/skills/{name}     — delete one project skill
-  POST   /api/workspace/skills/import     — upload a .zip, unpack into .opencode/skills/
+  POST   /api/workspace/skills/import     — upload a skill archive (.zip/.rar/
+                                            .7z/.tar/.tar.gz/.tar.bz2/.tar.xz),
+                                            unpack into .opencode/skills/
 """
 import asyncio
-import io
 import json
 import logging
-import zipfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -38,6 +38,12 @@ from pydantic import BaseModel
 from ..auth import get_current_user
 from ..models import User
 from ..services import host_config
+from ..services.archive_extract import (
+    ExtractLimits,
+    SUPPORTED_EXTENSIONS,
+    detect_format,
+    extract_archive,
+)
 from ..services.container_manager import container_manager
 from ..services.host_config import _parse_skill_frontmatter, _validate_name
 
@@ -48,10 +54,20 @@ router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 PROJECT_CONFIG_REL = "opencode.json"
 PROJECT_SKILLS_REL = ".opencode/skills"
 
-# Import limits for uploaded skill zips.
+# Import limits for uploaded skill archives. The caps on extracted content
+# guard against decompression bombs; MAX_UPLOAD_COMPRESSED caps the raw
+# upload itself so huge bodies fail fast instead of buffering in memory.
 MAX_IMPORT_FILES = 500
 MAX_IMPORT_TOTAL = 20 * 1024 * 1024
 MAX_IMPORT_FILE = 5 * 1024 * 1024
+MAX_UPLOAD_COMPRESSED = 50 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = 1024 * 1024
+IMPORT_LIMITS = ExtractLimits(
+    max_files=MAX_IMPORT_FILES,
+    max_file_size=MAX_IMPORT_FILE,
+    max_total_size=MAX_IMPORT_TOTAL,
+)
+SUPPORTED_IMPORT_MESSAGE = "不支持的压缩包格式，支持的格式: " + ", ".join(SUPPORTED_EXTENSIONS)
 
 
 class ProjectConfigSave(BaseModel):
@@ -124,47 +140,35 @@ def _safe_upload_name(filename: str) -> str:
     return name
 
 
-def _clean_zip_name(name: str) -> str | None:
-    """Normalise a zip member name to a safe relative path, or None."""
-    name = name.replace("\\", "/")
-    if not name or name.startswith("/") or ":" in name:
-        return None
-    parts = [p for p in name.split("/") if p not in ("", ".")]
-    if not parts or any(p == ".." for p in parts):
-        return None
-    return "/".join(parts)
+async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
+    """Stream the upload in fixed-size chunks so an oversized body is rejected
+    as soon as it crosses the cap instead of being buffered into memory."""
+    buf = bytearray()
+    while chunk := await file.read(UPLOAD_CHUNK_SIZE):
+        buf.extend(chunk)
+        if len(buf) > cap:
+            raise HTTPException(
+                status_code=413,
+                detail=f"压缩包过大（超过 {cap // 1024 // 1024}MB 上限）",
+            )
+    return bytes(buf)
 
 
-def _extract_skills_from_zip(data: bytes) -> list[tuple[str, dict[str, bytes]]]:
-    """Detect the skill layout inside a zip and normalise to [(name, files)].
+def _extract_skills_from_archive(
+    data: bytes, filename: str
+) -> list[tuple[str, dict[str, bytes]]]:
+    """Detect the skill layout inside an archive and normalise to [(name, files)].
 
+    Accepts .zip / .rar / .7z / .tar / .tar.gz / .tar.bz2 / .tar.xz.
     Supported layouts (mirrors how people actually package skills):
-      1. bare:       SKILL.md (+ resources) at the zip root
+      1. bare:       SKILL.md (+ resources) at the archive root
       2. wrapped:    <skill-name>/SKILL.md (+ resources)
       3. multi:      <name-a>/SKILL.md, <name-b>/SKILL.md, ...
     """
-    entries: dict[str, bytes] = {}
-    total = 0
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            infos = [i for i in zf.infolist() if not i.is_dir()]
-            if not infos:
-                raise ValueError("压缩包为空")
-            if len(infos) > MAX_IMPORT_FILES:
-                raise ValueError(f"压缩包文件数超过上限 {MAX_IMPORT_FILES}")
-            for info in infos:
-                clean = _clean_zip_name(info.filename)
-                if clean is None:
-                    raise ValueError(f"压缩包含不安全路径: {info.filename}")
-                if info.file_size > MAX_IMPORT_FILE:
-                    raise ValueError(f"单个文件超过 {MAX_IMPORT_FILE // 1024 // 1024}MB 上限: {info.filename}")
-                content = zf.read(info)
-                total += len(content)
-                if total > MAX_IMPORT_TOTAL:
-                    raise ValueError("压缩包解压总大小超过 20MB 上限")
-                entries[clean] = content
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"无效的 zip 压缩包: {exc}") from exc
+    fmt = detect_format(filename, data[:512])
+    if fmt is None:
+        raise ValueError(SUPPORTED_IMPORT_MESSAGE)
+    entries = extract_archive(data, fmt, IMPORT_LIMITS)
 
     # Group entries by top-level segment.
     groups: dict[str, dict[str, bytes]] = {}
@@ -429,24 +433,27 @@ async def list_project_skills(user: User = Depends(get_current_user)):
 
 
 @router.post("/skills/import")
-async def import_skills_zip(
+async def import_skills_archive(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
 ):
-    """Upload a skill .zip and unpack it into .opencode/skills/ (project scope).
+    """Upload a skill archive (.zip/.rar/.7z/.tar[.gz/.bz2/.xz]) and unpack it
+    into .opencode/skills/ (project scope).
 
     Must be defined BEFORE /skills/{name} so FastAPI matches the literal
     path "import" instead of capturing it as a {name} parameter.
     """
     await _require_container(user)
-    if not file.filename or not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="请上传 .zip 格式的 skill 压缩包")
-    data = await file.read()
+    data = await _read_upload_capped(file, MAX_UPLOAD_COMPRESSED)
     if not data:
         raise HTTPException(status_code=400, detail="上传的文件为空")
 
     try:
-        skills = _extract_skills_from_zip(data)
+        # Extraction is CPU/IO bound over the whole payload; keep it off the
+        # event loop so other requests stay responsive while it runs.
+        skills = await asyncio.to_thread(
+            _extract_skills_from_archive, data, file.filename or ""
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
