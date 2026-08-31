@@ -38,8 +38,10 @@ docker compose up -d || exit 1
 
 # ---- 等待后端健康检查 ----
 echo "== waiting for backend =="
+# The backend has no host port by design (P1-5); reach it through the
+# frontend nginx reverse proxy on :3000.
 for i in $(seq 1 60); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:9123/api/health 2>/dev/null || echo 000)
+  code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health 2>/dev/null || echo 000)
   if [ "$code" = "200" ]; then
     echo "backend healthy after ${i}s"
     break
