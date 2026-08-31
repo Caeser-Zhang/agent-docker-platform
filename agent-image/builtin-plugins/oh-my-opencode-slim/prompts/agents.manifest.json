@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "plugin_version": "2.2.15",
+    "assembly": "运行时默认 = resolvePrompt(inline ?? file ?? fallback) ；fallback = 内置常量[+council强化段] + '\\n\\n' + TASK_REJECTION_INSTRUCTION。本目录 .md = 内置常量（展开共享规则）[+council强化段] + '\\n\\n' + 拒绝指令，与默认行为逐字节等价。",
+    "TASK_REJECTION_INSTRUCTION": "If a task is outside your role, do not attempt partial work. Return a brief reason to the orchestrator.",
+    "council_reinforcement_note": "council.md 已内联 COUNCIL_SYNTHESIS_REINFORCEMENT 与拒绝指令（代码会追加到 fallback，但不追加到 file prompt）",
+    "resolvePrompt_priority": "inline(oh-my-opencode-slim.json agents.<name>.prompt) ?? file(<name>.md) ?? fallback；随后追加 <name>_append.md"
+  },
+  "agents": {
+    "explorer": {
+      "file": "explorer.md",
+      "chars": 1394,
+      "description": "Fast codebase search and pattern matching. Use for finding files, locating code patterns, and answering 'where is X?' questions.",
+      "temperature": 0.1,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "librarian": {
+      "file": "librarian.md",
+      "chars": 1243,
+      "description": "External documentation and library research. Use for official docs lookup, GitHub examples, and understanding library internals.",
+      "temperature": 0.1,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "oracle": {
+      "file": "oracle.md",
+      "chars": 1461,
+      "description": "Strategic technical advisor. Use for architecture decisions, complex debugging, code review, simplification, and engineering guidance.",
+      "temperature": 0.1,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "designer": {
+      "file": "designer.md",
+      "chars": 3864,
+      "description": "UI/UX design, review, and implementation. Use for styling, responsive design, component architecture and visual polish.",
+      "temperature": 0.7,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "fixer": {
+      "file": "fixer.md",
+      "chars": 2398,
+      "description": "Fast implementation specialist. Receives complete context and task spec, executes code changes efficiently.",
+      "temperature": 0.2,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "observer": {
+      "file": "observer.md",
+      "chars": 1524,
+      "description": "Visual analysis. Use for interpreting images, screenshots, PDFs, and diagrams - extracts structured observations without loading raw files into main context. Requires a vision-capable model.",
+      "temperature": 0.1,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    },
+    "council": {
+      "file": "council.md",
+      "chars": 3040,
+      "description": "Multi-model consensus agent that synthesizes viewpoints from council members to make informed decisions with higher confidence than single models",
+      "temperature": 0.1,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": true
+    },
+    "councillor": {
+      "file": "councillor.md",
+      "chars": 1444,
+      "description": "Read-only council advisor. Examines codebase and provides independent analysis. Spawned internally by the council system.",
+      "temperature": 0.2,
+      "includes_rejection_suffix": true,
+      "includes_reinforcement": false
+    }
+  }
+}

@@ -57,6 +57,41 @@ for default_cfg in /opt/agent/builtin-plugins/*/plugin.default.json; do
     fi
 done
 
+# NOTE: oh-my-opencode-slim's plugin.default.json pins agents.*.model to the
+# platform gateway model. At runtime the plugin merges
+# config.agents = deepMerge(preset, config.agents) — the static agents keys in
+# the seeded oh-my-opencode-slim.json override the deployment-specific preset
+# models generated below. Keep the pin in sync when switching providers, or
+# drop the agents.*.model entries from that file to fall back to the dynamic
+# presets here.
+
+# oh-my-opencode-slim reads per-agent prompt overrides from
+# ${XDG_CONFIG_HOME}/opencode/oh-my-opencode-slim/<agent>.md (plugin's
+# loadAgentPrompt: file prompt replaces the built-in fallback entirely).
+# The image ships a verbatim snapshot of every built-in subagent prompt under
+# /opt/agent/builtin-plugins/oh-my-opencode-slim/prompts/ — seed those files on
+# first boot so operators can tune prompts without rebuilding the image. Per-file
+# "not exists" check: user-edited prompts survive reboots; files added in newer
+# images get seeded. Only the 8 agent prompt files are seeded — README.md and
+# tools-permissions.md are documentation, agents.manifest.json is metadata.
+OMO_PROMPTS_SRC="/opt/agent/builtin-plugins/oh-my-opencode-slim/prompts"
+OMO_PROMPTS_DIR="${XDG_CONFIG_HOME}/opencode/oh-my-opencode-slim"
+if [ -d "${OMO_PROMPTS_SRC}" ]; then
+    mkdir -p "${OMO_PROMPTS_DIR}"
+    for prompt_file in "${OMO_PROMPTS_SRC}"/*.md; do
+        [ -f "${prompt_file}" ] || continue
+        base="$(basename "${prompt_file}")"
+        case "${base}" in
+            README.md|tools-permissions.md) continue ;;
+        esac
+        prompt_target="${OMO_PROMPTS_DIR}/${base}"
+        if [ ! -s "${prompt_target}" ]; then
+            echo "[entrypoint] seeding agent prompt: ${prompt_target}" >&2
+            cp "${prompt_file}" "${prompt_target}"
+        fi
+    done
+fi
+
 # oh-my-opencode-slim's official installer generates a config that maps every
 # subagent (orchestrator, oracle, ...) to a model via preset/presets. Without
 # that mapping the plugin's agents come up with model=null and every tool call

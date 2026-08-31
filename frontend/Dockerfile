@@ -2,8 +2,8 @@
 FROM node:20-slim AS builder
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install --registry https://registry.npmmirror.com
+COPY package.json package-lock.json ./
+RUN npm ci --registry https://registry.npmmirror.com --maxsockets=2 --no-audit --no-fund
 COPY . .
 RUN npm run build
 

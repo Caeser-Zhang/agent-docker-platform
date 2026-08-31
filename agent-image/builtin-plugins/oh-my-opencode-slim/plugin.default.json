@@ -1,3 +1,14 @@
 {
-  "autoUpdate": false
+  "autoUpdate": false,
+  "agents": {
+    "orchestrator": { "model": "volces/deepseek-v4-pro" },
+    "explorer": { "model": "volces/deepseek-v4-pro" },
+    "librarian": { "model": "volces/deepseek-v4-pro" },
+    "oracle": { "model": "volces/deepseek-v4-pro" },
+    "designer": { "model": "volces/deepseek-v4-pro" },
+    "fixer": { "model": "volces/deepseek-v4-pro" },
+    "observer": { "model": "volces/deepseek-v4-pro" },
+    "council": { "model": "volces/deepseek-v4-pro" },
+    "councillor": { "model": "volces/deepseek-v4-pro" }
+  }
 }

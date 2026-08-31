@@ -1,0 +1,735 @@
+--- pattern `_append.md` @ 587828 ---
+}:`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    return;
+  };
+  const result = {};
+  result.prompt = readFirstPrompt(`${agentName}.md`, "Error reading prompt file");
+  result.appendPrompt = readFirstPrompt(`${agentName}_append.md`, "Error reading append prompt file");
+  return result;
+}
+// src/config/utils.ts
+function getCustomAgentNames(config) {
+  const overrides = config?.agents ?? {};
+  return Object.keys(overrides).filter((name) => {
+    if (AGENT_ALIASES[name] !== unde
+
+--- pattern `.md"` @ 772831 ---
+ackageRoot, skill.sourcePath);
+        try {
+          const stat2 = lstatSync(sourcePath);
+          if (stat2.isSymbolicLink() || !stat2.isDirectory()) {
+            continue;
+          }
+          const skillMdPath = path10.join(sourcePath, "SKILL.md");
+          const skillMdStat = lstatSync(skillMdPath);
+          if (skillMdStat.isSymbolicLink() || !skillMdStat.isFile()) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+        const destPath = path10.join(des
+
+--- pattern `.md"` @ 1042089 ---
+lvedRoot = path13.resolve(directory);
+  if (path13.isAbsolute(trimmed)) {
+    candidates.add(trimmed);
+  } else {
+    candidates.add(path13.resolve(directory, trimmed));
+    candidates.add(path13.join(outputDir, trimmed));
+    if (!trimmed.endsWith(".md")) {
+      candidates.add(path13.join(outputDir, `${trimmed}.md`));
+    }
+  }
+  for (const candidate of candidates) {
+    if (path13.extname(candidate) !== ".md") {
+      continue;
+    }
+    const resolved = path13.resolve(candidate);
+    if (!resolv
+
+--- pattern `.md"` @ 1042250 ---
+immed));
+    candidates.add(path13.join(outputDir, trimmed));
+    if (!trimmed.endsWith(".md")) {
+      candidates.add(path13.join(outputDir, `${trimmed}.md`));
+    }
+  }
+  for (const candidate of candidates) {
+    if (path13.extname(candidate) !== ".md") {
+      continue;
+    }
+    const resolved = path13.resolve(candidate);
+    if (!resolved.startsWith(resolvedRoot + path13.sep) && resolved !== resolvedRoot) {
+      continue;
+    }
+    if (fsSync.existsSync(candidate)) {
+      return candidate;
+  
+
+--- pattern `.md"` @ 1124396 ---
+if (clients && clients.size === 0)
+      sseClients.delete(interviewId);
+  }
+  function formatSseState(entry) {
+    const markdownPath = entry.filePath;
+    const displayPath = markdownPath ? markdownPath.split("/").pop() || markdownPath : "interview.md";
+    const document = entry.document ?? "";
+    return {
+      interview: {
+        id: entry.interviewId,
+        sessionID: entry.sessionID,
+        idea: entry.idea,
+        markdownPath: displayPath,
+        createdAt: new Date(entry.lastUpdated
+
+--- pattern `.md"` @ 1128653 ---
+const interviewDir = path14.join(dir, config.outputFolder);
+      let entries;
+      try {
+        entries = await fs7.readdir(interviewDir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.endsWith(".md"))
+          continue;
+        let content;
+        try {
+          content = await fs7.readFile(path14.join(interviewDir, entry), "utf8");
+        } catch {
+          continue;
+        }
+        const title = extractTitle(content) || entry.replace(/
+
+--- pattern `.md"` @ 1129906 ---
+const interviewDir = path14.join(dir, config.outputFolder);
+      let entries;
+      try {
+        entries = await fs7.readdir(interviewDir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.endsWith(".md"))
+          continue;
+        let content;
+        try {
+          content = await fs7.readFile(path14.join(interviewDir, entry), "utf8");
+        } catch {
+          continue;
+        }
+        const fm = parseFrontmatter2(content);
+        if (!fm
+
+--- pattern `.md"` @ 1142787 ---
+date, "utf8");
+            markdownPath = candidate;
+            entry.filePath = candidate;
+            break;
+          } catch {}
+        }
+      }
+      const displayPath = markdownPath ? markdownPath.split("/").pop() || markdownPath : "interview.md";
+      sendJson(response, 200, {
+        interview: {
+          id: entry.interviewId,
+          sessionID: entry.sessionID,
+          idea: entry.idea,
+          markdownPath: displayPath,
+          createdAt: new Date(entry.lastUpdatedAt).toISOStr
+
+--- pattern `.md"` @ 1188803 ---
+    const document = await claimInterviewDocument(markdownPath, sessionID, messages.length);
+    const title = extractTitle(document);
+    const record = {
+      id: randomUUID3(),
+      sessionID,
+      idea: title || path15.basename(markdownPath, ".md"),
+      markdownPath,
+      createdAt: nowIso(),
+      status: "active",
+      baseMessageCount: messages.length
+    };
+    activeInterviewIds.set(sessionID, record.id);
+    interviewsById.set(record.id, record);
+    fileCache = null;
+    if (onInte
+
+--- pattern `.md"` @ 1200517 ---
+ "active").map((i) => path15.resolve(i.markdownPath)));
+    let entries;
+    try {
+      entries = await fs8.readdir(outputDir);
+    } catch {
+      return [];
+    }
+    const items = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".md"))
+        continue;
+      const fullPath = path15.join(outputDir, entry);
+      if (activePaths.has(path15.resolve(fullPath)))
+        continue;
+      let content;
+      try {
+        content = await fs8.readFile(fullPath, "utf8");
+      } catch {
+ 
+
+--- pattern `.md"` @ 1358219 ---
+nunreal/oh-my-opencode-slim/issues"
+  },
+  homepage: "https://github.com/alvinunreal/oh-my-opencode-slim#readme",
+  files: [
+    "dist",
+    "src/companion/companion-manifest.json",
+    "src/skills",
+    "oh-my-opencode-slim.schema.json",
+    "README.md",
+    "README.zh-CN.md",
+    "README.ja-JP.md",
+    "README.ko-KR.md",
+    "LICENSE"
+  ],
+  scripts: {
+    "clean:dist": `bun -e "import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })"`,
+    "build:plugin": "bun build src
+
+--- pattern `.md"` @ 1358242 ---
+slim/issues"
+  },
+  homepage: "https://github.com/alvinunreal/oh-my-opencode-slim#readme",
+  files: [
+    "dist",
+    "src/companion/companion-manifest.json",
+    "src/skills",
+    "oh-my-opencode-slim.schema.json",
+    "README.md",
+    "README.zh-CN.md",
+    "README.ja-JP.md",
+    "README.ko-KR.md",
+    "LICENSE"
+  ],
+  scripts: {
+    "clean:dist": `bun -e "import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })"`,
+    "build:plugin": "bun build src/index.ts src/tui.ts --
+
+--- pattern `.md"` @ 1358265 ---
+epage: "https://github.com/alvinunreal/oh-my-opencode-slim#readme",
+  files: [
+    "dist",
+    "src/companion/companion-manifest.json",
+    "src/skills",
+    "oh-my-opencode-slim.schema.json",
+    "README.md",
+    "README.zh-CN.md",
+    "README.ja-JP.md",
+    "README.ko-KR.md",
+    "LICENSE"
+  ],
+  scripts: {
+    "clean:dist": `bun -e "import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })"`,
+    "build:plugin": "bun build src/index.ts src/tui.ts --outdir dist --target no
+
+--- pattern `readFileSync` @ 577489 ---
+_KEYS) {
+    if (Object.hasOwn(rawInterview, key)) {
+      interview[key] = parsedConfig.interview[key];
+    }
+  }
+  return {
+    ...parsedConfig,
+    interview
+  };
+}
+function loadConfigFromPath(configPath, options) {
+  try {
+    const content = fs.readFileSync(configPath, "utf-8");
+    let rawConfig;
+    try {
+      const stripped = stripJsonComments(content);
+      const interpolated = stripped.replace(/\{env:([^}]+)\}/g, (_, varName) => process.env[varName] ?? "");
+      rawConfig = JSON.parse(interpola
+
+--- pattern `readFileSync` @ 587448 ---
+NAME));
+  }
+  const readFirstPrompt = (fileName, errorPrefix) => {
+    for (const dir of searchDirs) {
+      const promptPath = path.join(dir, fileName);
+      if (!fs.existsSync(promptPath)) {
+        continue;
+      }
+      try {
+        return fs.readFileSync(promptPath, "utf-8");
+      } catch (error) {
+        console.warn(`[oh-my-opencode-slim] ${errorPrefix} ${promptPath}:`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    return;
+  };
+  const result = {};
+  result.prompt = 
+
+--- pattern `readFileSync` @ 648978 ---
+}]);
+      continue;
+    }
+    entries.push([a.name, sdkConfig]);
+  }
+  return Object.fromEntries(entries);
+}
+
+// src/companion/manager.ts
+import { spawn } from "node:child_process";
+import {
+  existsSync as existsSync2,
+  mkdirSync as mkdirSync2,
+  readFileSync as readFileSync2,
+  renameSync,
+  rmSync,
+  statSync as statSync2,
+  writeFileSync
+} from "node:fs";
+import * as os2 from "node:os";
+import * as path3 from "node:path";
+
+// src/utils/logger.ts
+import * as fs2 from "node:fs";
+import { appendFile } fr
+
+--- pattern `readFileSync` @ 648994 ---
+nue;
+    }
+    entries.push([a.name, sdkConfig]);
+  }
+  return Object.fromEntries(entries);
+}
+
+// src/companion/manager.ts
+import { spawn } from "node:child_process";
+import {
+  existsSync as existsSync2,
+  mkdirSync as mkdirSync2,
+  readFileSync as readFileSync2,
+  renameSync,
+  rmSync,
+  statSync as statSync2,
+  writeFileSync
+} from "node:fs";
+import * as os2 from "node:os";
+import * as path3 from "node:path";
+
+// src/utils/logger.ts
+import * as fs2 from "node:fs";
+import { appendFile } from "node:fs/prom
+
+--- pattern `readFileSync` @ 654808 ---
+nst release = acquirePidFileLock(file);
+    if (release)
+      return release;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+  return null;
+}
+function pidFileLockHasLiveOwner(lock) {
+  try {
+    const owner = parsePidFile(readFileSync2(path3.join(lock, "owner"), "utf8"));
+    if (owner !== null)
+      return isProcessAlive(owner);
+  } catch (err) {
+    log("[companion] lock owner check failed", String(err));
+    try {
+      return Date.now() - statSync2(lock).mtimeMs < 5000;
+    
+
+--- pattern `readFileSync` @ 655805 ---
+, binaryName);
+}
+function resolveCompanionBinaryPath(config) {
+  const configured = config?.binaryPath?.trim();
+  const bin = configured || defaultBinaryPath();
+  return existsSync2(bin) ? bin : null;
+}
+function readState() {
+  try {
+    const raw = readFileSync2(stateFilePath(), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed?.version === 1 && Array.isArray(parsed.sessions)) {
+      return parsed;
+    }
+  } catch (err) {
+    log("[companion] state load failed", String(err));
+  }
+  return { vers
+
+--- pattern `readFileSync` @ 660793 ---
+panion] PID file lock busy during exit; leaving guard intact");
+      return false;
+    }
+    try {
+      if (readState().sessions.length > 0)
+        return false;
+      if (!existsSync2(file))
+        return true;
+      const parsed = parsePidFile(readFileSync2(file, "utf8"));
+      if (parsed === this.spawnedCompanionPid) {
+        rmSync(file, { force: true });
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      release();
+    }
+  }
+  activeAgents() {
+    const agents = Ar
+
+--- pattern `readFileSync` @ 663324 ---
+ng spawn");
+        return;
+      }
+    } catch (err) {
+      log("[companion] PID file lock failed", String(err));
+      return;
+    }
+    let spawnedChild = null;
+    try {
+      if (existsSync2(pidFile)) {
+        const existingPid = parsePidFile(readFileSync2(pidFile, "utf8"));
+        if (existingPid !== null && isProcessAlive(existingPid)) {
+          log("[companion] another instance already running, skipping spawn");
+          return;
+        }
+        log("[companion] removing stale PID file for de
+
+--- pattern `readFileSync` @ 665389 ---
+ng(err));
+    } finally {
+      releasePidFileLock?.();
+    }
+  }
+}
+
+// src/companion/updater.ts
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync as existsSync3,
+  mkdirSync as mkdirSync3,
+  mkdtempSync,
+  readFileSync as readFileSync3,
+  renameSync as renameSync2,
+  rmSync as rmSync2,
+  statSync as statSync3,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { homedir as homedir4, platform as platform2, tmpdir } from "node:os";
+import * as path4 from "no
+
+--- pattern `readFileSync` @ 665405 ---
+finally {
+      releasePidFileLock?.();
+    }
+  }
+}
+
+// src/companion/updater.ts
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync as existsSync3,
+  mkdirSync as mkdirSync3,
+  mkdtempSync,
+  readFileSync as readFileSync3,
+  renameSync as renameSync2,
+  rmSync as rmSync2,
+  statSync as statSync3,
+  writeFileSync as writeFileSync2
+} from "node:fs";
+import { homedir as homedir4, platform as platform2, tmpdir } from "node:os";
+import * as path4 from "node:path";
+import
+
+--- pattern `readFileSync` @ 669606 ---
+im-companion.exe" : "oh-my-opencode-slim-companion");
+}
+function loadCompanionManifestFromPackageRoot(packageRoot) {
+  const manifestPath = path4.join(packageRoot, "src", "companion", "companion-manifest.json");
+  try {
+    const parsed = JSON.parse(readFileSync3(manifestPath, "utf8"));
+    if (parsed.version && parsed.tag && parsed.repo) {
+      return {
+        version: parsed.version,
+        tag: parsed.tag,
+        repo: parsed.repo,
+        checksums: parsed.checksums
+      };
+    }
+  } catch (err) {
+
+
+--- pattern `readFileSync` @ 676326 ---
+ry {
+        rmSync2(tempDir, { recursive: true, force: true });
+      } catch (err) {
+        log("[updater] install cleanup failed", String(err));
+      }
+    }
+  }
+}
+function readInstallMetadata(binaryPath) {
+  try {
+    const parsed = JSON.parse(readFileSync3(metadataPath(binaryPath), "utf8"));
+    if (parsed?.version && parsed.tag && parsed.target) {
+      return parsed;
+    }
+  } catch (err) {
+    log("[updater] metadata read failed", String(err));
+  }
+  return null;
+}
+function writeInstallMetadata(bi
+
+--- pattern `appendPrompt` @ 587784 ---
+y-opencode-slim] ${errorPrefix} ${promptPath}:`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    return;
+  };
+  const result = {};
+  result.prompt = readFirstPrompt(`${agentName}.md`, "Error reading prompt file");
+  result.appendPrompt = readFirstPrompt(`${agentName}_append.md`, "Error reading append prompt file");
+  return result;
+}
+// src/config/utils.ts
+function getCustomAgentNames(config) {
+  const overrides = config?.agents ?? {};
+  return Object.keys(overrides).filter((name)
+
+--- pattern `appendPrompt` @ 638584 ---
+ts, name);
+    const inlinePrompt = override?.prompt;
+    const defaultPrompt = appendTaskRejectionInstruction(agent.config.prompt ?? "");
+    agent.config.prompt = resolvePrompt(name, inlinePrompt, customPrompts.prompt, defaultPrompt, customPrompts.appendPrompt);
+    return agent;
+  });
+  const customAgentNames = runtime.customAgentNames.map(normalizeCustomAgentName).filter((name) => name.length > 0).filter((name) => {
+    if (!isSafeCustomAgentName(name)) {
+      throw new Error(`Unsafe custom agent name 
+
+--- pattern `appendPrompt` @ 639466 ---
+urn [];
+    }
+    const customPrompts = loadAgentPrompt(name, {
+      preset: runtime.preset,
+      projectDirectory: options?.projectDirectory
+    });
+    return [
+      buildCustomAgentDefinition(name, override, customPrompts.prompt, customPrompts.appendPrompt)
+    ];
+  });
+  const acpAgentNames = Object.keys(runtime.acpAgents).map(normalizeCustomAgentName).filter((name) => name.length > 0).filter((name) => {
+    if (!SAFE_AGENT_ALIAS_RE.test(name)) {
+      throw new Error(`ACP agent name '${name}' must m
+
+--- pattern `appendPrompt` @ 642423 ---
+Override?.prompt;
+  const defaultOrchestratorPrompt = orchestrator.config.prompt ?? "";
+  orchestrator.config.prompt = resolvePrompt("orchestrator", inlineOrchestratorPrompt, orchestratorPrompts.prompt, defaultOrchestratorPrompt, orchestratorPrompts.appendPrompt);
+  if (orchestratorOverride) {
+    applyOverrides(orchestrator, orchestratorOverride);
+  }
+  applyDefaultPermissions(orchestrator, orchestratorOverride?.skills, runtime.disabledSkills);
+  const displayNameMap = new Map;
+  if (orchestrator.displayNa
+
+--- pattern `customPrompt` @ 612383 ---
+.js documentation for the App Router, and then I'll implement the solution for you."
+
+**Good:** "Checking Next.js App Router docs via @librarian..."
+[continues scheduling or integration]
+
+</Communication>
+`;
+}
+function createOrchestratorAgent(model, customPrompt, customAppendPrompt, disabledAgents, excludeDescriptions, waitForUserEnabled = true, wakeSchedulerEnabled = true) {
+  const basePrompt = buildOrchestratorPrompt(disabledAgents, excludeDescriptions, waitForUserEnabled, wakeSchedulerEnabled);
+  const 
+
+--- pattern `customPrompt` @ 612695 ---
+iptions, waitForUserEnabled = true, wakeSchedulerEnabled = true) {
+  const basePrompt = buildOrchestratorPrompt(disabledAgents, excludeDescriptions, waitForUserEnabled, wakeSchedulerEnabled);
+  const prompt = resolvePrompt("orchestrator", undefined, customPrompt, basePrompt, customAppendPrompt);
+  const definition = {
+    name: "orchestrator",
+    description: "AI coding orchestrator that delegates tasks to specialist agents for optimal quality, speed, and cost",
+    config: {
+      temperature: 0.1,
+      
+
+--- pattern `customPrompt` @ 617050 ---
+ts**: where councillors differed and your resolution
+- **Remaining Uncertainty**: any caveats, untested assumptions, or open questions the council could not fully resolve
+- **Recommended Action**: what to do next`;
+function createCouncilAgent(model, customPrompt, customAppendPrompt) {
+  const prompt = resolvePrompt("council", customPrompt, undefined, COUNCIL_AGENT_PROMPT, customAppendPrompt) + COUNCIL_SYNTHESIS_REINFORCEMENT;
+  return {
+    name: "council",
+    description: "Multi-model consensus agent that
+
+--- pattern `customPrompt` @ 617128 ---
+**: any caveats, untested assumptions, or open questions the council could not fully resolve
+- **Recommended Action**: what to do next`;
+function createCouncilAgent(model, customPrompt, customAppendPrompt) {
+  const prompt = resolvePrompt("council", customPrompt, undefined, COUNCIL_AGENT_PROMPT, customAppendPrompt) + COUNCIL_SYNTHESIS_REINFORCEMENT;
+  return {
+    name: "council",
+    description: "Multi-model consensus agent that synthesizes viewpoints from council members to make informed decisions with h
+
+--- pattern `customPrompt` @ 618864 ---
+ see   their responses
+
+**Output**:
+- Give your honest assessment
+- Reference specific files and line numbers when relevant
+- Include relevant reasoning
+- State any assumptions clearly
+- Note any uncertainties`;
+function createCouncillorAgent(model, customPrompt, customAppendPrompt, variant) {
+  const prompt = resolvePrompt("councillor", customPrompt, undefined, COUNCILLOR_PROMPT, customAppendPrompt);
+  return {
+    name: "councillor",
+    description: "Read-only council advisor. Examines codebase and provi
+
+--- pattern `customPrompt` @ 618954 ---
+es and line numbers when relevant
+- Include relevant reasoning
+- State any assumptions clearly
+- Note any uncertainties`;
+function createCouncillorAgent(model, customPrompt, customAppendPrompt, variant) {
+  const prompt = resolvePrompt("councillor", customPrompt, undefined, COUNCILLOR_PROMPT, customAppendPrompt);
+  return {
+    name: "councillor",
+    description: "Read-only council advisor. Examines codebase and provides independent analysis. Spawned internally by the council system.",
+    config: {
+      
+
+--- pattern `customPrompt` @ 623320 ---
+ Assigned validation should be user-visible.
+
+## Output Quality
+You're capable of extraordinary creative work. Commit fully to distinctive visions and show what's possible when breaking conventions thoughtfully.`;
+function createDesignerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = DESIGNER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${DESIGNER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "designer",
+    description
+
+--- pattern `customPrompt` @ 623394 ---
+able of extraordinary creative work. Commit fully to distinctive visions and show what's possible when breaking conventions thoughtfully.`;
+function createDesignerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = DESIGNER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${DESIGNER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "designer",
+    description: "UI/UX design, review, and implementation. Use for styling, responsive d
+
+--- pattern `customPrompt` @ 623423 ---
+e work. Commit fully to distinctive visions and show what's possible when breaking conventions thoughtfully.`;
+function createDesignerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = DESIGNER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${DESIGNER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "designer",
+    description: "UI/UX design, review, and implementation. Use for styling, responsive design, component architecture
+
+--- pattern `customPrompt` @ 624717 ---
+what's there
+</files>
+<answer>
+Concise answer to the question
+</answer>
+</results>
+
+**Constraints**:
+- READ-ONLY: Search and report, don't modify
+- Be exhaustive but concise
+- Include line numbers when relevant
+`;
+function createExplorerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = EXPLORER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${EXPLORER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "explorer",
+    description
+
+--- pattern `customPrompt` @ 624791 ---
+results>
+
+**Constraints**:
+- READ-ONLY: Search and report, don't modify
+- Be exhaustive but concise
+- Include line numbers when relevant
+`;
+function createExplorerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = EXPLORER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${EXPLORER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "explorer",
+    description: "Fast codebase search and pattern matching. Use for finding files, locat
+
+--- pattern `customPrompt` @ 624820 ---
+READ-ONLY: Search and report, don't modify
+- Be exhaustive but concise
+- Include line numbers when relevant
+`;
+function createExplorerAgent(model, customPrompt, customAppendPrompt) {
+  let prompt = EXPLORER_PROMPT;
+  if (customPrompt) {
+    prompt = customPrompt;
+  } else if (customAppendPrompt) {
+    prompt = `${EXPLORER_PROMPT}
+
+${customAppendPrompt}`;
+  }
+  return {
+    name: "explorer",
+    description: "Fast codebase search and pattern matching. Use for finding files, locating code patterns, and answer

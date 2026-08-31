@@ -1,0 +1,277 @@
+=== `createReadOnlyAgentPermission(` occurrences: [613245, 619294]
+--- @ 613245 ---
+m) => typeof m === "string" ? { id: m } : m);
+  } else if (typeof model === "string" && model) {
+    definition.config.model = model;
+  }
+  return definition;
+}
+
+// src/agents/permissions.ts
+function createReadOnlyAgentPermission() {
+  return {
+    "*": "deny",
+    bash: "deny",
+    edit: "deny",
+    write: "deny",
+    apply_patch: "deny",
+    ast_grep_replace: "deny",
+    task: "deny",
+    question: "deny",
+    read: "allow",
+    glob: "allow",
+    grep: "allow",
+    lsp: "allow",
+    list: "allow",
+    codesearch: "allow",
+    ast_grep_search: "allow"
+  };
+}
+function createSynthesisOnlyPermission() {
+  return {
+    "*": "deny",
+    bash: "deny",
+    edit: "deny",
+    write: "deny",
+    app
+
+--- @ 619294 ---
+sor. Examines codebase and provides independent analysis. Spawned internally by the council system.",
+    config: {
+      model,
+      variant,
+      temperature: 0.2,
+      prompt,
+      permission: createReadOnlyAgentPermission()
+    }
+  };
+}
+
+// src/agents/council-agents.ts
+var COUNCILLOR_AGENT_PREFIX = "councillor-";
+function buildCouncillorAgents(runtime, disabled) {
+  const council = runtime.council;
+  if (!council)
+    return [];
+  const presetName = council.default_preset ?? "default";
+  const preset = council.presets[presetName];
+  if (!preset)
+    return [];
+  const agents = [];
+  for (const [name, cfg] of Object.entries(preset)) {
+    if (name === "master")
+      continue;
+    con
+
+=== `createSynthesisOnlyPermission(` occurrences: [613621, 617524]
+--- @ 613621 ---
+task: "deny",
+    question: "deny",
+    read: "allow",
+    glob: "allow",
+    grep: "allow",
+    lsp: "allow",
+    list: "allow",
+    codesearch: "allow",
+    ast_grep_search: "allow"
+  };
+}
+function createSynthesisOnlyPermission() {
+  return {
+    "*": "deny",
+    bash: "deny",
+    edit: "deny",
+    write: "deny",
+    apply_patch: "deny",
+    ast_grep_replace: "deny",
+    task: "deny",
+    question: "deny",
+    read: "deny",
+    glob: "deny",
+    grep: "deny",
+    lsp: "deny",
+    list: "deny",
+    codesearch: "deny",
+    ast_grep_search: "deny"
+  };
+}
+
+// src/agents/council.ts
+var COUNCIL_SYNTHESIS_REINFORCEMENT = `
+
+---
+
+You MUST follow the Synthesis Process steps before producing output:
+
+--- @ 617524 ---
+ viewpoints from council members to make informed decisions with higher confidence than single models",
+    config: {
+      model,
+      temperature: 0.1,
+      prompt,
+      permission: {
+        ...createSynthesisOnlyPermission()
+      }
+    }
+  };
+}
+
+// src/agents/councillor.ts
+var COUNCILLOR_PROMPT = `You are a councillor in a multi-model council.
+
+**Role**: Provide your best independent analysis and solution to the given problem.
+
+**Capabilities**: You have read-only access to the codebase. You can:
+- Read files (read)
+- Search by name patterns (glob)
+- Search by content (grep)
+- Search code patterns (ast_grep_search)
+- Use OpenCode's built-in \`lsp\` tool when available
+- Search extern
+
+=== `appendTaskRejectionInstruction(` occurrences: [631657, 634997, 638414, 641492]
+--- @ 631657 ---
+ompt
+    }
+  };
+}
+
+// src/agents/task-rejection.ts
+var TASK_REJECTION_INSTRUCTION = "If a task is outside your role, do not attempt partial work. Return a brief reason to the orchestrator.";
+function appendTaskRejectionInstruction(prompt) {
+  return `${prompt}
+
+${TASK_REJECTION_INSTRUCTION}`;
+}
+
+// src/agents/index.ts
+var TASK_CONTROL_TOOL_NAMES = [
+  "task_cancel",
+  "task_message",
+  "task_revive",
+  "task_status",
+  "task_result"
+];
+var SAFE_AGENT_ALIAS_RE = /^[a-z][a-z0-9_-]*$/i;
+function getPrimaryModelFromOverride(override) {
+  const model = override?.model;
+  if (typeof model === "string") {
+    return model;
+  }
+  if (Array.isArray(model) && model.length > 0) {
+    const first = mode
+
+--- @ 634997 ---
+  return false;
+  }
+  return !Array.isArray(override.model) || override.model.length > 0;
+}
+function buildCustomAgentDefinition(name, override, filePrompt, fileAppendPrompt) {
+  const defaultPrompt = appendTaskRejectionInstruction(`You are the ${name} specialist.`);
+  const primaryModel = getPrimaryModelFromOverride(override);
+  const description = override.description ?? `Custom subagent '${name}'`;
+  return {
+    name,
+    description,
+    config: {
+      model: primaryModel ?? DEFAULT_MODELS.oracle,
+      temperature: 0.2,
+      prompt: resolvePrompt(name, override.prompt, filePrompt, defaultPrompt, fileAppendPrompt)
+    }
+  };
+}
+function injectDisplayNames(orchestrator, nameMap) {
+  if (
+
+--- @ 638414 ---
+.preset,
+      projectDirectory: options?.projectDirectory
+    });
+    const override = getOverrideFromAgents(mergedAgents, name);
+    const inlinePrompt = override?.prompt;
+    const defaultPrompt = appendTaskRejectionInstruction(agent.config.prompt ?? "");
+    agent.config.prompt = resolvePrompt(name, inlinePrompt, customPrompts.prompt, defaultPrompt, customPrompts.appendPrompt);
+    return agent;
+  });
+  const customAgentNames = runtime.customAgentNames.map(normalizeCustomAgentName).filter((name) => name.length > 0).filter((name) => {
+    if (!isSafeCustomAgentName(name)) {
+      throw new Error(`Unsafe custom agent name '${name}'`);
+    }
+    if (disabled.has(name)) {
+      return false;
+
+--- @ 641492 ---
+Agents = [
+    ...builtInSubAgents,
+    ...customSubAgents,
+    ...acpSubAgents,
+    ...councillorAgents
+  ];
+  for (const agent of [...acpSubAgents, ...councillorAgents]) {
+    agent.config.prompt = appendTaskRejectionInstruction(agent.config.prompt ?? "");
+  }
+  const orchestratorOverride = getOverrideFromAgents(mergedAgents, "orchestrator");
+  const orchestratorModel = orchestratorOverride?.model ?? DEFAULT_MODELS.orchestrator;
+  const orchestratorPrompts = loadAgentPrompt("orchestrator", {
+    preset: runtime.preset,
+    projectDirectory: options?.projectDirectory
+  });
+  const orchestrator = createOrchestratorAgent(orchestratorModel, undefined, undefined, disabled, councillorAgents.leng
+
+=== `TASK_REJECTION_INSTRUCTION` occurrences: [631512, 631721]
+--- @ 631512 ---
+ecisions, complex debugging, code review, simplification, and engineering guidance.",
+    config: {
+      model,
+      temperature: 0.1,
+      prompt
+    }
+  };
+}
+
+// src/agents/task-rejection.ts
+var TASK_REJECTION_INSTRUCTION = "If a task is outside your role, do not attempt partial work. Return a brief reason to the orchestrator.";
+function appendTaskRejectionInstruction(prompt) {
+  return `${prompt}
+
+${TASK_REJECTION_INSTRUCTION}`;
+}
+
+// src/agents/index.ts
+var TASK_CONTROL_TOOL_NAMES = [
+  "task_cancel",
+  "task_message",
+  "task_revive",
+  "task_status",
+  "task_result"
+];
+var SAFE_AGENT_ALIAS_RE = /^[a-z][a-z0-9_-]*$/i;
+function getPrimaryModelFromOverride(override) {
+  const model = o
+
+--- @ 631721 ---
+CTION_INSTRUCTION = "If a task is outside your role, do not attempt partial work. Return a brief reason to the orchestrator.";
+function appendTaskRejectionInstruction(prompt) {
+  return `${prompt}
+
+${TASK_REJECTION_INSTRUCTION}`;
+}
+
+// src/agents/index.ts
+var TASK_CONTROL_TOOL_NAMES = [
+  "task_cancel",
+  "task_message",
+  "task_revive",
+  "task_status",
+  "task_result"
+];
+var SAFE_AGENT_ALIAS_RE = /^[a-z][a-z0-9_-]*$/i;
+function getPrimaryModelFromOverride(override) {
+  const model = override?.model;
+  if (typeof model === "string") {
+    return model;
+  }
+  if (Array.isArray(model) && model.length > 0) {
+    const first = model[0];
+    return typeof first === "string" ? first : first?.id;
+

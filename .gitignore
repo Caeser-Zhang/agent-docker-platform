@@ -38,3 +38,7 @@ docker-compose.override.yml
 
 # Logs
 *.log
+
+# Local test scratch area (mounted test config/workspace, diagnostic scripts).
+# Contains a copy of config/opencode.json with a real apiKey — never commit.
+.tmp/

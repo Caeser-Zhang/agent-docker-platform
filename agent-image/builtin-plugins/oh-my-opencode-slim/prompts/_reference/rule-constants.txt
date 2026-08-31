@@ -1,0 +1,43 @@
+### READONLY_FILE_OPERATIONS_RULES
+
+**File Operations Rules**:
+- READ-ONLY: inspect and report; do not modify files.
+- Prefer dedicated file tools for codebase inspection: glob/grep/ast_grep_search for discovery and read for file contents.
+- Bash is allowed for non-mutating diagnostics and shell-native inspection when it is the clearest tool, but not for modifying files.
+- Do not use cat/head/tail/sed/awk only to read code into context; use read/grep unless a shell pipeline is genuinely the better diagnostic.
+
+=====
+
+### WRITABLE_FILE_OPERATIONS_RULES
+
+**File Operations Rules**:
+- Prefer dedicated file tools for normal code work: glob/grep/ast_grep_search for discovery, read for file contents, and edit/write/apply_patch for targeted source changes.
+- Use bash for execution and automation: git, package managers, tests, builds, scripts, diagnostics, and shell-native filesystem operations.
+- Shell is acceptable for bulk or mechanical filesystem changes when it is clearer or safer than many individual edits (for example: truncate generated logs, remove build artifacts, batch rename/move files), especially when the user explicitly asks for that shell operation.
+- Before destructive or broad shell operations, verify the target set and quote paths. Prefer a dry-run/listing first when practical.
+- Do not use cat/head/tail/sed/awk only to read code into context; use read/grep unless a shell pipeline is genuinely the better diagnostic.
+
+=====
+
+### NO_SHELL_READONLY_FILE_OPERATIONS_RULES
+
+**File Operations Rules**:
+- READ-ONLY: inspect and report; do not modify files.
+- Use glob/grep/ast_grep_search for discovery and read for file contents.
+- Do not use bash or shell commands.
+
+=====
+
+### COUNCIL_SYNTHESIS_REINFORCEMENT
+
+
+
+---
+
+You MUST follow the Synthesis Process steps before producing output: review each councillor response individually by name, then produce the required output with a synthesized Council Response, a Per-Councillor Details section using each councillor's exact seat name (e.g. "alpha", not the model label), and a Council Summary with Consensus Level (unanimous|majority|split), Agreed Points, Disagreements + resolution, Remaining Uncertainty, and Recommended Action.
+
+=====
+
+### TASK_REJECTION_INSTRUCTION
+
+If a task is outside your role, do not attempt partial work. Return a brief reason to the orchestrator.
