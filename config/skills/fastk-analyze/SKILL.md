@@ -1,0 +1,35 @@
+---
+name: fastk-analyze
+description: Analyze FastDB knowledge-base content — inventories, coverage stats, cross-database comparison, spec summarization with citations. Use when the user asks to summarize, compare, audit, or analyze knowledge-base contents rather than answer a single lookup question.
+---
+
+# fastk-analyze — FastDB 知识库分析
+
+与 fastk-search 技能的分工：search 回答"哪里有 X"（单点检索）；本技能回答
+"库里有什么、覆盖是否完整、不同库/文档之间是什么关系"（面上分析）。
+底层同样是只读的 `fastk` CLI（`/usr/local/bin/fastk`），库名约定与检索语法
+见 fastk-search 技能，此处不重复。
+
+## 分析工作流
+
+1. **定范围**：`fastk databases` + `fastk stats --db <db>` —— 统计口径一律以
+   stats 返回的文件数/chunk 数为准，不凭感觉估计
+2. **建清单**：`fastk files --db <db> --limit 100`（大库用 `--offset` 分页拉全）
+3. **摸结构**：对重点文档逐个 `fastk toc --db <db> <file_path>` 展开骨架
+4. **取证**：用 `search` / `grep` / `query` 定位关键段落（用法见 fastk-search 技能）
+5. **产出**：给出带出处的分析结论
+
+## 常用分析模式
+
+- **覆盖度盘点**：files 全清单 → toc 逐个 → 输出"主题 → 文档 → 缺口"对照表
+- **跨库对比**：同一主题分别在 `global` 与 `aicode`（或项目索引）检索，
+  对比两边命中的文档与说法差异
+- **规范一致性审计**：`grep` 固定模式（版本号、接口路径、日期等）跨文档核对
+- **主题摘要**：search 圈定相关文档 → toc 选段 → 汇总成结构化摘要
+
+## 硬性要求
+
+- 每条结论标注来源：`file_path`（+ section/chunk 标题），禁止无出处断言
+- 数量、大小、覆盖比例等数字一律取自 `stats`/`files`/`grep` 等工具返回值
+- 库不可达或为空时如实说明，不要编造内容填充分析
+- 分析输出建议结构：范围 → 方法（用了哪些命令）→ 发现 → 结论/建议

@@ -133,7 +133,10 @@ COPY builtin-mcp/ /opt/agent/builtin-mcp/
 COPY --from=fetch /fetch/builtin-plugins /opt/agent/builtin-plugins
 COPY builtin-plugins/ /opt/agent/builtin-plugins/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode
+# fastk CLI — stdlib-only client for the FastDB knowledge-base REST API,
+# the tool the bundled fastk-search / fastk-analyze skills instruct on.
+COPY builtin-tools/fastk-cli/fastk /usr/local/bin/fastk
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk
 
 ENV HOME=/home/agent \
     XDG_CONFIG_HOME=/data/config \

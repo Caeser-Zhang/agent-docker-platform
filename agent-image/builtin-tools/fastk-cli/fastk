@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""fastk — read-only command-line client for the FastDB knowledge-base API.
+
+Stdlib-only (no pip dependencies). Talks to the FastDB REST server under the
+``/fastdb/api`` prefix the same way the platform's fastk-mcp server does, so
+agent containers can query the knowledge bases from a shell.
+
+Environment:
+    FASTDB_BASE_URL   FastDB server root (default: http://host.docker.internal:8000)
+    FASTK_DEFAULT_DB  Logical database used when --db is omitted (default: global)
+    FASTK_DB_MAP      JSON object of logical -> physical db names, merged over
+                      the built-in defaults below
+    FASTK_API_KEY     Optional; sent as the X-API-Key header
+
+Subcommands mirror the fastk-mcp tool surface:
+
+    databases                              list configured FastDB databases
+    files    [--db NAME] [--limit N] [--offset N]
+    toc      [--db NAME] FILE_PATH
+    stats    [--db NAME]
+    search   [--db NAME] QUERY [--topk N] [--rrf|--no-rrf] [--rrf-k N]
+                                          [--alpha F] [--threshold F] [--filter EXPR]
+    query    [--db NAME] FILTER [--limit N]
+    grep     [--db NAME] TEXT_PATTERN [--path GLOB] [--topk N] [--filter EXPR]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+PREFIX = "/fastdb/api"
+DEFAULT_BASE_URL = "http://host.docker.internal:8000"
+
+# Logical db names used across the platform (mirrors mcp-fastk/fastk-mcp.toml).
+# Names not present here are passed through as physical FastDB db names, so a
+# renamed/hashed project index stays reachable via `fastk databases`.
+DEFAULT_DB_MAP = {
+    "global": "specs_global",
+    "aicode": "aicode",
+    "test": "test_db",
+}
+
+
+def base_url() -> str:
+    return os.environ.get("FASTDB_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+
+
+def db_map() -> dict:
+    mapping = dict(DEFAULT_DB_MAP)
+    raw = os.environ.get("FASTK_DB_MAP")
+    if raw:
+        try:
+            mapping.update(json.loads(raw))
+        except ValueError as exc:
+            raise SystemExit(f"fastk: FASTK_DB_MAP is not valid JSON: {exc}")
+    return mapping
+
+
+def resolve_db(name: str | None) -> str:
+    logical = name or os.environ.get("FASTK_DEFAULT_DB", "global")
+    return db_map().get(logical, logical)
+
+
+def request(method: str, path: str, params: dict | None = None, body: dict | None = None):
+    url = base_url() + PREFIX + path
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    headers = {"Accept": "application/json"}
+    api_key = os.environ.get("FASTK_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace").strip()
+        try:
+            detail = json.loads(detail).get("error", {}).get("message", detail)
+        except ValueError:
+            pass
+        raise SystemExit(f"fastk: HTTP {exc.code} {exc.reason}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise SystemExit(
+            f"fastk: cannot reach FastDB at {base_url()} ({exc.reason})"
+        ) from exc
+
+
+def db_path(db: str, action: str = "") -> str:
+    name = urllib.parse.quote(db, safe="")
+    return f"/databases/{name}" + (f"/{action}" if action else "")
+
+
+# --------------------------------------------------------------- subcommands
+
+
+def cmd_databases(_args: argparse.Namespace) -> None:
+    print(json.dumps(request("GET", "/databases"), ensure_ascii=False, indent=2))
+
+
+def cmd_files(args: argparse.Namespace) -> None:
+    params: dict = {}
+    if args.limit is not None:
+        params["limit"] = args.limit
+    if args.offset is not None:
+        params["offset"] = args.offset
+    data = request("GET", db_path(resolve_db(args.db), "files/"), params=params)
+    print(json.dumps(data.get("items", data), ensure_ascii=False, indent=2))
+
+
+def cmd_toc(args: argparse.Namespace) -> None:
+    data = request(
+        "GET",
+        db_path(resolve_db(args.db), "toc"),
+        params={"file_path": args.file_path},
+    )
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_stats(args: argparse.Namespace) -> None:
+    data = request("GET", db_path(resolve_db(args.db), "stats"))
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    body: dict = {"query": args.query, "topk": args.topk}
+    if args.use_rrf is not None:
+        body["use_rrf"] = args.use_rrf
+    if args.rrf_k is not None:
+        body["rrf_k"] = args.rrf_k
+    if args.alpha is not None:
+        body["alpha"] = args.alpha
+    if args.threshold is not None:
+        body["threshold"] = args.threshold
+    if args.filter is not None:
+        body["filter"] = args.filter
+    data = request("POST", db_path(resolve_db(args.db), "search"), body=body)
+    print(json.dumps(data.get("results", data), ensure_ascii=False, indent=2))
+
+
+def cmd_query(args: argparse.Namespace) -> None:
+    data = request(
+        "POST",
+        db_path(resolve_db(args.db), "query"),
+        body={"filter": args.filter, "limit": args.limit},
+    )
+    print(json.dumps(data.get("results", data), ensure_ascii=False, indent=2))
+
+
+def cmd_grep(args: argparse.Namespace) -> None:
+    body: dict = {"text_pattern": args.text_pattern, "topk": args.topk}
+    if args.path is not None:
+        body["path_pattern"] = args.path
+    if args.filter is not None:
+        body["filter"] = args.filter
+    data = request("POST", db_path(resolve_db(args.db), "grep"), body=body)
+    print(json.dumps(data.get("results", data), ensure_ascii=False, indent=2))
+
+
+def add_db_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--db", metavar="NAME", default=None,
+                   help="logical or physical database name (default: $FASTK_DEFAULT_DB or global)")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="fastk",
+        description="Read-only CLI for FastDB knowledge bases (search/query/grep/toc/files/stats).",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("databases", help="list configured FastDB databases")
+    p.set_defaults(func=cmd_databases)
+
+    p = sub.add_parser("files", help="list documents with chunk counts")
+    add_db_arg(p)
+    p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--offset", type=int, default=None)
+    p.set_defaults(func=cmd_files)
+
+    p = sub.add_parser("toc", help="table of contents (headings) of one document")
+    add_db_arg(p)
+    p.add_argument("file_path", metavar="FILE_PATH")
+    p.set_defaults(func=cmd_toc)
+
+    p = sub.add_parser("stats", help="file and chunk counts for a database")
+    add_db_arg(p)
+    p.set_defaults(func=cmd_stats)
+
+    p = sub.add_parser("search", help="hybrid (dense + full-text) search")
+    add_db_arg(p)
+    p.add_argument("query")
+    p.add_argument("--topk", type=int, default=10)
+    rrf = p.add_mutually_exclusive_group()
+    rrf.add_argument("--rrf", dest="use_rrf", action="store_true", default=None)
+    rrf.add_argument("--no-rrf", dest="use_rrf", action="store_false", default=None)
+    p.add_argument("--rrf-k", type=int, default=None)
+    p.add_argument("--alpha", type=float, default=None)
+    p.add_argument("--threshold", type=float, default=None)
+    p.add_argument("--filter", default=None,
+                   help="Pythonic filter expression, e.g. \"path == 'docs/guide.md'\"")
+    p.set_defaults(func=cmd_search)
+
+    p = sub.add_parser("query", help="filter-only query (no vector search)")
+    add_db_arg(p)
+    p.add_argument("filter")
+    p.add_argument("--limit", type=int, default=1000)
+    p.set_defaults(func=cmd_query)
+
+    p = sub.add_parser("grep", help="regex search over chunk text")
+    add_db_arg(p)
+    p.add_argument("text_pattern")
+    p.add_argument("--path", default=None, metavar="GLOB",
+                   help="glob pattern restricting file paths")
+    p.add_argument("--topk", type=int, default=10)
+    p.add_argument("--filter", default=None)
+    p.set_defaults(func=cmd_grep)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    try:
+        args.func(args)
+    except BrokenPipeError:
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
