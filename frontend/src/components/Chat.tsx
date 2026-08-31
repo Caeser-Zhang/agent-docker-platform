@@ -1331,20 +1331,24 @@ export function Chat({
     }
   };
 
-  const handleQuestionReply = async (requestId: string, answers: string[][]) => {
-    if (!currentSession) return;
+  const handleQuestionReply = async (
+    sessionId: string,
+    requestId: string,
+    answers: string[][]
+  ) => {
     try {
-      await api.replyQuestion(currentSession.id, requestId, answers);
+      // Reply against the request's own session — a question raised inside a
+      // subagent session carries that session's id, not the open one's.
+      await api.replyQuestion(sessionId, requestId, answers);
       setQuestions((prev) => prev.filter((q) => q.id !== requestId));
     } catch (e: any) {
       setError(e.message);
     }
   };
 
-  const handleQuestionReject = async (requestId: string) => {
-    if (!currentSession) return;
+  const handleQuestionReject = async (sessionId: string, requestId: string) => {
     try {
-      await api.rejectQuestion(currentSession.id, requestId);
+      await api.rejectQuestion(sessionId, requestId);
       setQuestions((prev) => prev.filter((q) => q.id !== requestId));
     } catch (e: any) {
       setError(e.message);
@@ -1353,6 +1357,16 @@ export function Chat({
 
   const activePermissions = permissions.filter((p) => p.sessionID === currentSession?.id);
   const activeQuestions = questions.filter((q) => q.sessionID === currentSession?.id);
+  // Approval cards are pushed via SSE, but a dropped event (the pump's
+  // reconnect gap, a throttled background tab) must not strand the user
+  // without a way to answer. Poll lightly while a run is active or while
+  // approvals are pending.
+  useEffect(() => {
+    if (!isGenerating && activeQuestions.length === 0 && activePermissions.length === 0)
+      return;
+    const t = window.setInterval(refreshPending, 5000);
+    return () => window.clearInterval(t);
+  }, [isGenerating, activeQuestions.length, activePermissions.length, refreshPending]);
   // Subagents are invoked by the primary agent; only primary agents are
   // selectable as a session's agent.
   const primaryAgents = useMemo(
@@ -1365,7 +1379,12 @@ export function Chat({
     () => agents.filter((a) => !a.hidden && a.mode === "subagent"),
     [agents]
   );
-  const showAgentMentions = agentId === "orchestrator";
+  // Subagents are injected via prompt.agents regardless of which primary
+  // agent leads the session, so surface them in the @-menu whenever the
+  // runtime exposes any (e.g. oh-my-opencode-slim's orchestrator crew).
+  // Gating on a specific agent id (orchestrator) left the menu empty with
+  // the default session agent.
+  const showAgentMentions = mentionableAgents.length > 0;
 
   // Slash menu options, filtered locally from the cached command list. Once
   // the query fully reads "agents", the list swaps to the agent picker.
@@ -1384,6 +1403,10 @@ export function Chat({
       out.push({ kind: "agentsCmd", name: "agents", description: "查看并切换当前会话的 Agent" });
     }
     for (const c of commands) {
+      // opencode registers skills on GET /command with source "skill"; they
+      // are knowledge packs, not user-invocable commands, so keep the menu
+      // to real commands (and MCP-provided ones).
+      if (c.source === "skill") continue;
       if (c.name.toLowerCase().includes(q)) {
         out.push({ kind: "command", name: c.name, description: c.description, source: c.source });
       }
@@ -2782,8 +2805,8 @@ function QuestionCard({
   onReject,
 }: {
   request: OcQuestionRequest;
-  onSubmit: (requestId: string, answers: string[][]) => void;
-  onReject: (requestId: string) => void;
+  onSubmit: (sessionId: string, requestId: string, answers: string[][]) => void;
+  onReject: (sessionId: string, requestId: string) => void;
 }) {
   // selections[i] = labels selected for questions[i]; custom input is appended
   // to the reply because opencode treats custom answers as free-form labels.
@@ -2809,7 +2832,7 @@ function QuestionCard({
       const custom = customTexts[i].trim();
       return custom ? [...sel, custom] : sel;
     });
-    onSubmit(request.id, answers);
+    onSubmit(request.sessionID, request.id, answers);
   };
 
   const allAnswered = selections.every(
@@ -2860,7 +2883,7 @@ function QuestionCard({
         <button style={styles.quesSubmitBtn} onClick={submit} disabled={!allAnswered}>
           提交
         </button>
-        <button style={styles.quesCancelBtn} onClick={() => onReject(request.id)}>
+        <button style={styles.quesCancelBtn} onClick={() => onReject(request.sessionID, request.id)}>
           取消
         </button>
       </div>

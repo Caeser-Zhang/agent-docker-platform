@@ -43,6 +43,10 @@ router = APIRouter(prefix="/api/tunnel", tags=["tunnel"])
 # Proxied verbs. opencode uses all of these across its API surface.
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
+# Synchronous endpoints that run an agent/LLM to completion before answering.
+# They need the long timeout; every other call stays at the quick budget.
+LONG_RUN_SUFFIXES = ("/prompt", "/prompt_async", "/command", "/summarize", "/init")
+
 # Paths the browser must never be able to reach through the tunnel: they would
 # let a user rewrite the injected credentials or shut the server down from
 # inside the sandbox.
@@ -156,8 +160,10 @@ async def proxy_opencode(oc_path: str, req: Request, user: User = Depends(get_cu
     fwd_headers = {"content-type": req.headers.get("content-type", "application/json")}
 
     params = dict(req.query_params)
-    # Prompts can legitimately run for minutes; everything else should be quick.
-    timeout = 300.0 if normalized.endswith("/prompt") else 60.0
+    # Agent-running endpoints block until the whole LLM run finishes and can
+    # legitimately take minutes. /prompt_async returns 204 immediately but is
+    # kept on the same budget; everything else stays quick.
+    timeout = 300.0 if normalized.endswith(LONG_RUN_SUFFIXES) else 60.0
 
     result = await tunnel_relay.http_request(
         user_id=user.id,
