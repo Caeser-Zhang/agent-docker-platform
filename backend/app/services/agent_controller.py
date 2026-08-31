@@ -511,6 +511,7 @@ class AgentController:
                 "running": False,
                 "healthy": False,
                 "status": "failed" if last_error else "absent",
+                "started_at": None,
                 "container_name": None,
                 "workspace": None,
                 "message": last_error or "",
@@ -530,11 +531,18 @@ class AgentController:
         # is only upserted once the container exists) — guard the lookups.
         record_error = record.last_error if record else None
 
+        # SQLite (aiosqlite) returns naive datetimes — normalize to UTC before
+        # the epoch conversion, same as idle_reclaim_loop does for last_activity.
+        started_at = record.started_at if record else None
+        if started_at and started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+
         return {
             "running": is_running,
             "healthy": is_healthy,
             "status": phase or (record.status if is_running else (record.status if record.status == "failed" else "stopped")),
             "phase_since": phase_since,
+            "started_at": started_at.timestamp() if started_at else None,
             "container_name": record.container_name if record else None,
             "workspace": None,
             "message": record_error or "",
@@ -739,11 +747,39 @@ class AgentController:
                     if record.last_activity:
                         idle_seconds = (now - record.last_activity.replace(tzinfo=timezone.utc)).total_seconds()
                         if idle_seconds > settings.idle_threshold:
+                            # Never SIGKILL an opencode that still has pending
+                            # permission/question prompts: the tool part would be
+                            # stranded as "running" forever and the UI wedges
+                            # waiting for an approval nobody can answer.
+                            if await self._has_pending_approvals(record):
+                                logger.info("Skipping reclaim for user %s — pending approvals (idle %ds)",
+                                           record.user_id, int(idle_seconds))
+                                continue
                             logger.info("Reclaiming idle container for user %s (idle %ds)",
                                        record.user_id, int(idle_seconds))
                             await self.stop_for_user(record.user_id)
             except Exception as e:
                 logger.error("Idle reclaim error: %s", e)
+
+    async def _has_pending_approvals(self, record: AgentContainer) -> bool:
+        """True if opencode reports pending permission or question requests.
+
+        Best-effort probe: on any failure (container gone mid-check, relay
+        error, timeout) we return False so idle reclaim is never blocked by
+        a dead probe.
+        """
+        try:
+            password = decrypt_password_compat(record.password_enc)
+            for path in ("/api/permission/request", "/api/question/request"):
+                resp = await tunnel_relay.http_request(
+                    record.user_id, "GET", path, password=password, timeout=5,
+                )
+                body = resp.get("body") if isinstance(resp, dict) else None
+                if isinstance(body, dict) and body.get("data"):
+                    return True
+        except Exception as e:
+            logger.debug("Pending-approval probe failed for user %s: %s", record.user_id, e)
+        return False
 
     # ------------------------------------------------------------------
     #  DB helpers

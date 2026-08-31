@@ -155,8 +155,31 @@ function errText(err: unknown): string {
   return e.message || e.data?.message || e.type || JSON.stringify(e);
 }
 
+/**
+ * Converge assistant turns stranded by a container kill. When opencode is
+ * SIGKILLed mid-tool-call (idle reclaim, restart), the persisted message
+ * never gets `time.completed` and its tool parts stay "running"/"pending"
+ * forever — and the pending approval itself was in-memory, so nobody can
+ * ever answer it. Any assistant message created BEFORE the container's
+ * current boot therefore cannot still be streaming; close it out so the
+ * UI stops waiting on it.
+ */
+function reconcileDeadTurn(turn: Turn, startedAtMs?: number): Turn {
+  if (!startedAtMs || turn.role !== "assistant" || !turn.streaming || !turn.created) return turn;
+  if (turn.created >= startedAtMs) return turn;
+  return {
+    ...turn,
+    streaming: false,
+    blocks: turn.blocks.map((b) =>
+      b.kind === "tool" && (b.status === "running" || b.status === "pending")
+        ? { ...b, status: "error" as ToolStatus, error: "容器已重启，此工具调用已中断" }
+        : b
+    ),
+  };
+}
+
 /** Convert one persisted SessionMessage into a renderable Turn. */
-export function toTurn(msg: any): Turn | null {
+export function toTurn(msg: any, startedAtMs?: number): Turn | null {
   if (!msg || typeof msg !== "object") return null;
   const base = { id: msg.id, created: msg.time?.created, type: msg.type };
 
@@ -195,7 +218,7 @@ export function toTurn(msg: any): Turn | null {
           });
         }
       }
-      return {
+      return reconcileDeadTurn({
         ...base,
         role: "assistant",
         blocks,
@@ -205,7 +228,7 @@ export function toTurn(msg: any): Turn | null {
         tokens: msg.tokens,
         error: msg.error ? errText(msg.error) : undefined,
         streaming: !msg.time?.completed && !msg.error,
-      };
+      }, startedAtMs);
     }
 
     case "shell":
@@ -343,7 +366,7 @@ function partToBlock(part: any): Block | null {
 }
 
 /** Build a Turn from a V1 Message (`info`) plus optional content parts. */
-function turnFromInfo(info: any, parts?: any[]): Turn {
+function turnFromInfo(info: any, parts?: any[], startedAtMs?: number): Turn {
   const role =
     info?.role === "user" ? "user" : info?.role === "assistant" ? "assistant" : "system";
   const blocks: Block[] = [];
@@ -353,19 +376,22 @@ function turnFromInfo(info: any, parts?: any[]): Turn {
     if (b) blocks.push(b);
   }
   if (role === "assistant") {
-    return {
-      id: info.id,
-      role: "assistant",
-      type: "assistant",
-      blocks,
-      model: info.model,
-      agent: info.agent,
-      cost: info.cost,
-      tokens: info.tokens,
-      error: info.error ? errText(info.error) : undefined,
-      streaming: !info.time?.completed && !info.error,
-      created: info.time?.created,
-    };
+    return reconcileDeadTurn(
+      {
+        id: info.id,
+        role: "assistant",
+        type: "assistant",
+        blocks,
+        model: info.model,
+        agent: info.agent,
+        cost: info.cost,
+        tokens: info.tokens,
+        error: info.error ? errText(info.error) : undefined,
+        streaming: !info.time?.completed && !info.error,
+        created: info.time?.created,
+      },
+      startedAtMs
+    );
   }
   // User messages carry the round's full file diffs on `info.summary.diffs`
   // (same payload as GET /session/{id}/diff?messageID=<user msg>).
@@ -386,25 +412,28 @@ function turnFromInfo(info: any, parts?: any[]): Turn {
 }
 
 /** Convert one V1 `{ info, parts }` record into a renderable Turn. */
-export function toTurnFromInfoParts(info: any, parts?: any[]): Turn | null {
+export function toTurnFromInfoParts(info: any, parts?: any[], startedAtMs?: number): Turn | null {
   if (!info || typeof info !== "object" || !info.id) return null;
-  return turnFromInfo(info, parts);
+  return turnFromInfo(info, parts, startedAtMs);
 }
 
 /**
  * Convert the response of GET /session/{id}/message (a bare array of
  * `{ info, parts }` records in v1.18.16) into Turns. Legacy discriminated
  * `SessionMessage` items are still accepted for compatibility.
+ *
+ * `startedAtMs` (container's current boot, epoch ms) enables dead-turn
+ * reconciliation — see reconcileDeadTurn.
  */
-export function toTurns(messages: any[]): Turn[] {
+export function toTurns(messages: any[], startedAtMs?: number): Turn[] {
   const out: Turn[] = [];
   for (const m of messages ?? []) {
     if (m && typeof m === "object" && m.info) {
-      const t = toTurnFromInfoParts(m.info, m.parts);
+      const t = toTurnFromInfoParts(m.info, m.parts, startedAtMs);
       if (t) out.push(t);
       continue;
     }
-    const t = toTurn(m);
+    const t = toTurn(m, startedAtMs);
     if (t) out.push(t);
   }
   return out;

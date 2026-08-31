@@ -163,6 +163,10 @@ export function Chat({
   const bottomRef = useRef<HTMLDivElement>(null);
   // The SSE callback is registered once; it reads the live session id from here.
   const sessionIdRef = useRef<string | null>(null);
+  // Container's current boot time (epoch ms), mirrored from agentStatus into a
+  // ref so message loaders (refreshSessionMessages / selectSession) can do
+  // dead-turn reconciliation without depending on the agentStatus state.
+  const agentStartedAtRef = useRef<number | undefined>(undefined);
   // Timestamp of the last received `message.*` SSE event, and a debounce timer
   // for message refetches. The platform's SSE pump can drop events while the
   // agent is streaming (opencode severs the upstream connection every ~1s),
@@ -193,6 +197,11 @@ export function Chat({
       : agentStatus?.status === "warming"
       ? "正在预热模型会话…"
       : "启动中…";
+
+  // Mirror the container's boot time into the ref used by message loaders.
+  useEffect(() => {
+    agentStartedAtRef.current = agentStatus?.started_at ? agentStatus.started_at * 1000 : undefined;
+  }, [agentStatus?.started_at]);
 
   // ------------------------------------------------------------------
   //  Control plane
@@ -282,7 +291,9 @@ export function Chat({
     try {
       const msgs = await api.getMessages(sid);
       if (sessionIdRef.current !== sid || msgs.length === 0) return;
-      const next = toTurns(msgs);
+      // Dead-turn reconciliation: close tool calls stranded by a container
+      // kill so isGenerating can't wedge on a message that will never finish.
+      const next = toTurns(msgs, agentStartedAtRef.current);
       setTurns(next);
       // Server truth beats the streaming flag: if no assistant turn is still
       // streaming, the round is over (covers SSE events lost in transit).
@@ -646,7 +657,7 @@ export function Chat({
     if (session.agent) setAgentId(session.agent);
     refreshPending();
     try {
-      setTurns(toTurns(await api.getMessages(session.id)));
+      setTurns(toTurns(await api.getMessages(session.id), agentStartedAtRef.current));
     } catch (e: any) {
       setError(e.message);
     }

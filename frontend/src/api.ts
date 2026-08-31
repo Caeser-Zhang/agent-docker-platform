@@ -52,6 +52,12 @@ export interface AgentStatus {
    * even one that attached mid-start — can show an accurate total wait.
    */
   phase_since?: number | null;
+  /**
+   * Epoch seconds of the container's current boot (DB record). Chat uses it
+   * to converge assistant turns stranded by a container kill: any message
+   * created before this instant cannot still be streaming.
+   */
+  started_at?: number | null;
   container_name: string | null;
   workspace: string | null;
   message: string;
