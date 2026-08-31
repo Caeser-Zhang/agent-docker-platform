@@ -182,7 +182,12 @@ async def proxy_opencode(oc_path: str, req: Request, user: User = Depends(get_cu
 
     payload = result.get("body")
     status = result.get("status", 502)
-    if isinstance(payload, (dict, list)):
+    # JSON scalars must survive the hop: opencode's legacy surface answers
+    # bare `true` on question/permission reply|reject (and DELETE /session).
+    # isinstance(True, (dict, list)) is False, and True is not str/bytes
+    # either, so the old branch replaced the body with "" and the browser
+    # died on "Unexpected end of JSON input" even though the call succeeded.
+    if payload is None or isinstance(payload, (dict, list, bool, int, float)):
         return JSONResponse(status_code=status, content=payload)
     return Response(
         status_code=status,
