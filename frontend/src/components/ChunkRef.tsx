@@ -53,6 +53,8 @@ function ChunkViewer({ db, chunkId, onClose }: { db: string; chunkId: string; on
   const [chunk, setChunk] = useState<FastkChunk | null>(null);
   const [error, setError] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // 附图独立三态：与正文加载解耦——图片失败不阻断、也不静默。
+  const [imgState, setImgState] = useState<"idle" | "loading" | "ok" | "error">("idle");
 
   // 取 chunk 内容；随后若有附图再取图片 Blob（<img> 无法带鉴权头）。
   useEffect(() => {
@@ -61,20 +63,24 @@ function ChunkViewer({ db, chunkId, onClose }: { db: string; chunkId: string; on
     setChunk(null);
     setError("");
     setImageUrl(null);
+    setImgState("idle");
     api
       .getFastkChunk(db, chunkId)
       .then(async (c) => {
         if (!alive) return;
         setChunk(c);
         if (c.image_url) {
+          setImgState("loading");
           try {
             const blob = await api.fetchFastkChunkImage(db, chunkId);
             objectUrl = URL.createObjectURL(blob);
-            if (alive) setImageUrl(objectUrl);
-            else URL.revokeObjectURL(objectUrl);
-          } catch (e) {
-            // 图片失败不阻断正文展示
-            if (alive) setError(e instanceof Error ? e.message : "图片加载失败");
+            if (alive) {
+              setImageUrl(objectUrl);
+              setImgState("ok");
+            } else URL.revokeObjectURL(objectUrl);
+          } catch {
+            // 图片失败不阻断正文展示，但给出可见占位
+            if (alive) setImgState("error");
           }
         }
       })
@@ -126,7 +132,15 @@ function ChunkViewer({ db, chunkId, onClose }: { db: string; chunkId: string; on
                 </div>
               </div>
               <div style={styles.chunkText}>{chunk.text}</div>
-              {imageUrl && <img src={imageUrl} alt="知识库附图" style={styles.chunkImage} />}
+              {imgState === "loading" && (
+                <div style={styles.chunkImagePlaceholder}>正在加载附图…</div>
+              )}
+              {imgState === "error" && (
+                <div style={styles.chunkImageError}>附图加载失败，请关闭后重试</div>
+              )}
+              {imgState === "ok" && imageUrl && (
+                <img src={imageUrl} alt="知识库附图" style={styles.chunkImage} />
+              )}
             </>
           )}
         </div>

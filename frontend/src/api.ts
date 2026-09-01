@@ -252,7 +252,9 @@ export interface FastkChunk {
   path: string;
   section: string;
   chunk_index: number;
+  /** 图片引用：内容寻址 `asset:` 键（新）或旧绝对路径；仅展示用，取图走 image_url。 */
   image_path: string | null;
+  /** 平台代理取图端点（非空表示该 chunk 有附图）。 */
   image_url: string | null;
 }
 
