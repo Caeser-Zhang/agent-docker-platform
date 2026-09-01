@@ -23,7 +23,7 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim
 
 FROM ${NODE_IMAGE} AS fetch
 
-ARG OPENCODE_VERSION=1.18.16
+ARG OPENCODE_VERSION=1.18.25
 # Pinned so builds are reproducible — bump to upgrade the pre-baked plugin.
 ARG OMOS_PLUGIN_VERSION=2.2.15
 
