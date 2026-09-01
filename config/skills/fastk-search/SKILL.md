@@ -23,11 +23,15 @@ fastk 服务（fastdb serve fastapi，`/fastk/api` 前缀）运行在宿主机�
 
 ## 渐进式检索工作流
 
-1. **探库**：`fastk databases`
-2. **浏览文档清单**（每个文件的 chunk 数可判断文档大小）：
-   `fastk files --db global --limit 50`
-3. **看文档结构**（先拿 headings，再决定读哪段）：
+1. **探库**：`fastk databases`；先读库级使用说明（如有特殊约定须遵守）：
+   `fastk instructions --db global`
+2. **浏览文档清单**（自动分页拉全量，无需手动翻页；每个文件的 chunk 数可判断文档大小）：
+   `fastk files --db global`
+   - 只想知道文件总数：`fastk count --db global`
+   - 文档记不住完整路径时查别名映射：`fastk alias show --db global`（可加路径只查单个）
+3. **看文档结构**（先拿 headings，再决定读哪段；路径支持 canonical 或别名）：
    `fastk toc --db global "docs/spec-gateway.md"`
+   单文档 chunk 数：`fastk count --db global "docs/spec-gateway.md"`
 4. **混合检索**（dense + 全文融合，结果按文档分组，默认 topk=10）：
    `fastk search --db global "认证网关 超时重试"`
 5. **正则定位**（需要限定路径范围时优先用 `--path`）：

@@ -13,9 +13,13 @@ description: Analyze fastk knowledge-base content — inventories, coverage stat
 ## 分析工作流
 
 1. **定范围**：`fastk databases` + `fastk stats --db <db>` —— 统计口径一律以
-   stats 返回的文件数/chunk 数为准，不凭感觉估计
-2. **建清单**：`fastk files --db <db> --limit 100`（大库用 `--offset` 分页拉全）
+   stats 返回的文件数/chunk 数为准，不凭感觉估计；有库级说明先读
+   `fastk instructions --db <db>`（分析角度和口径可能受其约束）
+2. **建清单**：`fastk files --db <db>`（CLI 自动分页拉全量，无需手动翻页；
+   想抽查时可用 `--limit`/`--offset`）—— 与 stats 的文件数互相应证
 3. **摸结构**：对重点文档逐个 `fastk toc --db <db> <file_path>` 展开骨架
+   （路径支持 canonical 或别名，`fastk alias show --db <db> [PATH]` 可查映射）；
+   `fastk count --db <db> <file_path>` 可快速核对单文档 chunk 数
 4. **取证**：用 `search` / `grep` / `query` 定位关键段落（用法见 fastk-search 技能）
 5. **产出**：给出带出处的分析结论
 

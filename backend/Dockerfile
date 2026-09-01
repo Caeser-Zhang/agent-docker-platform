@@ -3,8 +3,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# bsdtar (libarchive) is the extraction backend rarfile uses for .rar archives
-RUN apt-get update \
+# bsdtar (libarchive) is the extraction backend rarfile uses for .rar archives.
+# apt 源切清华镜像：与下方 pip 的 tsinghua 镜像一致，构建不依赖外网代理。
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends libarchive-tools \
     && rm -rf /var/lib/apt/lists/*
 

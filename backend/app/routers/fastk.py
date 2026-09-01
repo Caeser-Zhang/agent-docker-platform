@@ -10,6 +10,7 @@ never talks to the fastk server directly.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -42,6 +43,30 @@ def _api_base(db: str) -> str:
     return f"{settings.fastk_server_url.rstrip('/')}/fastk/api/databases/{db}"
 
 
+def _parse_image_entries(raw: Any) -> list[dict[str, str]]:
+    """Parse a chunk's stored ``image_path`` into ``[{key, alt}]`` entries.
+
+    Mirrors the server side: new rows hold a JSON array of
+    ``{"key": "asset:<sha>.<ext>", "alt": ...}``; legacy rows hold a bare
+    key/path string for a single image.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, list):
+            return [
+                {"key": str(e.get("key") or "").strip(), "alt": str(e.get("alt") or "")}
+                for e in data
+                if isinstance(e, dict) and str(e.get("key") or "").strip()
+            ]
+    return [{"key": text, "alt": ""}]
+
+
 @router.get("/chunk")
 async def get_chunk(
     db: str = Query(...),
@@ -62,11 +87,17 @@ async def get_chunk(
     if not results:
         raise HTTPException(status_code=404, detail="未找到该内容块")
     chunk = results[0]
-    # Relative image URL for the browser; served through this router only.
-    if str(chunk.get("image_path") or "").strip():
-        chunk["image_url"] = f"/api/fastk/chunk-image?db={db}&chunk_id={chunk_id}"
-    else:
-        chunk["image_url"] = None
+    # Relative image URLs for the browser; served through this router only.
+    # images carries every attached picture in stored order — the viewer places
+    # each one back at its original position in the text.
+    entries = _parse_image_entries(chunk.get("image_path"))
+    chunk["images"] = [
+        {
+            "url": f"/api/fastk/chunk-image?db={db}&chunk_id={chunk_id}&index={i}",
+            "alt": e["alt"],
+        }
+        for i, e in enumerate(entries)
+    ]
     return chunk
 
 
@@ -74,14 +105,15 @@ async def get_chunk(
 async def get_chunk_image(
     db: str = Query(...),
     chunk_id: str = Query(...),
+    index: int = Query(default=0, ge=0),
     _user: Any = Depends(get_current_user),
 ) -> Response:
-    """Relay the image attached to a chunk from the fastk server."""
+    """Relay one of the images attached to a chunk from the fastk server."""
     _check_params(db, chunk_id)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         try:
             resp = await client.get(
-                f"{_api_base(db)}/images", params={"chunk_id": chunk_id}
+                f"{_api_base(db)}/images", params={"chunk_id": chunk_id, "index": index}
             )
         except httpx.HTTPError:
             raise HTTPException(status_code=502, detail="fastk 服务不可达")

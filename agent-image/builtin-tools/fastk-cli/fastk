@@ -5,6 +5,11 @@ Stdlib-only (no pip dependencies). Talks to the fastk REST server under the
 ``/fastk/api`` prefix the same way the platform's fastk-mcp server does, so
 agent containers can query the knowledge bases from a shell.
 
+The command surface mirrors the READ-ONLY subset of the upstream fastdb CLI
+(remote mode) whose version this file tracks in ``__version__``. Write
+operations (add/remove/describe/alias add+delete, ...) are intentionally not
+exposed — agent containers only get read access to the knowledge bases.
+
 Environment:
     FASTDB_BASE_URL   fastk server root (default: http://host.docker.internal:8000)
     FASTK_DEFAULT_DB  Logical database used when --db is omitted (default: global)
@@ -12,16 +17,20 @@ Environment:
                       the built-in defaults below
     FASTK_API_KEY     Optional; sent as the X-API-Key header
 
-Subcommands mirror the fastk-mcp tool surface:
+Subcommands:
 
     databases                              list configured fastk databases
+    instructions [--db NAME]               show database-level instructions
     files    [--db NAME] [--limit N] [--offset N]
-    toc      [--db NAME] FILE_PATH
+                                           (auto-paginates when both omitted)
+    count    [--db NAME] [FILE_PATH]       file count, or chunk count of one file
+    toc      [--db NAME] FILE_PATH         (accepts canonical or alias paths)
     stats    [--db NAME]
     search   [--db NAME] QUERY [--topk N] [--rrf|--no-rrf] [--rrf-k N]
                                           [--alpha F] [--threshold F] [--filter EXPR]
     query    [--db NAME] FILTER [--limit N]
     grep     [--db NAME] TEXT_PATTERN [--path GLOB] [--topk N] [--filter EXPR]
+    alias show [--db NAME] [PATH]          list aliases (all files, or one file)
 """
 
 from __future__ import annotations
@@ -33,6 +42,9 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# Tracks the fastdb CLI version whose remote surface this client mirrors.
+__version__ = "0.1.4"
 
 PREFIX = "/fastk/api"
 DEFAULT_BASE_URL = "http://host.docker.internal:8000"
@@ -46,7 +58,13 @@ DEFAULT_DB_MAP = {
 
 
 def base_url() -> str:
-    return os.environ.get("FASTDB_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    # Normalize like the upstream RemoteFastK client: strip a trailing slash
+    # and an already-present /fastk/api suffix before appending PREFIX, so
+    # FASTDB_BASE_URL works with or without the API prefix.
+    url = os.environ.get("FASTDB_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    if url.endswith(PREFIX):
+        url = url[: -len(PREFIX)]
+    return url + PREFIX
 
 
 def db_map() -> dict:
@@ -66,7 +84,7 @@ def resolve_db(name: str | None) -> str:
 
 
 def request(method: str, path: str, params: dict | None = None, body: dict | None = None):
-    url = base_url() + PREFIX + path
+    url = base_url() + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
     headers = {"Accept": "application/json"}
@@ -99,28 +117,102 @@ def db_path(db: str, action: str = "") -> str:
     return f"/databases/{name}" + (f"/{action}" if action else "")
 
 
+def list_all_files(db: str) -> list:
+    """Fetch every file record, auto-paginating (upstream list_files)."""
+    items: list = []
+    offset = 0
+    page_size = 100
+    while True:
+        data = request(
+            "GET",
+            db_path(db, "files/"),
+            params={"limit": page_size, "offset": offset},
+        )
+        page = data.get("items", [])
+        items.extend(page)
+        total = data.get("total", 0)
+        if len(items) >= total or not page:
+            return items
+        offset += len(page)
+
+
+def _aliases_of(record: dict) -> list:
+    """Coalesce a file record's aliases to a list (REST JSON list, or a
+    legacy JSON string)."""
+    aliases = record.get("aliases")
+    if aliases is None:
+        return []
+    if isinstance(aliases, str):
+        try:
+            aliases = json.loads(aliases)
+        except ValueError:
+            return []
+    return aliases if isinstance(aliases, list) else []
+
+
+def resolve_alias(db: str, path: str) -> str:
+    """Map an alias path to its canonical path (upstream resolve_alias).
+
+    Canonical paths win over alias matches and are returned unchanged; a
+    path matching neither a canonical path nor any alias exits with an error.
+    """
+    files = list_all_files(db)
+    for record in files:
+        if record.get("path") == path:
+            return path
+    for record in files:
+        if path in _aliases_of(record):
+            return record.get("path", "")
+    raise SystemExit(f"fastk: file not found in database '{db}': '{path}'")
+
+
 # --------------------------------------------------------------- subcommands
 
 
 def cmd_databases(_args: argparse.Namespace) -> None:
-    print(json.dumps(request("GET", "/databases"), ensure_ascii=False, indent=2))
+    print(json.dumps(request("GET", "/databases/"), ensure_ascii=False, indent=2))
+
+
+def cmd_instructions(args: argparse.Namespace) -> None:
+    db = resolve_db(args.db)
+    data = request("GET", db_path(db))
+    instructions = data.get("instructions", "")
+    print(instructions if instructions else f"No instructions set for '{db}'.")
 
 
 def cmd_files(args: argparse.Namespace) -> None:
-    params: dict = {}
-    if args.limit is not None:
-        params["limit"] = args.limit
-    if args.offset is not None:
-        params["offset"] = args.offset
-    data = request("GET", db_path(resolve_db(args.db), "files/"), params=params)
-    print(json.dumps(data.get("items", data), ensure_ascii=False, indent=2))
+    db = resolve_db(args.db)
+    if args.limit is None and args.offset is None:
+        items = list_all_files(db)
+    else:
+        params: dict = {}
+        if args.limit is not None:
+            params["limit"] = args.limit
+        if args.offset is not None:
+            params["offset"] = args.offset
+        data = request("GET", db_path(db, "files/"), params=params)
+        items = data.get("items", data)
+    print(json.dumps(items, ensure_ascii=False, indent=2))
+
+
+def cmd_count(args: argparse.Namespace) -> None:
+    db = resolve_db(args.db)
+    if args.file_path is None:
+        stats = request("GET", db_path(db, "stats"))
+        print(f"{stats.get('files', 0)} files")
+    else:
+        canonical = resolve_alias(db, args.file_path)
+        data = request("GET", db_path(db, "count"), params={"file_path": canonical})
+        print(f"{data.get('count', 0)} chunks")
 
 
 def cmd_toc(args: argparse.Namespace) -> None:
+    db = resolve_db(args.db)
+    canonical = resolve_alias(db, args.file_path)
     data = request(
         "GET",
-        db_path(resolve_db(args.db), "toc"),
-        params={"file_path": args.file_path},
+        db_path(db, "toc"),
+        params={"file_path": canonical},
     )
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
@@ -165,6 +257,13 @@ def cmd_grep(args: argparse.Namespace) -> None:
     print(json.dumps(data.get("results", data), ensure_ascii=False, indent=2))
 
 
+def cmd_alias_show(args: argparse.Namespace) -> None:
+    db = resolve_db(args.db)
+    params = {"path": args.path} if args.path is not None else None
+    data = request("GET", db_path(db, "files/aliases"), params=params)
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
 def add_db_arg(p: argparse.ArgumentParser) -> None:
     p.add_argument("--db", metavar="NAME", default=None,
                    help="logical or physical database name (default: $FASTK_DEFAULT_DB or global)")
@@ -173,18 +272,32 @@ def add_db_arg(p: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fastk",
-        description="Read-only CLI for FastDB knowledge bases (search/query/grep/toc/files/stats).",
+        description="Read-only CLI for FastDB knowledge bases "
+                    "(search/query/grep/toc/files/stats/count/instructions/aliases).",
+    )
+    parser.add_argument(
+        "--version", action="version",
+        version=f"fastk (agent-image client) {__version__} — mirrors fastdb CLI v{__version__}",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("databases", help="list configured FastDB databases")
     p.set_defaults(func=cmd_databases)
 
+    p = sub.add_parser("instructions", help="show database-level instructions (plain text)")
+    add_db_arg(p)
+    p.set_defaults(func=cmd_instructions)
+
     p = sub.add_parser("files", help="list documents with chunk counts")
     add_db_arg(p)
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--offset", type=int, default=None)
     p.set_defaults(func=cmd_files)
+
+    p = sub.add_parser("count", help="file count, or chunk count of one file")
+    add_db_arg(p)
+    p.add_argument("file_path", metavar="FILE_PATH", nargs="?", default=None)
+    p.set_defaults(func=cmd_count)
 
     p = sub.add_parser("toc", help="table of contents (headings) of one document")
     add_db_arg(p)
@@ -223,6 +336,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--topk", type=int, default=10)
     p.add_argument("--filter", default=None)
     p.set_defaults(func=cmd_grep)
+
+    p = sub.add_parser("alias", help="alias management (read-only: show)")
+    alias_sub = p.add_subparsers(dest="alias_command", required=True)
+    pa = alias_sub.add_parser("show", help="list aliases (all files, or one file)")
+    add_db_arg(pa)
+    pa.add_argument("path", metavar="PATH", nargs="?", default=None,
+                    help="canonical path to show aliases for (omit: all aliases)")
+    pa.set_defaults(func=cmd_alias_show)
 
     return parser
 

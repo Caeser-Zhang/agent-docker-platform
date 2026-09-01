@@ -244,7 +244,7 @@ export interface OcQuestionRequest {
 
 /**
  * fastk 知识库 chunk — 引用徽章点击后经平台代理（/api/fastk/chunk）取回的
- * 完整内容。image_url 是平台侧相对路径，需带 Authorization 以 Blob 方式加载。
+ * 完整内容。图片 URL 是平台侧相对路径，需带 Authorization 以 Blob 方式加载。
  */
 export interface FastkChunk {
   chunk_id: string;
@@ -252,10 +252,10 @@ export interface FastkChunk {
   path: string;
   section: string;
   chunk_index: number;
-  /** 图片引用：内容寻址 `asset:` 键（新）或旧绝对路径；仅展示用，取图走 image_url。 */
+  /** 图片引用：内容寻址 `asset:` 键 JSON 数组（新）或旧绝对路径；仅展示用，取图走 images。 */
   image_path: string | null;
-  /** 平台代理取图端点（非空表示该 chunk 有附图）。 */
-  image_url: string | null;
+  /** 全部附图：alt 为 markdown `![alt](…)` 的替换文本，用于把图放回原位。 */
+  images: { url: string; alt: string }[];
 }
 
 /** One-shot docker stats sample (admin container list). */
@@ -906,11 +906,12 @@ export const api = {
   /**
    * chunk 附图（Blob）。<img> 标签无法携带 Authorization 头，所以先在此
    * 带鉴权取回 Blob，再由调用方转 objectURL 展示。401 处理与 apiCall 一致。
+   * index 指向该 chunk 的第 index 张附图（缺省第一张）。
    */
-  async fetchFastkChunkImage(db: string, chunkId: string): Promise<Blob> {
+  async fetchFastkChunkImage(db: string, chunkId: string, index = 0): Promise<Blob> {
     const token = localStorage.getItem("token");
     const resp = await fetch(
-      `${API_BASE}/fastk/chunk-image?db=${encodeURIComponent(db)}&chunk_id=${encodeURIComponent(chunkId)}`,
+      `${API_BASE}/fastk/chunk-image?db=${encodeURIComponent(db)}&chunk_id=${encodeURIComponent(chunkId)}&index=${index}`,
       { headers: token ? { Authorization: `Bearer ${token}` } : {} }
     );
     if (resp.status === 401 && token) {
