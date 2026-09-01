@@ -138,6 +138,10 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY builtin-tools/fastk-cli/fastk /usr/local/bin/fastk
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk
 
+# WORKAROUND（oven-sh/bun#32178）：Bun 1.3.14 的 parallel-GC 存在确定性竞态，
+# bash 工具 spawn 子进程后 drain microtask 会 segment fault（Bun 1.3.15 已修复）。
+# opencode 内置的 Bun 仍停在 1.3.14，故用单线程 GC 绕过；等 opencode 内嵌
+# Bun >= 1.3.15 后可移除下面这行。
 ENV HOME=/home/agent \
     XDG_CONFIG_HOME=/data/config \
     XDG_DATA_HOME=/data/share \
@@ -145,7 +149,8 @@ ENV HOME=/home/agent \
     XDG_STATE_HOME=/data/state \
     AGENT_WORKDIR=/workspace \
     OPENCODE_DISABLE_AUTOUPDATE=1 \
-    OPENCODE_PORT=4096
+    OPENCODE_PORT=4096 \
+    BUN_JSC_numberOfGCMarkers=1
 
 WORKDIR /workspace
 USER 1000:1000
