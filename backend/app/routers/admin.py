@@ -12,6 +12,8 @@ Endpoints:
   GET  /api/admin/containers/{user_id}/logs      — container logs
   POST /api/admin/containers/{user_id}/restart   — restart in place
   POST /api/admin/containers/{user_id}/stop      — graceful stop (keeps volumes)
+  POST /api/admin/containers/{user_id}/recreate  — rebuild from current image
+                                                    (keeps volumes)
   POST /api/admin/containers/{user_id}/destroy   — remove container AND volumes
   GET  /api/admin/audit                          — recent lifecycle audit events
 """
@@ -103,6 +105,8 @@ async def admin_containers(stats: bool = Query(True, description="Include CPU/me
             "docker_status": dc["status"],
             "health": dc.get("health"),
             "image": dc.get("image") or (rec.image if rec else settings.agent_image),
+            "image_id": dc.get("image_id"),
+            "image_stale": bool(dc.get("image_stale")),
             "started_at": dc.get("started_at"),
             "last_activity": rec.last_activity.isoformat() if rec and rec.last_activity else None,
             "restart_count": rec.restart_count if rec else 0,
@@ -180,6 +184,21 @@ async def admin_stop_container(user_id: str):
     await _require_record(user_id)
     result = await agent_controller.stop_for_user(user_id)
     return {"ok": True, "message": result.get("message", "Container stopped")}
+
+
+@router.post("/containers/{user_id}/recreate")
+async def admin_recreate_container(user_id: str):
+    """Recreate the container from the current agent image (volumes kept).
+
+    The "update image" action: drops the container object so the next start
+    builds a fresh one from the image that is currently loaded in Docker —
+    this is the only way a rebuilt image reaches an existing container.
+    """
+    await _require_record(user_id)
+    result = await agent_controller.recreate_for_user(user_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=409, detail=result.get("message", "Recreate failed"))
+    return result
 
 
 @router.post("/containers/{user_id}/destroy")

@@ -281,6 +281,10 @@ export interface AdminContainer {
   /** Docker healthcheck status, e.g. "healthy" / "unhealthy" / null. */
   health: string | null;
   image: string;
+  /** Full sha256 ID of the image the container actually runs. */
+  image_id?: string | null;
+  /** True when the container's image differs from the currently loaded agent image. */
+  image_stale?: boolean;
   started_at: string | null;
   last_activity: string | null;
   restart_count: number;
@@ -401,6 +405,11 @@ export const api = {
 
   async adminStopContainer(userId: string): Promise<{ ok: boolean; message: string }> {
     return apiCall(`/admin/containers/${userId}/stop`, { method: "POST" });
+  },
+
+  /** Recreate the container from the currently loaded agent image (volumes kept). */
+  async adminRecreateContainer(userId: string): Promise<{ ok: boolean; message: string }> {
+    return apiCall(`/admin/containers/${userId}/recreate`, { method: "POST" });
   },
 
   async adminDestroyContainer(userId: string): Promise<{ ok: boolean; message: string }> {

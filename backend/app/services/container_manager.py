@@ -549,6 +549,35 @@ class ContainerManager:
             logger.error("Failed to restart container %s: %s", container_name, e)
             return False
 
+    async def recreate_container(self, user_id: str) -> dict:
+        """Remove the container object so the next start recreates it.
+
+        Only the container is discarded — the named workspace/data volumes
+        are preserved, so user data survives. This is how a running container
+        ever picks up a rebuilt image: an in-place restart keeps the rootfs
+        the container was created with.
+        """
+        async with self._lock:
+            return await asyncio.to_thread(self._recreate_container_sync, user_id)
+
+    def _recreate_container_sync(self, user_id: str) -> dict:
+        client = self._get_client()
+        container_name = f"agent-{user_id}"
+        try:
+            container = client.containers.get(container_name)
+        except NotFound:
+            logger.info("Container %s not found — nothing to recreate", container_name)
+            return {"ok": True, "removed": False, "old_image": None}
+        # Read from attrs: `container.image` 404s when the old image was
+        # pruned by a rebuild (same guard as list_all_containers).
+        old_image = (container.attrs.get("Config") or {}).get("Image") or container.attrs.get("Image") or ""
+        container.remove(force=True)
+        logger.info(
+            "Container %s removed for recreate (was image %s; volumes kept)",
+            container_name, old_image,
+        )
+        return {"ok": True, "removed": True, "old_image": old_image}
+
     async def stop_container(self, user_id: str, timeout: int = 10):
         """Gracefully stop a user's container (preserves volumes)."""
         async with self._lock:
@@ -1016,6 +1045,15 @@ class ContainerManager:
             logger.warning("Docker container listing failed: %s", exc)
             return []
 
+        # ID of the configured agent image — the staleness baseline. A
+        # missing image (bad AGENT_AGENT_IMAGE / not built yet) must never
+        # flag working containers as stale, so treat it as "no baseline".
+        try:
+            current_image_id = client.images.get(settings.agent_image).id
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Configured image %s unavailable: %s", settings.agent_image, exc)
+            current_image_id = None
+
         result = []
         for c in containers:
             state = c.attrs.get("State", {})
@@ -1023,12 +1061,17 @@ class ContainerManager:
             # call that 404s when the image has been pruned while the
             # container still references it.
             image = (c.attrs.get("Config") or {}).get("Image") or settings.agent_image
+            image_id = c.attrs.get("Image") or ""
             result.append({
                 "name": c.name,
                 "user_id": c.labels.get("user-id", ""),
                 "status": c.status,
                 "health": (state.get("Health") or {}).get("Status"),
                 "image": image,
+                "image_id": image_id,
+                # Tags are re-pointable: only the image ID tells whether the
+                # container really runs the freshly built image.
+                "image_stale": bool(current_image_id and image_id and image_id != current_image_id),
                 "started_at": self._normalize_docker_ts(state.get("StartedAt")),
             })
         return result

@@ -429,6 +429,42 @@ class AgentController:
         return {"ok": True, "message": "Container restarted"}
 
     # ------------------------------------------------------------------
+    #  Recreate — rebuild the container from the current agent image
+    # ------------------------------------------------------------------
+
+    async def recreate_for_user(self, user_id: str) -> dict:
+        """Recreate the user's container from the *current* agent image.
+
+        Admin "update image" action after a rebuild: the container object is
+        dropped (named workspace/data volumes survive), then the full start
+        flow runs — ensure_container creates a fresh container from the
+        current image, re-injects config, probes health, rebuilds the SSE
+        pump. An in-place restart would keep the old rootfs forever.
+        """
+        record = await self._get_container_record(user_id)
+        if not record:
+            return {"ok": False, "message": "No container record for this user"}
+
+        await sse_pump_manager.stop_pump(user_id)
+        self.invalidate_gate(user_id)
+        # Mark creating before removal so the panel shows the transition
+        # (and start_for_user's "already running" fast path is skipped).
+        await self._update_status(user_id, "creating")
+
+        removal = await container_manager.recreate_container(user_id)
+        if not removal.get("ok"):
+            await self._update_status(user_id, "failed", error="Container removal failed")
+            await log_audit(user_id, "container.recreate", {"ok": False, "reason": "remove_failed"})
+            return {"ok": False, "message": "Container removal failed"}
+
+        result = await self.start_for_user(user_id)
+        await log_audit(user_id, "container.recreate", {
+            "ok": bool(result.get("running")),
+            "removed": removal.get("removed", False),
+        })
+        return {"ok": bool(result.get("running")), **result}
+
+    # ------------------------------------------------------------------
     #  Pump re-attach — after an out-of-band container restart
     # ------------------------------------------------------------------
 

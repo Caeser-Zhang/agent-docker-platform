@@ -751,7 +751,23 @@ export function AdminPanel({
                     </td>
                     <td style={s.tdWrap}>
                       <div style={s.mono}>{c.container_name}</div>
-                      <div style={{ ...s.mono, ...s.muted, fontSize: "11px" }}>{c.image}</div>
+                      <div style={{ ...s.mono, ...s.muted, fontSize: "11px", display: "flex", gap: "6px", alignItems: "center" }}>
+                        <span>{c.image}</span>
+                        {c.image_id && (
+                          <span title={`镜像 ID ${c.image_id}`} style={{ opacity: 0.75 }}>
+                            @{c.image_id.replace(/^sha256:/, "").slice(0, 12)}
+                          </span>
+                        )}
+                        {c.image_stale && (
+                          <span
+                            className="adm-badge adm-badge-warn"
+                            title="容器运行的镜像与当前镜像不一致（镜像已重建）— 点击「更新镜像」以应用"
+                            style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "999px", background: "#78350f", color: "#fbbf24" }}
+                          >
+                            镜像过期
+                          </span>
+                        )}
+                      </div>
                       {c.last_error && (
                         <div
                           style={{ color: "#f87171", fontSize: "11px", marginTop: "4px", display: "flex", gap: "4px", alignItems: "center" }}
@@ -807,6 +823,23 @@ export function AdminPanel({
                           onClick={() => runOp(c.user_id, () => api.adminRestartContainer(c.user_id))}
                         >
                           {isBusy ? "…" : "重启"}
+                        </button>
+                        <button
+                          className="adm-btn"
+                          style={{
+                            ...s.btnSmall,
+                            ...(absent || disabled ? s.btnDisabled : {}),
+                            ...(c.image_stale && !disabled ? { borderColor: "#fbbf24", color: "#fbbf24" } : {}),
+                          }}
+                          disabled={absent || disabled}
+                          title="删除容器并用当前镜像重建（工作区/数据卷保留，容器会短暂重启）"
+                          onClick={() => {
+                            if (window.confirm(`用当前镜像重建 ${c.container_name}？工作区和数据会保留，容器将短暂中断。`)) {
+                              runOp(c.user_id, () => api.adminRecreateContainer(c.user_id));
+                            }
+                          }}
+                        >
+                          更新镜像
                         </button>
                         <button
                           className="adm-btn"
