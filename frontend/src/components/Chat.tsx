@@ -15,6 +15,7 @@ import {
 import { parseTodos, reduceEvent, toTurns, type Block, type FileDiff, type TodoItem, type Turn } from "../oc/messages";
 import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
+import { TextWithChunkRefs } from "./ChunkRef";
 
 /** "provider/model" <-> ModelRef, the format opencode uses in config.model. */
 function parseModel(value: string | null | undefined): ModelRef | undefined {
@@ -2720,12 +2721,8 @@ function BlockView({ block, streaming }: { block: Block; streaming: boolean }) {
 
   if (block.kind === "text") {
     if (!block.text && !streaming) return null;
-    return (
-      <div style={styles.msgText}>
-        {block.text}
-        {streaming && <span style={styles.cursor}>▊</span>}
-      </div>
-    );
+    // fastk 引用标记（[[chunk:db/id]]）解析为可点击徽章；无标记时等价原渲染。
+    return <TextWithChunkRefs text={block.text} cursor={streaming} />;
   }
 
   if (block.kind === "reasoning") {

@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db, promote_admins, backfill_uids
-from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy, user_config
+from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy, user_config, fastk
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
 from .services.sse_pump import sse_pump_manager
@@ -112,6 +112,7 @@ app.include_router(workspace.router)
 app.include_router(admin.router)
 app.include_router(llm_proxy.router)
 app.include_router(user_config.router)
+app.include_router(fastk.router)
 
 
 @app.exception_handler(RequestValidationError)

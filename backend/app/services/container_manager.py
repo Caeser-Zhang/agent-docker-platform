@@ -325,6 +325,10 @@ class ContainerManager:
                 "XDG_STATE_HOME": "/data/state",
                 "AGENT_WORKDIR": settings.agent_workdir,
                 "AGENT_USER_ID": user_id,
+                # fastk CLI (fastk-search / fastk-analyze skills) targets the
+                # platform fastk REST server on the host.
+                "FASTDB_BASE_URL": settings.fastk_server_url,
+                "FASTK_DEFAULT_DB": "global",
             },
             # --- Restart policy ---
             "restart_policy": {"Name": "unless-stopped"},
@@ -422,7 +426,10 @@ class ContainerManager:
             # forever. Recreate from the current image; the named workspace/
             # data volumes are re-attached, so user data survives.
             if self._image_stale(client, container):
-                old = container.image.tags or [container.image_id]
+                # Read the image name from attrs — `container.image` issues an
+                # extra API call that 404s when the old image was pruned by a
+                # rebuild (same guard as the status endpoint below).
+                old = (container.attrs.get("Config") or {}).get("Image") or container.image_id
                 logger.info(
                     "Container %s runs stale image %s — recreating on %s",
                     container_name, old, settings.agent_image,

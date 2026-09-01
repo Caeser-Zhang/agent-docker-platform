@@ -1273,4 +1273,85 @@ export const styles: Record<string, any> = {
     whiteSpace: "pre-wrap",
     margin: 0,
   },
+
+  // --- fastk chunk 引用徽章 + 内容查看器 ---------------------------------
+  // 徽章：行内可点击，展示知识库来源；中文文案，悬停有提示。
+  chunkBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "3px",
+    padding: "0 8px",
+    margin: "0 2px",
+    height: "20px",
+    borderRadius: "10px",
+    background: accentSoft,
+    border: "1px solid rgba(37,99,235,0.25)",
+    color: accent,
+    fontSize: "12px",
+    lineHeight: "18px",
+    cursor: "pointer",
+    verticalAlign: "baseline",
+    whiteSpace: "nowrap",
+    userSelect: "none",
+  },
+  chunkViewerBody: {
+    padding: "16px",
+    overflow: "auto",
+    fontSize: "14px",
+    color: text,
+    lineHeight: 1.75,
+    margin: 0,
+    // 中文正文排版：中文优先字体栈；strict 禁则避免标点悬挂行首；
+    // anywhere 兜底长 URL/英文词的断行。
+    fontFamily:
+      '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif',
+    lineBreak: "strict",
+    overflowWrap: "anywhere",
+  },
+  chunkMeta: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    padding: "10px 12px",
+    marginBottom: "12px",
+    background: subtle,
+    border: `1px solid ${border}`,
+    borderRadius: "8px",
+    fontSize: "12px",
+    color: textSec,
+  },
+  chunkMetaRow: { display: "flex", gap: "6px", alignItems: "baseline" },
+  chunkMetaLabel: {
+    flexShrink: 0,
+    color: textMut,
+    // 中文标签与西文路径混排时保持 12px 可读性
+    fontSize: "12px",
+  },
+  chunkMetaValue: { color: text, fontFamily: "ui-monospace, monospace", wordBreak: "break-all" },
+  chunkText: {
+    whiteSpace: "pre-wrap",
+    textAlign: "justify", // 中文两端对齐，避免右侧参差
+  },
+  chunkImage: {
+    display: "block",
+    maxWidth: "100%",
+    marginTop: "12px",
+    borderRadius: "8px",
+    border: `1px solid ${border}`,
+  },
+  chunkLoading: {
+    padding: "24px 0",
+    textAlign: "center",
+    color: textMut,
+    fontSize: "13px",
+  },
+  chunkError: {
+    padding: "16px",
+    textAlign: "center",
+    color: "#b91c1c",
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    borderRadius: "8px",
+    fontSize: "13px",
+  },
 };

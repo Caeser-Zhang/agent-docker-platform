@@ -1,0 +1,30 @@
+{
+  "databases": {
+    "fastdb": {
+      "description": "A vector database CLI/SDK for AI applications with markdown chunking, hybrid search, and multimodal embedding.",
+      "db_uri": "~/.fastk/fastk.db",
+      "embedding_model": "qwen3.7-text-embedding",
+      "embedding_dimension": 1024,
+      "created_at": "2026-08-31T07:51:06.781630+00:00",
+      "filters": {},
+      "embedding_is_vl": false,
+      "vl_api_style": "jina",
+      "chunking_max_tokens": null,
+      "chunking_tokenizer_model": null,
+      "instructions": ""
+    },
+    "vl_test": {
+      "description": "VL embedding demo",
+      "db_uri": "~/.fastk/fastk.db",
+      "embedding_model": "qwen3-vl-embedding",
+      "embedding_dimension": 2560,
+      "created_at": "2026-08-31T09:16:06.187937+00:00",
+      "filters": {},
+      "embedding_is_vl": true,
+      "vl_api_style": "dashscope",
+      "chunking_max_tokens": null,
+      "chunking_tokenizer_model": null,
+      "instructions": ""
+    }
+  }
+}

@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     # knowledge-base search tools injected as a remote MCP server.
     fastk_mcp_url: str = "http://fastk-mcp:8001/mcp"
 
+    # Root URL of the fastk REST server (fastdb serve fastapi, run on the
+    # Docker/WSL host). Injected into every user container as FASTDB_BASE_URL
+    # so the built-in fastk CLI (agent-image/builtin-tools/fastk-cli) — used by
+    # the fastk-search / fastk-analyze skills — hits this server instead of a
+    # possibly absent local one. The server serves the /fastk/api prefix.
+    fastk_server_url: str = "http://host.docker.internal:8000"
+
     # Directory containing built-in MCP server manifests (mounted read-only
     # into the backend from the agent image source). Each subdirectory has a
     # manifest.json declaring the server's mcp config; these are discovered

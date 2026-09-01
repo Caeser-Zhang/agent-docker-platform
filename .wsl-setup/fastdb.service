@@ -1,0 +1,13 @@
+[Unit]
+Description=fastdb serve (fastk REST API on :8000)
+
+[Service]
+WorkingDirectory=/mnt/d/Project/fastdb
+ExecStart=%h/.fastk-venv/bin/fastk serve fastapi --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:%h/.fastk-server.log
+StandardError=append:%h/.fastk-server.log
+
+[Install]
+WantedBy=default.target

@@ -242,6 +242,20 @@ export interface OcQuestionRequest {
   tool?: { messageID: string; callID: string };
 }
 
+/**
+ * fastk 知识库 chunk — 引用徽章点击后经平台代理（/api/fastk/chunk）取回的
+ * 完整内容。image_url 是平台侧相对路径，需带 Authorization 以 Blob 方式加载。
+ */
+export interface FastkChunk {
+  chunk_id: string;
+  text: string;
+  path: string;
+  section: string;
+  chunk_index: number;
+  image_path: string | null;
+  image_url: string | null;
+}
+
 /** One-shot docker stats sample (admin container list). */
 export interface AdminContainerStats {
   cpu_percent: number;
@@ -877,6 +891,38 @@ export const api = {
     return apiCall(
       `${OC}/find/file?query=${encodeURIComponent(query)}&limit=${limit}&type=file`
     );
+  },
+
+  // --- fastk 知识库引用（assistant 消息中的 chunk 引用徽章） -------------
+  /** 按 chunk_id 取回知识库 chunk 完整内容（含元数据）。 */
+  async getFastkChunk(db: string, chunkId: string): Promise<FastkChunk> {
+    return apiCall(
+      `/fastk/chunk?db=${encodeURIComponent(db)}&chunk_id=${encodeURIComponent(chunkId)}`
+    );
+  },
+
+  /**
+   * chunk 附图（Blob）。<img> 标签无法携带 Authorization 头，所以先在此
+   * 带鉴权取回 Blob，再由调用方转 objectURL 展示。401 处理与 apiCall 一致。
+   */
+  async fetchFastkChunkImage(db: string, chunkId: string): Promise<Blob> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(
+      `${API_BASE}/fastk/chunk-image?db=${encodeURIComponent(db)}&chunk_id=${encodeURIComponent(chunkId)}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    return resp.blob();
   },
 
   // --- SSE --------------------------------------------------------------

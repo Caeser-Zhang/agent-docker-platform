@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""fastk — read-only command-line client for the FastDB knowledge-base API.
+"""fastk — read-only command-line client for the fastk knowledge-base API.
 
-Stdlib-only (no pip dependencies). Talks to the FastDB REST server under the
-``/fastdb/api`` prefix the same way the platform's fastk-mcp server does, so
+Stdlib-only (no pip dependencies). Talks to the fastk REST server under the
+``/fastk/api`` prefix the same way the platform's fastk-mcp server does, so
 agent containers can query the knowledge bases from a shell.
 
 Environment:
-    FASTDB_BASE_URL   FastDB server root (default: http://host.docker.internal:8000)
+    FASTDB_BASE_URL   fastk server root (default: http://host.docker.internal:8000)
     FASTK_DEFAULT_DB  Logical database used when --db is omitted (default: global)
     FASTK_DB_MAP      JSON object of logical -> physical db names, merged over
                       the built-in defaults below
@@ -14,7 +14,7 @@ Environment:
 
 Subcommands mirror the fastk-mcp tool surface:
 
-    databases                              list configured FastDB databases
+    databases                              list configured fastk databases
     files    [--db NAME] [--limit N] [--offset N]
     toc      [--db NAME] FILE_PATH
     stats    [--db NAME]
@@ -34,16 +34,14 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-PREFIX = "/fastdb/api"
+PREFIX = "/fastk/api"
 DEFAULT_BASE_URL = "http://host.docker.internal:8000"
 
-# Logical db names used across the platform (mirrors mcp-fastk/fastk-mcp.toml).
-# Names not present here are passed through as physical FastDB db names, so a
-# renamed/hashed project index stays reachable via `fastk databases`.
+# Logical db names used across the platform. Names not present here are passed
+# through as physical fastk db names, so `fastk databases` stays the source of
+# truth for any other index (e.g. vl_test or a hashed project index).
 DEFAULT_DB_MAP = {
-    "global": "specs_global",
-    "aicode": "aicode",
-    "test": "test_db",
+    "global": "fastdb",
 }
 
 

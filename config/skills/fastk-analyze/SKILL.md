@@ -1,9 +1,9 @@
 ---
 name: fastk-analyze
-description: Analyze FastDB knowledge-base content — inventories, coverage stats, cross-database comparison, spec summarization with citations. Use when the user asks to summarize, compare, audit, or analyze knowledge-base contents rather than answer a single lookup question.
+description: Analyze fastk knowledge-base content — inventories, coverage stats, cross-database comparison, spec summarization with citations. Use when the user asks to summarize, compare, audit, or analyze knowledge-base contents rather than answer a single lookup question.
 ---
 
-# fastk-analyze — FastDB 知识库分析
+# fastk-analyze — fastk 知识库分析
 
 与 fastk-search 技能的分工：search 回答"哪里有 X"（单点检索）；本技能回答
 "库里有什么、覆盖是否完整、不同库/文档之间是什么关系"（面上分析）。
@@ -30,6 +30,10 @@ description: Analyze FastDB knowledge-base content — inventories, coverage sta
 ## 硬性要求
 
 - 每条结论标注来源：`file_path`（+ section/chunk 标题），禁止无出处断言
+- 引用了具体 chunk 内容的结论，句末**必须**追加规范化引用标记
+  `[[chunk:<库名>/<chunk_id>]]`（`chunk_id` 原样取自工具返回 JSON；格式细节见
+  fastk-search 技能的"输出与引用"一节），前端会渲染为可点击徽章
 - 数量、大小、覆盖比例等数字一律取自 `stats`/`files`/`grep` 等工具返回值
 - 库不可达或为空时如实说明，不要编造内容填充分析
 - 分析输出建议结构：范围 → 方法（用了哪些命令）→ 发现 → 结论/建议
+- 全程使用简体中文回复；表格对齐中文宽度，数字用半角，标点用全角中文标点
