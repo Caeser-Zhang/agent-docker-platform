@@ -987,6 +987,14 @@ export const styles: Record<string, any> = {
     color: "#b45309",
     border: "1px solid rgba(250,204,21,0.5)",
   },
+  scopeBuiltin: {
+    fontSize: "10px",
+    padding: "1px 6px",
+    borderRadius: "8px",
+    background: "rgba(167,139,250,0.15)",
+    color: "#7c3aed",
+    border: "1px solid rgba(167,139,250,0.4)",
+  },
   skillMenuClose: {
     width: "100%",
     marginTop: "8px",

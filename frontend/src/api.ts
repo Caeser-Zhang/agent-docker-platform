@@ -130,6 +130,35 @@ export interface UserLlmProviderInput {
   models?: Record<string, any> | null;
 }
 
+/** Masked view of a user-scoped MCP server (secrets never leave the backend). */
+export interface UserMcpServer {
+  id: string;
+  name: string;
+  type: "local" | "remote";
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  url?: string | null;
+  hasHeaders?: boolean;
+  command?: string[] | null;
+  hasEnv?: boolean;
+  cwd?: string | null;
+  timeout?: number | null;
+}
+
+/** Payload for creating/updating a user MCP server. */
+export interface UserMcpInput {
+  name?: string;
+  type?: "local" | "remote";
+  enabled?: boolean;
+  command?: string[] | null;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  environment?: Record<string, string> | null;
+  cwd?: string | null;
+  timeout?: number | null;
+}
+
 /** Subset of opencode's SessionV2Info that the UI renders. */
 export interface OcSession {
   id: string;
@@ -728,6 +757,29 @@ export const api = {
     });
   },
 
+  // --- User-scoped MCP servers (/api/user-config/mcp) -------------------
+  async listUserMcp(): Promise<{ mcp: UserMcpServer[] }> {
+    return apiCall("/user-config/mcp");
+  },
+
+  async createUserMcp(payload: UserMcpInput): Promise<UserMcpServer> {
+    return apiCall("/user-config/mcp", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateUserMcp(id: string, payload: Partial<UserMcpInput>): Promise<UserMcpServer> {
+    return apiCall(`/user-config/mcp/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteUserMcp(id: string): Promise<void> {
+    return apiCall(`/user-config/mcp/${id}`, { method: "DELETE" });
+  },
+
   // --- Config management (host opencode.json) ---------------------------
   async getConfigOverview(): Promise<{
     providers: Record<string, any>;
@@ -845,14 +897,16 @@ export const api = {
   },
 
   // --- Chat attach: skill picker + file upload --------------------------
+  /** Skill 选择器的主数据源：平台侧合并列表，后端返回 global/project/builtin
+   *  三类（builtin 为运行中的容器内 opencode 插件注册的 skill），scope 已标注。 */
   async listAllSkills(): Promise<{ skills: { name: string; description: string; dir: string; scope: string }[] }> {
     return apiCall("/workspace/skills/all");
   },
 
   /**
    * opencode 原生 skill 列表（v1 面 GET /skill，返回裸数组）。每项含
-   * name / description? / location（容器内绝对路径）/ content，是
-   * opencode 自己注册的权威来源；平台侧 /workspace/skills/all 仅作回退。
+   * name / description? / location（容器内绝对路径）/ content。现仅作
+   * listAllSkills 失败时的回退。
    */
   async listNativeSkills(): Promise<
     { name: string; description?: string; location: string; content: string }[]
@@ -891,6 +945,43 @@ export const api = {
     size?: number;
   }> {
     return apiCall(`/workspace/file-content?path=${encodeURIComponent(path)}`);
+  },
+
+  /**
+   * 批量下载工作区文件/目录：后端打包为 zip 以二进制响应返回，这里取回
+   * Blob 并触发浏览器保存。不能走 apiCall（它假定 JSON 响应体）；401
+   * 处理与 apiCall / fetchFastkChunkImage 保持一致。
+   */
+  async downloadWorkspaceFiles(paths: string[]): Promise<void> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(`${API_BASE}/workspace/files/download`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ paths }),
+    });
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || err.message || `HTTP ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "workspace-files.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
 
   /**

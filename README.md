@@ -265,7 +265,7 @@ docker logs --tail=200 <agent-container-name>
 | 症状 | 原因 | 解决 |
 |---|---|---|
 | WSL 内 curl 正常，Windows 浏览器打不开 | WSL VM 空闲自动关机（默认 ~60s），容器全部停止 | 运行 `wsl-keepalive.vbs`；或在 `%USERPROFILE%\.wslconfig` 设 `vmIdleTimeout=-1` |
-| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.2.0 ./agent-image`（`build-agent.sh` 已内置自动重试） |
+| 首次构建 agent 镜像 DNS 解析/超时失败 | WSL2 IPv6 DNS 问题 | `docker build --network=host -t agent-demo:1.3.0 ./agent-image`（`build-agent.sh` 已内置自动重试） |
 | `bash: \r: command not found` | 脚本带 Windows CRLF 行尾 | 走 `wsl-sync.sh` 同步（自动转换）；仓库已加 `.gitattributes` 强制 LF |
 | 改了前端代码但页面没变化 | 前端镜像未重建 | `bash scripts/build-frontend.sh && bash scripts/start.sh` |
 | 需要停止服务 | — | `docker compose down`（数据在卷中，不受影响；WSL 侧另需 `wsl --shutdown` 才会关 VM） |
@@ -342,7 +342,7 @@ docker logs --tail=200 <agent-container-name>
 |---|---|---|
 | `AGENT_SECRET_KEY` | `change-this-in-production` | JWT 签名密钥，**生产环境必须修改** |
 | `AGENT_DATABASE_URL` | `postgresql+asyncpg://agent:agentpass@postgres:5432/agent_demo` | 数据库连接串（栈内 postgres 服务；改回 `sqlite+aiosqlite:////app/data/agent_demo.db` 可切回 SQLite，历史数据保留在 `backend-data` 卷；指向外部 PG 时主机名用 `host.docker.internal` 或 IP） |
-| `AGENT_AGENT_IMAGE` | `agent-demo:1.2.0` | Agent 容器镜像名 |
+| `AGENT_AGENT_IMAGE` | `agent-demo:1.3.0` | Agent 容器镜像名 |
 | `AGENT_AGENT_NETWORK` | `agent-net` | Agent 容器网络名 |
 | `AGENT_AGENT_PORT` | `4096` | opencode serve 端口 |
 | `AGENT_AGENT_WORKDIR` | `/workspace` | 容器内工作目录 |

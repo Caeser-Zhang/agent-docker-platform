@@ -149,6 +149,7 @@ export function Chat({
   // Workspace panel uploads: files land in the container workspace (tmp/) and
   // the tree is refreshed afterwards. `wsNotice` is a short-lived success hint.
   const [wsUploading, setWsUploading] = useState(false);
+  const [wsDownloading, setWsDownloading] = useState(false);
   const [wsNotice, setWsNotice] = useState("");
   const wsNoticeTimerRef = useRef<number | null>(null);
 
@@ -225,29 +226,34 @@ export function Chat({
     if (qs.status === "fulfilled") setQuestions(qs.value);
   }, []);
 
-  // Skill 列表：优先 opencode 原生 GET /skill（v1 面，opencode 自己注册的
-  // 权威来源，含 description 与容器内 location），失败时回退平台侧
-  // /workspace/skills/all。allSkills 状态 shape 保持 {name, description, dir, scope}。
+  // Skill 列表：优先平台侧 /workspace/skills/all（后端已合并 global/project/
+  // builtin 插件 skill，scope 由后端直接标注），失败时回退 opencode 原生
+  // GET /skill（经隧道，前端按 location 启发式归类）。
+  // allSkills 状态 shape 保持 {name, description, dir, scope}。
   const loadSkills = useCallback(async () => {
-    try {
-      const native = await api.listNativeSkills();
+    const merged = await api.listAllSkills().catch(() => null);
+    if (merged) {
+      setAllSkills(merged.skills ?? []);
+      return;
+    }
+    const native = await api.listNativeSkills().catch(() => null);
+    if (native) {
       setAllSkills(
         native.map((s) => ({
           name: s.name,
           description: s.description ?? "",
           dir: s.location,
-          // 全局 skill 位于容器内 XDG 配置目录；其余（workspace 下）为项目级。
-          scope: s.location.includes("/data/config/opencode") ? "global" : "project",
+          // 位置启发式：容器 XDG 配置目录→global；插件包内（只读镜像）→
+          // builtin；其余（workspace 下）为项目级。
+          scope: s.location.includes("/data/config/opencode")
+            ? "global"
+            : s.location.includes("/opt/agent/builtin-plugins")
+              ? "builtin"
+              : "project",
         }))
       );
-    } catch {
-      try {
-        const r = await api.listAllSkills();
-        setAllSkills(r.skills ?? []);
-      } catch {
-        /* 保留现有列表 */
-      }
     }
+    /* 两个接口都失败时保留现有列表 */
   }, []);
 
   const loadContainerState = useCallback(async () => {
@@ -1257,6 +1263,21 @@ export function Chat({
     }
   };
 
+  /** Batch-download the selected workspace paths as one zip (backend packs it). */
+  const handleWsDownload = async (paths: string[]) => {
+    if (!paths.length) return;
+    setWsDownloading(true);
+    setError("");
+    try {
+      await api.downloadWorkspaceFiles(paths);
+      showWsNotice(`已下载 ${paths.length} 个路径（zip 压缩包）`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setWsDownloading(false);
+    }
+  };
+
   /** Append "@path" to the input (from the file panel), then refocus it. */
   const insertAtReference = (path: string) => {
     setInput((prev) => {
@@ -1963,8 +1984,16 @@ export function Chat({
                               onChange={() => toggleSkill(s.name)}
                             />
                             <span style={styles.skillItemName}>{s.name}</span>
-                            <span style={s.scope === "project" ? styles.scopeProject : styles.scopeGlobal}>
-                              {s.scope === "project" ? "项目" : "全局"}
+                            <span
+                              style={
+                                s.scope === "project"
+                                  ? styles.scopeProject
+                                  : s.scope === "builtin"
+                                    ? styles.scopeBuiltin
+                                    : styles.scopeGlobal
+                              }
+                            >
+                              {s.scope === "project" ? "项目" : s.scope === "builtin" ? "内置" : "全局"}
                             </span>
                           </label>
                         ))}
@@ -2104,6 +2133,8 @@ export function Chat({
             onClose={() => setShowFiles(false)}
             onUpload={handleWsFilesPicked}
             uploading={wsUploading}
+            onDownload={handleWsDownload}
+            downloading={wsDownloading}
             notice={wsNotice}
           />
         )}
@@ -2176,10 +2207,11 @@ const fmtSize = (n: number) =>
   n < 1024 ? `${n}B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1024 / 1024).toFixed(1)}M`;
 
 function TreeRow({
-  depth, icon, label, onClick, children,
+  depth, icon, label, onClick, children, checkbox,
 }: {
   depth: number; icon: string; label: string;
   onClick?: () => void; children?: React.ReactNode;
+  checkbox?: { checked: boolean; onChange: (checked: boolean) => void };
 }) {
   const [hover, setHover] = useState(false);
   return (
@@ -2193,6 +2225,16 @@ function TreeRow({
       onMouseLeave={() => setHover(false)}
       onClick={onClick}
     >
+      {checkbox && (
+        <input
+          type="checkbox"
+          style={{ margin: 0, flexShrink: 0, cursor: "pointer" }}
+          checked={checkbox.checked}
+          title="勾选后可批量下载"
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => checkbox.onChange(e.target.checked)}
+        />
+      )}
       <span style={styles.atItemIcon}>{icon}</span>
       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
       {children}
@@ -2202,6 +2244,7 @@ function TreeRow({
 
 function TreeView({
   nodes, depth, collapsed, onToggle, onOpenFile, onInsert, activePath,
+  isSelected, onToggleSelect,
 }: {
   nodes: TreeNode[];
   depth: number;
@@ -2210,13 +2253,24 @@ function TreeView({
   onOpenFile: (path: string) => void;
   onInsert: (path: string) => void;
   activePath?: string;
+  isSelected: (path: string) => boolean;
+  onToggleSelect: (path: string, checked: boolean) => void;
 }) {
   return (
     <>
       {nodes.map((n) =>
         n.type === "dir" ? (
           <div key={`d-${n.path}`}>
-            <TreeRow depth={depth} icon={collapsed.has(n.path) ? "📁" : "📂"} label={n.name} onClick={() => onToggle(n.path)} />
+            <TreeRow
+              depth={depth}
+              icon={collapsed.has(n.path) ? "📁" : "📂"}
+              label={n.name}
+              onClick={() => onToggle(n.path)}
+              checkbox={{
+                checked: isSelected(n.path),
+                onChange: (c) => onToggleSelect(n.path, c),
+              }}
+            />
             {!collapsed.has(n.path) && (
               <TreeView
                 nodes={n.children}
@@ -2226,6 +2280,8 @@ function TreeView({
                 onOpenFile={onOpenFile}
                 onInsert={onInsert}
                 activePath={activePath}
+                isSelected={isSelected}
+                onToggleSelect={onToggleSelect}
               />
             )}
           </div>
@@ -2236,6 +2292,10 @@ function TreeView({
             icon="📄"
             label={n.name}
             onClick={() => onOpenFile(n.path)}
+            checkbox={{
+              checked: isSelected(n.path),
+              onChange: (c) => onToggleSelect(n.path, c),
+            }}
           >
             {activePath === n.path && <span style={{ fontSize: "10px", color: "#2563eb" }}>预览中</span>}
             <span style={styles.treeFileSize}>{fmtSize(n.size)}</span>
@@ -2323,7 +2383,7 @@ function MiniMarkdown({ src }: { src: string }) {
 
 function FilesPanel({
   files, preview, previewLoading, onOpen, onRefresh, onInsert, onBack, onClose,
-  onUpload, uploading, notice,
+  onUpload, uploading, notice, onDownload, downloading,
 }: {
   files: WsFile[];
   preview: PreviewState | null;
@@ -2336,8 +2396,11 @@ function FilesPanel({
   onUpload: (files: FileList | null) => void;
   uploading: boolean;
   notice?: string;
+  onDownload: (paths: string[]) => void;
+  downloading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const toggle = (path: string) =>
     setCollapsed((prev) => {
@@ -2348,6 +2411,36 @@ function FilesPanel({
     });
   const tree = useMemo(() => buildTree(files), [files]);
   const fileCount = useMemo(() => files.filter((f) => f.type === "file").length, [files]);
+
+  // A path counts as selected when itself or any ancestor directory is
+  // checked, so ticking a dir visually covers its whole subtree.
+  const isSelected = (path: string) => {
+    let p = path;
+    for (;;) {
+      if (selected.has(p)) return true;
+      const i = p.lastIndexOf("/");
+      if (i < 0) return false;
+      p = p.slice(0, i);
+    }
+  };
+  const toggleSelect = (path: string, checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  const rootPaths = tree.map((n) => n.path);
+  const allSelected =
+    rootPaths.length > 0 && rootPaths.every((p) => selected.has(p));
+  const handleDownload = () => {
+    // Drop paths already covered by a selected ancestor to avoid packing
+    // the same file twice inside the zip.
+    const paths = Array.from(selected).filter(
+      (p) => !Array.from(selected).some((q) => q !== p && p.startsWith(q + "/"))
+    );
+    onDownload(paths);
+  };
 
   const baseName = (p: string) => p.split("/").pop() || p;
 
@@ -2381,6 +2474,22 @@ function FilesPanel({
         ) : (
           <>
             <span style={{ flex: 1 }}>📁 工作区（{fileCount} 个文件）</span>
+            <button
+              style={styles.previewBack}
+              onClick={() => setSelected(allSelected ? new Set() : new Set(rootPaths))}
+              title={allSelected ? "清空选择" : "全选顶层条目"}
+              disabled={rootPaths.length === 0}
+            >
+              {allSelected ? "清空" : "全选"}
+            </button>
+            <button
+              style={{ ...styles.wsUploadBtn, ...((downloading || selected.size === 0) ? { opacity: 0.6 } : {}) }}
+              onClick={handleDownload}
+              title="打包下载选中的文件/目录（zip）"
+              disabled={downloading || selected.size === 0}
+            >
+              {downloading ? "⏳ 打包中…" : `⬇ 下载${selected.size ? `(${selected.size})` : ""}`}
+            </button>
             <button
               style={{ ...styles.wsUploadBtn, ...(uploading ? { opacity: 0.6 } : {}) }}
               onClick={() => uploadInputRef.current?.click()}
@@ -2453,6 +2562,8 @@ function FilesPanel({
               onToggle={toggle}
               onOpenFile={onOpen}
               onInsert={onInsert}
+              isSelected={isSelected}
+              onToggleSelect={toggleSelect}
             />
           )}
         </div>

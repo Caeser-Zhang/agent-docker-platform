@@ -5,7 +5,7 @@
 # the session store. The platform never re-implements any of that; it just
 # manages this container's lifecycle and reverse-proxies HTTP into it.
 #
-#   docker build -t agent-demo:1.2.0 ./agent-image
+#   docker build -t agent-demo:1.3.0 ./agent-image
 #
 # Layout inside the container:
 #   /workspace          project root opencode operates on   (volume, rw)
@@ -142,6 +142,12 @@ RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/b
 # bash 工具 spawn 子进程后 drain microtask 会 segment fault（Bun 1.3.15 已修复）。
 # opencode 内置的 Bun 仍停在 1.3.14，故用单线程 GC 绕过；等 opencode 内嵌
 # Bun >= 1.3.15 后可移除下面这行。
+#
+# pip 相关：容器 rootfs 只读、HOME(/home/agent) 是 tmpfs，Debian bookworm 的
+# Python 又被 PEP 668 标记为 externally-managed，裸 `pip install` 会直接报错。
+#   PIP_USER=1                  默认装到 /home/agent/.local（tmpfs，可写）
+#   PIP_BREAK_SYSTEM_PACKAGES=1 绕过 PEP 668（容器一次性，无系统完整性顾虑）
+#   PIP_INDEX_URL               与 apt/npm 一致使用清华镜像
 ENV HOME=/home/agent \
     XDG_CONFIG_HOME=/data/config \
     XDG_DATA_HOME=/data/share \
@@ -150,7 +156,10 @@ ENV HOME=/home/agent \
     AGENT_WORKDIR=/workspace \
     OPENCODE_DISABLE_AUTOUPDATE=1 \
     OPENCODE_PORT=4096 \
-    BUN_JSC_numberOfGCMarkers=1
+    BUN_JSC_numberOfGCMarkers=1 \
+    PIP_USER=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /workspace
 USER 1000:1000

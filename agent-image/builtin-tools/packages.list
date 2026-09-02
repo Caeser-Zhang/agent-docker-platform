@@ -1,9 +1,16 @@
 # Additional CLI tools to bake into the agent image.
 # One apt package per line. Lines starting with # are ignored.
-# Rebuild the image after editing: docker build -t agent-demo:1.1.0 ./agent-image
+# Rebuild after editing: bash scripts/build-agent.sh
 #
-# Examples:
-# jq
-# htop
-# tree
+# python3-pip / python3-venv 让 Agent 能在容器内安装/管理 Python 包
+# （rootfs 只读，pip 以 --user 模式装进 /home/agent/.local，见 Dockerfile ENV）。
+# zip/unzip/xz-utils 解压打包，wget 下载，tree 查看目录结构，file 识别文件类型。
 jq
+python3-pip
+python3-venv
+zip
+unzip
+xz-utils
+wget
+tree
+file

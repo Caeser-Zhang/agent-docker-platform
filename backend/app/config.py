@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     admin_usernames: str = ""
 
     # --- Docker ---
-    agent_image: str = "agent-demo:1.2.0"
+    agent_image: str = "agent-demo:1.3.0"
     agent_network: str = "agent-net"
     agent_port: int = 4096
     container_cpu_limit: float = 2.0

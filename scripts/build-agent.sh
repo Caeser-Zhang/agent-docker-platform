@@ -17,7 +17,7 @@ ENV_FILE="$PROJECT_DIR/backend/.env"
 if [ -f "$ENV_FILE" ]; then
   AGENT_IMAGE=$(grep -oP '^AGENT_AGENT_IMAGE=\K.*' "$ENV_FILE" | tr -d '"' | tr -d "'" || true)
 fi
-AGENT_IMAGE="${AGENT_IMAGE:-agent-demo:1.2.0}"
+AGENT_IMAGE="${AGENT_IMAGE:-agent-demo:1.3.0}"
 
 echo "== building agent image: $AGENT_IMAGE =="
 

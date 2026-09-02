@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import get_current_user
+from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models import User
 from ..services import host_config, opencode_config, user_config
@@ -102,19 +102,25 @@ def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
     return entry
 
 
-def _all_mcp() -> dict[str, dict]:
-    """Merged view of built-in MCP servers + user-declared MCP servers.
+def _all_mcp(include_host: bool = True) -> dict[str, dict]:
+    """Merged view of built-in MCP servers + host-declared MCP servers.
 
     Built-in servers are discovered from /builtin-mcp (with enabled overrides
-    from the host config applied); user servers come from the host opencode.json
+    from the host config applied); host servers come from the host opencode.json
     ``mcp`` section. Built-in entries are marked ``builtin=True`` so the client
     can restrict edit/delete while still toggling them.
+
+    ``include_host=False`` hides the host (platform-wide) servers — those are
+    injected into EVERY user's container, so they are admin-managed only and
+    must not leak to regular users browsing the config panel. Per-user MCP
+    servers live in /api/user-config/mcp instead.
     """
     result: dict[str, dict] = {}
     for name, cfg in opencode_config.builtin_mcp_servers().items():
         result[name] = _safe_mcp_entry(name, cfg, builtin=True)
-    for name, cfg in host_config.list_mcp_servers().items():
-        result[name] = _safe_mcp_entry(name, cfg, builtin=False)
+    if include_host:
+        for name, cfg in host_config.list_mcp_servers().items():
+            result[name] = _safe_mcp_entry(name, cfg, builtin=False)
     return result
 
 
@@ -137,7 +143,10 @@ async def config_overview(user: User = Depends(get_current_user)):
 
     return {
         "providers": safe_providers,
-        "mcp": _all_mcp(),
+        # Host MCP servers are platform-wide (admin-managed): regular users
+        # only see the built-in ones here, their own servers live under
+        # /api/user-config/mcp.
+        "mcp": _all_mcp(include_host=user.role == "admin"),
         "skills": skills,
     }
 
@@ -197,17 +206,26 @@ async def delete_provider(
 
 @router.get("/mcp")
 async def list_mcp(user: User = Depends(get_current_user)):
-    """List all MCP servers (built-in + user-declared; secrets masked)."""
-    return {"mcp": _all_mcp()}
+    """List MCP servers (secrets masked).
+
+    Regular users see only the built-in servers; host-declared servers are
+    platform-wide and admin-managed (they would otherwise leak every user's
+    additions to everyone). Per-user servers live at /api/user-config/mcp.
+    """
+    return {"mcp": _all_mcp(include_host=user.role == "admin")}
 
 
 @router.post("/mcp/{name}")
 async def upsert_mcp(
     name: str,
     body: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
-    """Create or update an MCP server.
+    """Create or update a host (platform-wide) MCP server. Admin only.
+
+    Writes the host opencode.json, which is injected into EVERY user's
+    container — regular users must use /api/user-config/mcp instead, which
+    is scoped (and encrypted) per user.
 
     Accepts either local or remote config. The `type` field determines which
     fields are required. Built-in MCP servers cannot be overwritten.
@@ -216,7 +234,7 @@ async def upsert_mcp(
         raise HTTPException(status_code=403, detail=f"Built-in MCP server '{name}' cannot be modified")
     try:
         host_config.upsert_mcp_server(name, body)
-        logger.info("MCP server '%s' upserted by %s", name, user.username)
+        logger.info("MCP server '%s' upserted by admin %s", name, user.username)
         return {"status": "ok", "name": name}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -226,9 +244,13 @@ async def upsert_mcp(
 async def toggle_mcp(
     name: str,
     body: McpToggle,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
-    """Enable or disable an MCP server without removing it."""
+    """Enable or disable an MCP server without removing it. Admin only.
+
+    Toggling rewrites the host config, which affects every user's container —
+    including built-in server overrides.
+    """
     builtin = opencode_config.builtin_mcp_servers()
     if name in builtin:
         host_config.toggle_builtin_mcp(name, body.enabled)
@@ -236,21 +258,21 @@ async def toggle_mcp(
         result = host_config.toggle_mcp_server(name, body.enabled)
         if result is None:
             raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
-    logger.info("MCP server '%s' %s by %s", name, "enabled" if body.enabled else "disabled", user.username)
+    logger.info("MCP server '%s' %s by admin %s", name, "enabled" if body.enabled else "disabled", user.username)
     return {"status": "ok", "name": name, "enabled": body.enabled, "builtin": name in builtin}
 
 
 @router.delete("/mcp/{name}")
 async def delete_mcp(
     name: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
-    """Delete an MCP server."""
+    """Delete a host (platform-wide) MCP server. Admin only."""
     if name in opencode_config.builtin_mcp_servers():
         raise HTTPException(status_code=403, detail=f"Built-in MCP server '{name}' cannot be deleted")
     if not host_config.delete_mcp_server(name):
         raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
-    logger.info("MCP server '%s' deleted by %s", name, user.username)
+    logger.info("MCP server '%s' deleted by admin %s", name, user.username)
     return {"status": "ok"}
 
 

@@ -31,8 +31,10 @@ Endpoints:
 import asyncio
 import json
 import logging
+import tempfile
+import zipfile
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from ..auth import get_current_user
@@ -44,8 +46,11 @@ from ..services.archive_extract import (
     detect_format,
     extract_archive,
 )
+from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 from ..services.host_config import _parse_skill_frontmatter, _validate_name
+from ..services.opencode_config import _discover_builtin_plugins
+from ..services.tunnel_relay import tunnel_relay
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/workspace", tags=["workspace"])
@@ -115,8 +120,50 @@ async def _list_project_skills(user_id: str) -> list[dict]:
     return skills
 
 
+async def _list_builtin_skills(user_id: str) -> list[dict]:
+    """List plugin-registered skills from the running container's opencode.
+
+    Built-in plugin skills live inside the plugin's pre-baked node_modules
+    tree in the read-only agent image, so the backend cannot see them on the
+    host — only the opencode server inside the container knows them. Query
+    its native GET /skill through the relay and keep the entries whose
+    ``location`` falls under a built-in plugin path. Returns [] whenever the
+    container is not running or the call fails (the file-scan scopes still
+    cover global/project then).
+    """
+    running, password = await agent_controller.get_agent_gate(user_id)
+    if not running or not password:
+        return []
+    plugin_prefixes = [p.rstrip("/") + "/" for p in _discover_builtin_plugins()]
+    if not plugin_prefixes:
+        return []
+    try:
+        resp = await tunnel_relay.http_request(
+            user_id, "GET", "/skill", password=password, timeout=10
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Native skill listing via relay failed: %s", exc)
+        return []
+    if resp.get("status") != 200 or not isinstance(resp.get("body"), list):
+        return []
+    skills: list[dict] = []
+    for s in resp["body"]:
+        location = s.get("location") or ""
+        if not any(location.startswith(p) for p in plugin_prefixes):
+            continue
+        if s.get("name"):
+            skills.append({
+                "name": s["name"],
+                "description": s.get("description", ""),
+                "dir": location,
+                "scope": "builtin",
+            })
+    return skills
+
+
 async def _list_all_skills(user_id: str) -> list[dict]:
-    """Global (host) + project (workspace) skills, tagged by scope."""
+    """Global (host) + project (workspace) + built-in plugin skills, tagged
+    by scope."""
     out: list[dict] = []
     try:
         for s in host_config.list_skills():
@@ -129,6 +176,12 @@ async def _list_all_skills(user_id: str) -> list[dict]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Global skill listing failed: %s", exc)
     out.extend(await _list_project_skills(user_id))
+    # Plugin skills are last-resort: on a name clash the file-based (and thus
+    # platform-manageable) entry wins.
+    existing = {s["name"] for s in out}
+    out.extend(
+        s for s in await _list_builtin_skills(user_id) if s["name"] not in existing
+    )
     return out
 
 
@@ -283,8 +336,8 @@ async def save_project_config(body: ProjectConfigSave, user: User = Depends(get_
 
 @router.get("/skills/all")
 async def list_all_skills(user: User = Depends(get_current_user)):
-    """Global + project skills in one list, tagged with `scope` —
-    feeds the input-box skill picker in the chat UI."""
+    """Global + project + built-in plugin skills in one list, tagged with
+    `scope` — feeds the input-box skill picker in the chat UI."""
     await _require_container(user)
     return {"skills": await _list_all_skills(user.id)}
 
@@ -420,6 +473,97 @@ async def read_workspace_file_content(
         "mime": mime,
         "content": data.decode("utf-8", errors="replace"),
     }
+
+
+# ------------------------------------------------------------------
+#  Workspace file download (batch zip)
+# ------------------------------------------------------------------
+
+# Download caps: unlike the 2MB preview cap this endpoint hauls real data
+# out of the workspace, so the limits are generous but still bounded to
+# keep a runaway request from buffering an unbounded archive in RAM.
+MAX_DOWNLOAD_PATHS = 200
+MAX_DOWNLOAD_TOTAL = 100 * 1024 * 1024
+
+
+class WorkspaceDownloadRequest(BaseModel):
+    paths: list[str]  # workspace-relative files or directories
+
+
+@router.post("/files/download")
+async def download_workspace_files(
+    body: WorkspaceDownloadRequest,
+    user: User = Depends(get_current_user),
+):
+    """Zip the requested workspace files/directories and return the archive.
+
+    Each selected path keeps its workspace-relative location inside the zip
+    (directories are walked recursively). Docker SDK reads and the zip build
+    run in worker threads; the archive is spooled to a temp file past a
+    threshold so near-cap selections do not have to live entirely in RAM.
+    """
+    await _require_container(user)
+
+    # de-dup while keeping selection order
+    paths = list(dict.fromkeys(p.strip() for p in body.paths if p and p.strip()))
+    if not paths:
+        raise HTTPException(status_code=400, detail="未选择任何下载路径")
+    if len(paths) > MAX_DOWNLOAD_PATHS:
+        raise HTTPException(
+            status_code=400, detail=f"一次最多下载 {MAX_DOWNLOAD_PATHS} 个路径"
+        )
+
+    def _collect() -> tuple[dict[str, bytes] | None, str]:
+        files: dict[str, bytes] = {}
+        for rel in paths:
+            data = container_manager.read_workspace_file(user.id, rel)
+            if data is not None:
+                files[rel] = data
+                continue
+            # Not a file — try a recursive directory walk ({} for empty dir).
+            tree = container_manager.read_workspace_tree(user.id, rel)
+            if tree is None:
+                return None, rel  # neither file nor directory
+            for sub, content in tree.items():
+                files[f"{rel}/{sub}"] = content
+        return files, ""
+
+    files, missing = await asyncio.to_thread(_collect)
+    if files is None:
+        raise HTTPException(status_code=404, detail=f"路径不存在或不可读: {missing}")
+    if not files:
+        raise HTTPException(status_code=404, detail="所选路径没有可下载的文件")
+
+    total = sum(len(v) for v in files.values())
+    if total > MAX_DOWNLOAD_TOTAL:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"所选内容共 {total // 1024 // 1024}MB，"
+                f"超过 {MAX_DOWNLOAD_TOTAL // 1024 // 1024}MB 下载上限"
+            ),
+        )
+
+    def _zip() -> bytes:
+        # SpooledTemporaryFile rolls over to disk past max_size, bounding the
+        # backend's peak memory even for near-cap selections.
+        with tempfile.SpooledTemporaryFile(max_size=32 * 1024 * 1024) as buf:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for name, content in sorted(files.items()):
+                    zf.writestr(name, content)
+            buf.seek(0)
+            return buf.read()
+
+    data = await asyncio.to_thread(_zip)
+    logger.info(
+        "Workspace download: %d path(s) → %d file(s), %.1fMB zipped for %s",
+        len(paths), len(files), len(data) / 1024 / 1024, user.username,
+    )
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="workspace-files.zip"'},
+    )
 
 
 # ------------------------------------------------------------------
