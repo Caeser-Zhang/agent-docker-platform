@@ -37,7 +37,13 @@ from docker.models.volumes import Volume
 
 from ..config import settings
 from .host_config import SKILLS_DIR
-from .opencode_config import build_container_config_json
+from .opencode_config import (
+    PLUGIN_CONFIG_FILENAME,
+    build_container_config_json,
+    hidden_builtin_skills,
+    hidden_mcp_servers,
+    render_plugin_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,12 +209,55 @@ class ContainerManager:
             logger.info(
                 "Injected opencode config into %s (%d bytes)", container.name, len(config_json)
             )
+            self._inject_plugin_config(container, config_json)
 
         # Global skills live beside the config file (host skills dir → the
         # container's XDG skills dir). Injected independently so a skills
         # failure can never block the (critical) config injection.
         self._inject_global_skills(container)
         return injected
+
+    def _inject_plugin_config(self, container: Container, config_json: str) -> bool:
+        """Render and write the oh-my-opencode-slim plugin config.
+
+        The entrypoint seeds this file from plugin.default.json on first boot;
+        the platform re-renders it on every config injection so the per-agent
+        model pins follow the resolved default model and the visibility rules
+        (hidden-MCP exclusions in the preset mcps lists, disabled_skills)
+        match the permission deny rules written into opencode.json. Platform
+        users have no shell access to the container, so a full re-render
+        (instead of a merge) is safe and keeps stale volume content from
+        surviving an image change.
+        """
+        try:
+            doc = json.loads(config_json)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not parse config JSON for plugin render: %s", exc)
+            return False
+        plugin_cfg = render_plugin_config(
+            doc.get("model") if isinstance(doc, dict) else None,
+            hidden_skills=hidden_builtin_skills(),
+            hidden_mcps=hidden_mcp_servers(),
+        )
+        if plugin_cfg is None:
+            logger.info(
+                "No resolved model — leaving plugin config untouched in %s", container.name
+            )
+            return False
+        payload = json.dumps(plugin_cfg, ensure_ascii=False, indent=2).encode("utf-8")
+        archive = self._tar_from_files({PLUGIN_CONFIG_FILENAME: payload})
+        try:
+            container.put_archive(CONTAINER_CONFIG_DIR, archive)
+            logger.info(
+                "Injected plugin config into %s (%d bytes, disabled_skills=%d)",
+                container.name,
+                len(payload),
+                len(plugin_cfg.get("disabled_skills") or []),
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Plugin config injection failed for %s: %s", container.name, exc)
+            return False
 
     @staticmethod
     def _global_skills_tar() -> bytes | None:
@@ -237,6 +286,57 @@ class ContainerManager:
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("Global skills injection failed for %s: %s", container.name, exc)
+            return False
+
+    @staticmethod
+    def _safe_config_filename(filename: str) -> bool:
+        """Only bare names are addressable in the config dir (no traversal)."""
+        return bool(filename) and "/" not in filename and "\\" not in filename and filename not in (".", "..")
+
+    def read_config_file(self, user_id: str, filename: str) -> bytes | None:
+        """Read a single file from the container's opencode config dir.
+
+        Works whether the container is running or stopped (Docker archive
+        API). Returns None when the file does not exist — the runtime
+        visibility sync treats that as "nothing to rewrite".
+        """
+        if not self._safe_config_filename(filename):
+            return None
+        container = self.get_container(user_id)
+        if container is None:
+            return None
+        try:
+            stream, _stat = container.get_archive(f"{CONTAINER_CONFIG_DIR}/{filename}")
+            with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+                member = tar.next()
+                if member is None or not member.isfile():
+                    return None
+                handle = tar.extractfile(member)
+                return handle.read() if handle else None
+        except NotFound:
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Config file read %s failed: %s", filename, exc)
+            return None
+
+    def write_config_file(self, user_id: str, filename: str, payload: bytes) -> bool:
+        """Write a single file into the container's opencode config dir.
+
+        put_archive overwrites in place and writes through the read-only
+        rootfs (the dir is on the /data volume), so this works on a running
+        container too — the runtime visibility sync relies on that.
+        """
+        if not self._safe_config_filename(filename):
+            return False
+        container = self.get_container(user_id)
+        if container is None:
+            return False
+        archive = self._tar_from_files({filename: payload})
+        try:
+            container.put_archive(CONTAINER_CONFIG_DIR, archive)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Config file write %s failed: %s", filename, exc)
             return False
 
     def _bootstrap_config_dir(self, container: Container) -> bool:

@@ -17,6 +17,8 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
   const [overview, setOverview] = useState<any>(null);
   const [projectConfig, setProjectConfig] = useState<{ content: string; valid: boolean; config: Record<string, any> } | null>(null);
   const [projectSkills, setProjectSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
+  const [builtinSkills, setBuiltinSkills] = useState<{ name: string; description: string; dir: string; enabled: boolean }[]>([]);
+  const [builtinReachable, setBuiltinReachable] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -33,6 +35,14 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
         setProjectSkills(ps.skills || []);
       } else {
         setProjectSkills([]);
+      }
+      // Built-in skill visibility is admin-only; the endpoint 403s otherwise.
+      if (localStorage.getItem("role") === "admin") {
+        const bs = await api.listBuiltinSkills().catch(() => null);
+        if (bs) {
+          setBuiltinSkills(bs.skills || []);
+          setBuiltinReachable(!!bs.reachable);
+        }
       }
     } catch (e: any) {
       setError(e.message);
@@ -53,10 +63,24 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
     } finally { setBusy(""); }
   };
 
+  const handleToggleBuiltin = async (name: string, enabled: boolean) => {
+    try {
+      // The backend broadcasts a runtime permission flip to every running
+      // agent (~2s); no container reload is needed.
+      await api.toggleBuiltinSkill(name, enabled);
+      const bs = await api.listBuiltinSkills();
+      setBuiltinSkills(bs.skills || []);
+      setBuiltinReachable(!!bs.reachable);
+    } catch (e: any) {
+      alert("切换失败: " + e.message);
+    }
+  };
+
   const globalSkills = overview?.skills || [];
   const allSkills = [
     ...globalSkills.map((s: any) => ({ ...s, scope: "global" as const })),
     ...projectSkills.map((s: any) => ({ ...s, scope: "project" as const })),
+    ...builtinSkills.map((s: any) => ({ ...s, scope: "builtin" as const })),
   ];
   const isAdmin = localStorage.getItem("role") === "admin";
 
@@ -158,8 +182,22 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
 
           <div style={{ flex: 1, overflow: "auto", padding: "16px" }}>
             {scope === "global" && tab === "providers" && <ProviderTab overview={overview} onChange={loadAll} />}
-            {scope === "global" && tab === "mcp" && <McpTab overview={overview} onChange={loadAll} onReload={handleReload} isAdmin={isAdmin} />}
-            {scope === "global" && tab === "skills" && <SkillTab skills={allSkills} onChange={loadAll} scope="global" />}
+            {scope === "global" && tab === "mcp" && <McpTab overview={overview} onChange={loadAll} isAdmin={isAdmin} />}
+            {scope === "global" && tab === "skills" && (
+              <>
+                {builtinSkills.length > 0 && (
+                  <p style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 6, background: "#f5f3ff", color: "#6d28d9", fontSize: 12 }}>
+                    内置 Skill 由插件提供（只读）。通过「可见」开关可实时控制其对所有 Agent 的可见性，运行中的容器约 2 秒生效，无需重启。
+                  </p>
+                )}
+                {!builtinReachable && isAdmin && (
+                  <p style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 6, background: "#fffbeb", color: "#92400e", fontSize: 12 }}>
+                    当前没有运行中的 Agent 容器，内置 Skill 列表仅显示历史配置项；启动 Agent 后可查看完整列表。
+                  </p>
+                )}
+                <SkillTab skills={allSkills} onChange={loadAll} scope="global" onToggleBuiltin={handleToggleBuiltin} />
+              </>
+            )}
             {scope === "project" && tab === "config" && (
               <ProjectConfigTab config={projectConfig} onChange={loadAll} />
             )}
@@ -172,7 +210,7 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
 
           <div style={{ padding: "12px 16px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "#999" }}>
-              {scope === "global" ? "全局（管理员可编辑，注入所有用户容器）" : scope === "project" ? "项目" : "用户（仅自己可见，加密存储）"}配置 · 重启容器后生效
+              {scope === "global" ? "全局（管理员可编辑，注入所有用户容器）" : scope === "project" ? "项目" : "用户（仅自己可见，加密存储）"}配置 · Skill/MCP 可见性开关实时生效，其余重启容器后生效
             </span>
             <button style={{ ...styles.reloadBtn, opacity: busy ? 0.5 : 1 }} onClick={handleReload} disabled={!!busy}>
               {busy || "重载到容器"}
@@ -364,7 +402,7 @@ function ProviderTab({ overview, onChange }: { overview: any; onChange: () => vo
 //  are pointed at the user-scope MCP tab for their own servers.
 // ------------------------------------------------------------------
 
-function McpTab({ overview, onChange, onReload, isAdmin }: { overview: any; onChange: () => void; onReload: () => Promise<void>; isAdmin: boolean }) {
+function McpTab({ overview, onChange, isAdmin }: { overview: any; onChange: () => void; isAdmin: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", type: "remote" as "remote" | "local", url: "", command: "", enabled: true });
 
@@ -406,9 +444,10 @@ function McpTab({ overview, onChange, onReload, isAdmin }: { overview: any; onCh
 
   const handleToggle = async (name: string, enabled: boolean) => {
     try {
+      // Runtime: the backend broadcasts a permission flip to every running
+      // agent (~2s), so no container reload is needed.
       await api.toggleMcp(name, enabled);
       onChange();
-      await onReload();
     } catch (e: any) {
       alert("切换失败: " + e.message);
     }
@@ -474,7 +513,7 @@ function McpTab({ overview, onChange, onReload, isAdmin }: { overview: any; onCh
             </div>
             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
               {isAdmin && (
-                <input type="checkbox" checked={!!data.enabled} title="启用/停用（影响所有用户）" onChange={(e) => handleToggle(name, e.target.checked)} />
+                <input type="checkbox" checked={!!data.enabled} title="启用/停用（影响所有用户，运行中的容器约 2 秒生效）" onChange={(e) => handleToggle(name, e.target.checked)} />
               )}
               {isAdmin && !data.builtin && (
                 <>
@@ -955,7 +994,7 @@ function UserMcpTab({ onReload }: { onReload: () => Promise<void> }) {
 //  Skill tab (global + project, or project-only depending on scope)
 // ------------------------------------------------------------------
 
-function SkillTab({ skills, onChange, scope }: { skills: any[]; onChange: () => void; scope: "global" | "project" }) {
+function SkillTab({ skills, onChange, scope, onToggleBuiltin }: { skills: any[]; onChange: () => void; scope: "global" | "project"; onToggleBuiltin?: (name: string, enabled: boolean) => Promise<void> }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [editScope, setEditScope] = useState<"global" | "project">("global");
   const [form, setForm] = useState({ name: "", content: "" });
@@ -1071,17 +1110,29 @@ function SkillTab({ skills, onChange, scope }: { skills: any[]; onChange: () => 
       )}
 
       {skills.map((s: any) => (
-        <div key={`${s.scope}-${s.dir}`} style={{ padding: "12px", marginBottom: 8, border: "1px solid #e0e0e0", borderRadius: 8 }}>
+        <div key={`${s.scope}-${s.dir || s.name}`} style={{ padding: "12px", marginBottom: 8, border: "1px solid #e0e0e0", borderRadius: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <strong>{s.name}</strong>
               {scopeBadge(s.scope)}
               <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>{s.description}</div>
             </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => startEdit(s.dir, s.scope)}>编辑</button>
-              <button style={{ ...styles.abortBtn, fontSize: 12 }} onClick={() => handleDelete(s.dir, s.scope)}>删除</button>
-            </div>
+            {s.scope === "builtin" ? (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#666", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={s.enabled !== false}
+                  title="对 Agent 可见（运行中的容器约 2 秒生效）"
+                  onChange={(e) => onToggleBuiltin?.(s.name, e.target.checked)}
+                />
+                可见
+              </label>
+            ) : (
+              <div style={{ display: "flex", gap: 4 }}>
+                <button style={{ ...styles.logBtn, fontSize: 12 }} onClick={() => startEdit(s.dir, s.scope)}>编辑</button>
+                <button style={{ ...styles.abortBtn, fontSize: 12 }} onClick={() => handleDelete(s.dir, s.scope)}>删除</button>
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -1102,15 +1153,20 @@ function SkillTab({ skills, onChange, scope }: { skills: any[]; onChange: () => 
 //  Shared helpers
 // ------------------------------------------------------------------
 
-function scopeBadge(s: "global" | "project") {
+function scopeBadge(s: "global" | "project" | "builtin") {
+  const meta = s === "global"
+    ? { bg: "#fef3c7", color: "#92400e", label: "全局" }
+    : s === "project"
+      ? { bg: "#e0f2fe", color: "#0369a1", label: "项目" }
+      : { bg: "#ede9fe", color: "#6d28d9", label: "内置" };
   return (
     <span style={{
       marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11,
-      background: s === "global" ? "#fef3c7" : "#e0f2fe",
-      color: s === "global" ? "#92400e" : "#0369a1",
+      background: meta.bg,
+      color: meta.color,
       fontWeight: 500,
     }}>
-      {s === "global" ? "全局" : "项目"}
+      {meta.label}
     </span>
   );
 }

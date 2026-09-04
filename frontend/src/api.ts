@@ -845,6 +845,21 @@ export const api = {
     return apiCall(`/config/skills/${name}`, { method: "DELETE" });
   },
 
+  // --- Built-in (plugin-provided) skill visibility ----------------------
+  async listBuiltinSkills(): Promise<{
+    reachable: boolean;
+    skills: { name: string; description: string; dir: string; enabled: boolean }[];
+  }> {
+    return apiCall("/config/builtin-skills");
+  },
+
+  async toggleBuiltinSkill(name: string, enabled: boolean): Promise<any> {
+    return apiCall(`/config/builtin-skills/${name}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
   async reloadConfigIntoContainer(): Promise<{ reloaded: boolean; message: string }> {
     return apiCall("/config/reload", { method: "POST" });
   },

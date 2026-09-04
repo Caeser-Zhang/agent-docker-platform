@@ -179,6 +179,31 @@ def toggle_builtin_mcp(name: str, enabled: bool) -> dict:
     return builtin_mcp[name]
 
 
+def list_builtin_skill_overrides() -> dict[str, dict]:
+    """Return the host ``builtin_skills`` override section (visibility state)."""
+    return _read_host_config().get("builtin_skills") or {}
+
+
+def toggle_builtin_skill(name: str, enabled: bool) -> dict:
+    """Persist a visible/hidden override for a built-in skill.
+
+    Built-in plugin skills live inside the read-only agent image (under
+    /opt/agent/builtin-plugins/...), so their visibility is stored in the
+    host opencode.json under the top-level ``builtin_skills`` key. Enforcement
+    goes through opencode's permission system: hidden skills get a
+    ``permission.skill`` deny rule (verified against opencode 1.18.25 —
+    Skill.available filters by Permission.evaluate("skill", name, ...) and
+    SkillTool re-checks before loading).
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("Skill name must be a non-empty string")
+    config_data = _read_host_config()
+    builtin_skills = config_data.setdefault("builtin_skills", {})
+    builtin_skills[name] = {"enabled": enabled}
+    _write_host_config(config_data)
+    return builtin_skills[name]
+
+
 # ------------------------------------------------------------------
 #  Skill CRUD (file-based)
 # ------------------------------------------------------------------

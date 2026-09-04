@@ -46,11 +46,9 @@ from ..services.archive_extract import (
     detect_format,
     extract_archive,
 )
-from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 from ..services.host_config import _parse_skill_frontmatter, _validate_name
-from ..services.opencode_config import _discover_builtin_plugins
-from ..services.tunnel_relay import tunnel_relay
+from ..services.visibility import list_builtin_skills as _list_builtin_skills
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/workspace", tags=["workspace"])
@@ -117,47 +115,6 @@ async def _list_project_skills(user_id: str) -> list[dict]:
             "dir": parts[0],
             "scope": "project",
         })
-    return skills
-
-
-async def _list_builtin_skills(user_id: str) -> list[dict]:
-    """List plugin-registered skills from the running container's opencode.
-
-    Built-in plugin skills live inside the plugin's pre-baked node_modules
-    tree in the read-only agent image, so the backend cannot see them on the
-    host — only the opencode server inside the container knows them. Query
-    its native GET /skill through the relay and keep the entries whose
-    ``location`` falls under a built-in plugin path. Returns [] whenever the
-    container is not running or the call fails (the file-scan scopes still
-    cover global/project then).
-    """
-    running, password = await agent_controller.get_agent_gate(user_id)
-    if not running or not password:
-        return []
-    plugin_prefixes = [p.rstrip("/") + "/" for p in _discover_builtin_plugins()]
-    if not plugin_prefixes:
-        return []
-    try:
-        resp = await tunnel_relay.http_request(
-            user_id, "GET", "/skill", password=password, timeout=10
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Native skill listing via relay failed: %s", exc)
-        return []
-    if resp.get("status") != 200 or not isinstance(resp.get("body"), list):
-        return []
-    skills: list[dict] = []
-    for s in resp["body"]:
-        location = s.get("location") or ""
-        if not any(location.startswith(p) for p in plugin_prefixes):
-            continue
-        if s.get("name"):
-            skills.append({
-                "name": s["name"],
-                "description": s.get("description", ""),
-                "dir": location,
-                "scope": "builtin",
-            })
     return skills
 
 

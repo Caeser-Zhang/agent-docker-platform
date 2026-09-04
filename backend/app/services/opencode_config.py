@@ -12,6 +12,12 @@ Pipeline:
         -> rewrite loopback base URLs so a local LLM proxy on the developer's
            machine is still reachable from inside the container
         -> merge container defaults (permissions, autoupdate off, ...)
+        -> translate the platform's visibility overrides (builtin_skills /
+           builtin_mcp "enabled" flags) into permission deny rules while
+           forcing every MCP server connected — visibility is enforced by
+           opencode's permission system, not by connection state, so it can
+           be flipped at runtime via PATCH /global/config (~2s) instead of a
+           full stop/inject/start cycle
         -> inject built-in MCP servers and plugins (pre-baked into the
            read-only agent image; users cannot remove them)
         -> written into the per-user config volume as
@@ -41,10 +47,11 @@ logger = logging.getLogger(__name__)
 # `mcp` is now managed via the host_config API and filtered
 # per-entry: remote MCP servers (URL-based) are kept, local ones (command-based)
 # are stripped because they reference host executables.
-# `builtin_mcp` is a platform-internal override map for the built-in MCP
-# servers discovered from /builtin-mcp; it must never be injected into the
-# container as an opencode config key.
-HOST_ONLY_KEYS = ("plugin", "builtin_mcp")
+# `builtin_mcp` / `builtin_skills` are platform-internal visibility override
+# maps (built-in MCP servers and built-in plugin skills); they must never be
+# injected into the container as opencode config keys — build_container_config
+# translates them into permission deny rules instead.
+HOST_ONLY_KEYS = ("plugin", "builtin_mcp", "builtin_skills")
 
 # Any of these appearing inside a URL means "the machine running Docker", which
 # from the container's point of view is reachable as host.docker.internal.
@@ -74,6 +81,26 @@ CONTAINER_DEFAULTS: dict[str, Any] = {
         "web_search*": "allow",
     },
 }
+
+# The built-in oh-my-opencode-slim plugin reads its per-deployment config from
+# ${XDG_CONFIG_HOME}/opencode/<plugin>.json (seeded by agent-image/entrypoint.sh
+# from plugin.default.json on first boot). The platform renders this file
+# itself (see render_plugin_config) so the per-agent model mapping and the
+# dynamic visibility rules (preset mcps lists, disabled_skills) stay in sync
+# with the permission deny rules written into opencode.json.
+PLUGIN_CONFIG_FILENAME = "oh-my-opencode-slim.json"
+
+# Agents the entrypoint preset template covers (mirror of entrypoint.sh's
+# generated presets.container — keep the two in sync).
+_PRESET_AGENTS = ("orchestrator", "oracle", "librarian", "explorer", "designer", "fixer")
+
+# Agents whose model plugin.default.json statically pins. The plugin merges
+# config.agents over presets[config.preset] (static keys win), so the render
+# keeps the pin structure but with the actually resolved model.
+_PINNED_AGENTS = (
+    "orchestrator", "explorer", "librarian", "oracle",
+    "designer", "fixer", "observer", "council", "councillor",
+)
 
 
 def _rewrite_loopback(value: str, replacement: str) -> str:
@@ -333,6 +360,183 @@ def _discover_builtin_plugins() -> list[str]:
     return result
 
 
+# ------------------------------------------------------------------
+#  Dynamic visibility — skills / MCP via permission rules
+# ------------------------------------------------------------------
+
+def _visibility_overrides(section: str, source: dict | None = None) -> dict[str, bool]:
+    """Read ``{name: enabled}`` from a host-config visibility section."""
+    if source is None:
+        source, _ = load_source_config()
+    raw = source.get(section) if isinstance(source, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        name: bool(entry.get("enabled", True))
+        for name, entry in raw.items()
+        if isinstance(entry, dict)
+    }
+
+
+def hidden_builtin_skills(source: dict | None = None) -> set[str]:
+    """Built-in skills currently hidden from agents.
+
+    Enforcement is two-pronged (verified against opencode 1.18.25 +
+    oh-my-opencode-slim 2.2.15): the global ``permission.skill`` object gets a
+    per-name deny rule (covers native agents like build/plan), and the plugin
+    config's ``disabled_skills`` array makes the plugin append a deny entry to
+    every plugin agent's skill permission — appended last, so it wins over the
+    orchestrator's ``skills: ["*"]`` allow-all.
+    """
+    return {
+        name
+        for name, enabled in _visibility_overrides("builtin_skills", source).items()
+        if not enabled
+    }
+
+
+def hidden_mcp_servers(source: dict | None = None) -> set[str]:
+    """MCP servers currently hidden from agents.
+
+    Built-in servers hide via the ``builtin_mcp`` override (enabled=False);
+    host-declared remote servers hide via their own ``enabled`` field. The
+    injected config always connects every MCP server (``enabled`` is forced
+    on) — hiding is a permission ``deny`` rule on ``<sanitized>_*``, so a
+    toggle is a permission flip that PATCH /global/config applies in ~2s
+    instead of a 10-20s stop/inject/start cycle.
+    """
+    if source is None:
+        source, _ = load_source_config()
+    hidden = {
+        name
+        for name, enabled in _visibility_overrides("builtin_mcp", source).items()
+        if not enabled
+    }
+    mcp = source.get("mcp") if isinstance(source, dict) else None
+    if isinstance(mcp, dict):
+        for name, cfg in mcp.items():
+            if (
+                isinstance(cfg, dict)
+                and cfg.get("type") == "remote"
+                and cfg.get("enabled") is False
+            ):
+                hidden.add(name)
+    return hidden
+
+
+def _sanitize_mcp_permission_key(name: str) -> str:
+    """Mirror the plugin's MCP permission-key sanitization.
+
+    oh-my-opencode-slim maps an MCP server to the permission key
+    ``<sanitized>_*`` with ``sanitized = name.replace(/[^a-zA-Z0-9_-]/g, "_")``
+    (index.js config hook); opencode's global permission uses the same shape
+    for MCP tool rules.
+    """
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+
+
+# ------------------------------------------------------------------
+#  Plugin config rendering (oh-my-opencode-slim.json)
+# ------------------------------------------------------------------
+
+def _apply_list_visibility(items: Any, hidden: set[str]) -> Any:
+    """Rewrite a preset ``mcps``/``skills`` list against the current hidden set.
+
+    The plugin parses these lists with ``!name`` exclusion semantics
+    (parseList in index.js): ``*`` allows everything minus explicit ``!name``
+    exclusions; a plain whitelist is intersected with the available servers.
+    The transform is idempotent — stale ``!name`` entries for names that are
+    visible again are dropped, still-hidden names get an exclusion appended
+    (allow-all lists) or are removed from the whitelist. It must also run
+    with an empty hidden set, otherwise stale ``!name`` exclusions from an
+    earlier hide would survive an un-hide.
+    """
+    if not isinstance(items, list):
+        return items
+    result: list[Any] = []
+    for item in items:
+        if not isinstance(item, str):
+            result.append(item)
+        elif item == "*":
+            result.append(item)
+        elif item.startswith("!") and item[1:] in hidden:
+            result.append(item)
+        elif not item.startswith("!") and item not in hidden:
+            result.append(item)
+    if "*" in result:
+        for name in sorted(hidden):
+            if f"!{name}" not in result:
+                result.append(f"!{name}")
+    return result
+
+
+def apply_plugin_visibility(
+    plugin_cfg: Any, hidden_skills: set[str], hidden_mcps: set[str]
+) -> dict:
+    """Apply the current visibility sets to a plugin config document.
+
+    ``hidden_skills`` becomes the plugin's ``disabled_skills`` array — the
+    plugin appends a skill-permission deny for each entry to every plugin
+    agent (built-in, custom, ACP and councillor alike). ``hidden_mcps``
+    rewrites every preset agent's ``mcps`` list, which the plugin translates
+    into per-agent ``<mcp>_*`` permission rules.
+
+    Used both when rendering the config from scratch (:func:`render_plugin_config`)
+    and when toggling at runtime (read the container's current file,
+    transform, write back). The backend owns these keys: they are
+    authoritatively replaced, never merged, so toggling can also *un-hide*
+    (opencode's mergeDeep PATCHes cannot delete keys).
+    """
+    cfg = copy.deepcopy(plugin_cfg) if isinstance(plugin_cfg, dict) else {}
+    if hidden_skills:
+        cfg["disabled_skills"] = sorted(hidden_skills)
+    else:
+        cfg.pop("disabled_skills", None)
+    presets = cfg.get("presets")
+    if isinstance(presets, dict):
+        for preset in presets.values():
+            if not isinstance(preset, dict):
+                continue
+            for agent_cfg in preset.values():
+                if isinstance(agent_cfg, dict) and "mcps" in agent_cfg:
+                    agent_cfg["mcps"] = _apply_list_visibility(agent_cfg["mcps"], hidden_mcps)
+    return cfg
+
+
+def render_plugin_config(
+    model: str | None,
+    hidden_skills: set[str] | None = None,
+    hidden_mcps: set[str] | None = None,
+) -> dict | None:
+    """Render the full oh-my-opencode-slim config for a deployment.
+
+    Mirrors agent-image/entrypoint.sh's preset generation (same agents, same
+    allow-lists) plus the static ``agents.*.model`` pins from
+    plugin.default.json — with the actually resolved model, because the static
+    pins override the preset models in the plugin's deepMerge. Returns None
+    when no model is resolved (the entrypoint skips generation in that case
+    too; the image-seeded plugin.default.json remains in place).
+    """
+    if not model:
+        return None
+    preset: dict[str, Any] = {}
+    for agent in _PRESET_AGENTS:
+        entry: dict[str, Any] = {"model": model, "skills": [], "mcps": []}
+        if agent == "orchestrator":
+            entry["skills"] = ["*"]
+            entry["mcps"] = ["*"]
+        elif agent == "librarian":
+            entry["mcps"] = ["web_search"]
+        preset[agent] = entry
+    cfg: dict[str, Any] = {
+        "autoUpdate": False,
+        "agents": {name: {"model": model} for name in _PINNED_AGENTS},
+        "preset": "container",
+        "presets": {"container": preset},
+    }
+    return apply_plugin_visibility(cfg, hidden_skills or set(), hidden_mcps or set())
+
+
 def build_container_config(
     user_provider: dict | None = None,
     user_mcp: dict | None = None,
@@ -473,13 +677,48 @@ def build_container_config(
     if configured_providers:
         merged["enabled_providers"] = configured_providers
 
+    # ------------------------------------------------------------------
+    # Dynamic visibility: hidden skills / MCP servers become permission deny
+    # rules instead of being excluded from the config. Every MCP server stays
+    # connected (``enabled`` forced on); hiding is enforced by opencode's
+    # permission evaluation, which a runtime PATCH /global/config can flip
+    # without restarting the container.
+    # ------------------------------------------------------------------
+    hidden_skills = hidden_builtin_skills(source)
+    hidden_mcps = hidden_mcp_servers(source)
+
+    for entry in (merged.get("mcp") or {}).values():
+        if isinstance(entry, dict):
+            entry["enabled"] = True
+
+    if hidden_skills or hidden_mcps:
+        permission = merged.setdefault("permission", {})
+        if hidden_skills:
+            # permission.skill accepts either an action string (shorthand for
+            # {"*": action}) or a {name: action} object where specific keys
+            # win over "*" (opencode PermissionRuleSchema union). Normalize to
+            # the object form and deny each hidden skill by name.
+            skill_rules = permission.get("skill")
+            if not isinstance(skill_rules, dict):
+                skill_rules = {
+                    "*": skill_rules if isinstance(skill_rules, str) else "allow"
+                }
+            for name in hidden_skills:
+                skill_rules[name] = "deny"
+            permission["skill"] = skill_rules
+        for name in hidden_mcps:
+            permission[f"{_sanitize_mcp_permission_key(name)}_*"] = "deny"
+
     logger.info(
-        "Built container opencode config from %s (providers=%s, dropped=%s, model=%s, builtin_plugins=%s)",
+        "Built container opencode config from %s (providers=%s, dropped=%s, "
+        "model=%s, builtin_plugins=%s, hidden_skills=%d, hidden_mcp=%d)",
         origin,
         ",".join(sorted(provider)) or "-",
         ",".join(dropped) or "-",
         merged.get("model", "-"),
         len(merged.get("plugin") or []),
+        len(hidden_skills),
+        len(hidden_mcps),
     )
     return merged
 

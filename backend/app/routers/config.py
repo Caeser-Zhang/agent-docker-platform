@@ -12,13 +12,16 @@ Endpoints:
   --- MCP ---
   GET    /api/config/mcp              — list all MCP servers
   POST   /api/config/mcp/{name}       — create/update an MCP server
-  PATCH  /api/config/mcp/{name}       — toggle enabled/disabled
+  PATCH  /api/config/mcp/{name}       — toggle enabled/disabled (runtime ~2s)
   DELETE /api/config/mcp/{name}       — delete an MCP server
   --- Skills ---
   GET    /api/config/skills           — list all skills
   GET    /api/config/skills/{name}    — get skill content
   POST   /api/config/skills/{name}    — create/update a skill
   DELETE /api/config/skills/{name}    — delete a skill
+  --- Built-in skill visibility (dynamic) ---
+  GET    /api/config/builtin-skills          — list plugin skills + visibility
+  PATCH  /api/config/builtin-skills/{name}   — show/hide (runtime ~2s)
   --- Reload ---
   POST   /api/config/reload           — reload config into running container
 """
@@ -32,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models import User
-from ..services import host_config, opencode_config, user_config
+from ..services import host_config, opencode_config, user_config, visibility
 from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 
@@ -69,6 +72,10 @@ class McpRemoteConfig(BaseModel):
 
 
 class McpToggle(BaseModel):
+    enabled: bool
+
+
+class BuiltinSkillToggle(BaseModel):
     enabled: bool
 
 
@@ -248,8 +255,16 @@ async def toggle_mcp(
 ):
     """Enable or disable an MCP server without removing it. Admin only.
 
-    Toggling rewrites the host config, which affects every user's container —
-    including built-in server overrides.
+    Toggling rewrites the host config (affecting every user's container,
+    including built-in server overrides) and then pushes a runtime
+    permission flip to all running agents via PATCH /global/config, so the
+    change takes effect in ~2s instead of requiring a container restart.
+
+    Host-defined local servers (command-based, running on the host) are
+    never injected into containers, so there is nothing to push at runtime
+    for them. Built-in local servers (e.g. web_search) DO run inside the
+    containers and are injected, so they get the runtime push like remote
+    ones.
     """
     builtin = opencode_config.builtin_mcp_servers()
     if name in builtin:
@@ -258,8 +273,17 @@ async def toggle_mcp(
         result = host_config.toggle_mcp_server(name, body.enabled)
         if result is None:
             raise HTTPException(status_code=404, detail=f"MCP server '{name}' not found")
-    logger.info("MCP server '%s' %s by admin %s", name, "enabled" if body.enabled else "disabled", user.username)
-    return {"status": "ok", "name": name, "enabled": body.enabled, "builtin": name in builtin}
+    entry = builtin.get(name) or host_config.get_mcp_server(name) or {}
+    if entry.get("type") == "local" and name not in builtin:
+        runtime = {"applied": 0, "failed": [], "skipped": "local"}
+    else:
+        runtime = await visibility.broadcast_visibility_change("mcp", name, hidden=not body.enabled)
+    logger.info(
+        "MCP server '%s' %s by admin %s (runtime applied=%d failed=%d)",
+        name, "enabled" if body.enabled else "disabled", user.username,
+        runtime.get("applied", 0), len(runtime.get("failed", [])),
+    )
+    return {"status": "ok", "name": name, "enabled": body.enabled, "builtin": name in builtin, "runtime": runtime}
 
 
 @router.delete("/mcp/{name}")
@@ -320,6 +344,42 @@ async def delete_skill(
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
     logger.info("Skill '%s' deleted by %s", name, user.username)
     return {"status": "ok"}
+
+
+# ------------------------------------------------------------------
+#  Built-in skill visibility (dynamic, runtime ~2s)
+# ------------------------------------------------------------------
+
+@router.get("/builtin-skills")
+async def get_builtin_skills(user: User = Depends(require_admin)):
+    """List built-in (plugin-provided) skills with their visibility state.
+
+    Enumerated live from a running agent when possible; falls back to the
+    persisted overrides when no container is up.
+    """
+    return await visibility.builtin_skills_overview()
+
+
+@router.patch("/builtin-skills/{name}")
+async def toggle_builtin_skill(
+    name: str,
+    body: BuiltinSkillToggle,
+    user: User = Depends(require_admin),
+):
+    """Show or hide a built-in skill for all agents. Admin only.
+
+    Persists the override (re-rendered into every container on next
+    start/reload) and pushes a runtime permission flip to all running
+    agents via PATCH /global/config — no container restart needed.
+    """
+    host_config.toggle_builtin_skill(name, body.enabled)
+    runtime = await visibility.broadcast_visibility_change("skill", name, hidden=not body.enabled)
+    logger.info(
+        "Builtin skill '%s' %s by admin %s (runtime applied=%d failed=%d)",
+        name, "enabled" if body.enabled else "disabled", user.username,
+        runtime.get("applied", 0), len(runtime.get("failed", [])),
+    )
+    return {"status": "ok", "name": name, "enabled": body.enabled, "runtime": runtime}
 
 
 # ------------------------------------------------------------------
