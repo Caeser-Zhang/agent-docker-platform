@@ -1,0 +1,3098 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Docker Platform — 前端重设计 · 高保真原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="color-scheme" content="dark light">
+<script>/* 防 FOUC：CSS 渲染前恢复上次主题 */
+try{if(localStorage.getItem('theme')==='light')document.documentElement.dataset.theme='light'}catch(e){}</script>
+<style>
+/* ================================================================
+   Agent Docker Platform · Hi-Fi Redesign
+   设计系统：AI-Native 深色开发者控制台
+   主色 #7C3AED（紫）· 强调 #22D3EE（青）
+   字体 Space Grotesk + JetBrains Mono（中文回退 PingFang/雅黑）
+   ================================================================ */
+:root{
+  /* 背景层次 */
+  --bg:#0E0C19;
+  --surface:#161327;
+  --surface-2:#1D1932;
+  --surface-3:#262045;
+  --border:#2A2444;
+  --border-strong:#3B3360;
+  /* 文字（对比度均 >= 4.5:1 于其常用底色） */
+  --text:#F1EFFB;
+  --text-2:#B7B2D6;
+  --text-3:#8F89B4;
+  /* 主色 */
+  --primary:#7C3AED;
+  --primary-hover:#8B5CF6;
+  --primary-deep:#6D28D9;
+  --primary-soft:rgba(124,58,237,.18);
+  --primary-border:rgba(139,92,246,.5);
+  /* 强调与语义 */
+  --accent:#22D3EE;
+  --accent-soft:rgba(34,211,238,.13);
+  --accent-border:rgba(34,211,238,.45);
+  --green:#34D399;
+  --green-soft:rgba(52,211,153,.14);
+  --green-fill:#047857;
+  --red:#F87171;
+  --red-soft:rgba(248,113,113,.13);
+  --red-border:rgba(248,113,113,.45);
+  --red-fill:#DC2626;
+  --amber:#FBBF24;
+  --amber-soft:rgba(251,191,36,.13);
+  --amber-border:rgba(251,191,36,.42);
+  --indigo:#818CF8;
+  --indigo-soft:rgba(129,140,248,.15);
+  --scope-global:#F59E0B;
+  --scope-project:#38BDF8;
+  --scope-user:#A78BFA;
+  /* 字体 */
+  --sans:'Space Grotesk','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  /* 圆角 / 阴影 / 动效 */
+  --radius-sm:8px;
+  --radius:10px;
+  --radius-lg:14px;
+  --shadow-1:0 2px 10px rgba(5,3,15,.45);
+  --shadow-2:0 12px 40px rgba(5,3,15,.55);
+  --shadow-3:0 24px 72px rgba(5,3,15,.68);
+  --t:180ms cubic-bezier(.4,0,.2,1);
+  --t-slow:320ms cubic-bezier(.22,1,.36,1);
+
+  /* 代码 / 终端区（双主题恒为深色，编辑器风格，不随主题翻转） */
+  --code-bg:#0B0917;
+  --code-border:#2A2444;
+  --code-text:#F1EFFB;
+  --code-text-2:#B7B2D6;
+  --code-text-muted:#8F89B4;
+  --code-accent:#22D3EE;
+  --code-amber:#FBBF24;
+  --code-red:#F87171;
+  --code-green:#34D399;
+
+  /* 随主题翻转的语义色（暗色用亮色调，亮色主题在下方覆盖为深色调） */
+  --purple-300:#C4B5FD;
+  --diff-add:#A7F3D0;
+  --diff-del:#FCA5A5;
+  --scrollbar-hover:#4A4173;
+  color-scheme:dark;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:var(--sans);
+  background:var(--bg);
+  color:var(--text);
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+::selection{background:rgba(124,58,237,.4)}
+/* 滚动条 */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:6px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:#4A4173}
+/* ---------------- 图标 ---------------- */
+svg.icon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.icon-sm{width:13px;height:13px}
+svg.icon-lg{width:20px;height:20px}
+svg.icon-xl{width:26px;height:26px}
+/* ---------------- 按钮 ---------------- */
+button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:34px;padding:0 14px;border-radius:var(--radius-sm);
+  font-weight:500;font-size:13px;line-height:1;white-space:nowrap;
+  border:1px solid transparent;transition:background var(--t),border-color var(--t),color var(--t),box-shadow var(--t),transform var(--t);
+  user-select:none;
+}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-hover);box-shadow:0 4px 18px rgba(124,58,237,.4)}
+.btn-outline{background:transparent;border-color:var(--border-strong);color:var(--text-2)}
+.btn-outline:hover{border-color:var(--primary-border);color:var(--text);background:var(--primary-soft)}
+.btn-ghost{background:transparent;color:var(--text-2)}
+.btn-ghost:hover{background:var(--surface-3);color:var(--text)}
+.btn-danger{background:var(--red-fill);color:#fff}
+.btn-danger:hover{background:#EF4444;box-shadow:0 4px 18px rgba(220,38,38,.35)}
+.btn-danger-outline{background:transparent;border-color:var(--red-border);color:var(--red)}
+.btn-danger-outline:hover{background:var(--red-soft);border-color:var(--red)}
+.btn-amber{background:transparent;border-color:var(--amber-border);color:var(--amber)}
+.btn-amber:hover{background:var(--amber-soft)}
+.btn-green{background:var(--green-fill);color:#fff}
+.btn-green:hover{background:#059669;box-shadow:0 4px 18px rgba(4,120,87,.4)}
+.btn-sm{height:28px;padding:0 10px;font-size:12px;gap:5px}
+.btn-icon{width:32px;height:32px;padding:0;border-radius:var(--radius-sm)}
+.btn-icon.btn-sm{width:26px;height:26px}
+.btn[disabled]{opacity:.45;cursor:not-allowed;pointer-events:none}
+/* ---------------- 徽章 / 状态点 ---------------- */
+.badge{
+  display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;
+  border-radius:999px;font-size:11.5px;font-weight:500;line-height:1;white-space:nowrap;
+}
+.badge .icon{width:12px;height:12px}
+.badge-purple{background:var(--primary-soft);color:var(--purple-300);border:1px solid var(--primary-border)}
+.badge-cyan{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-border)}
+.badge-green{background:var(--green-soft);color:var(--green);border:1px solid rgba(52,211,153,.4)}
+.badge-amber{background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)}
+.badge-red{background:var(--red-soft);color:var(--red);border:1px solid var(--red-border)}
+.badge-gray{background:var(--surface-3);color:var(--text-3);border:1px solid var(--border)}
+.badge-mono{font-family:var(--mono);font-size:11px;letter-spacing:-.2px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;position:relative}
+.dot-green{background:var(--green)}
+.dot-green.live::after{content:'';position:absolute;inset:-3px;border-radius:50%;border:1.5px solid var(--green);opacity:.7;animation:ping 1.8s cubic-bezier(0,0,.2,1) infinite}
+.dot-amber{background:var(--amber)}
+.dot-red{background:var(--red)}
+.dot-gray{background:var(--text-3)}
+.dot-purple{background:#A78BFA}
+@keyframes ping{75%,100%{transform:scale(1.9);opacity:0}}
+/* ---------------- 表单 ---------------- */
+.field,.select{
+  height:36px;width:100%;padding:0 12px;border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text);
+  font-family:inherit;font-size:13.5px;transition:border-color var(--t),box-shadow var(--t);
+}
+.field::placeholder{color:var(--text-3)}
+.field:focus,.select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.select{appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238F89B4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;
+}
+.select option{background:var(--surface-2);color:var(--text)}
+label.lbl{display:block;font-size:12.5px;font-weight:500;color:var(--text-2);margin-bottom:7px}
+/* 开关 */
+.switch{position:relative;width:34px;height:20px;border-radius:999px;background:var(--surface-3);border:1px solid var(--border-strong);cursor:pointer;transition:background var(--t),border-color var(--t);flex:none}
+.switch::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text-3);transition:transform var(--t),background var(--t)}
+.switch[aria-checked="true"]{background:var(--primary);border-color:var(--primary)}
+.switch[aria-checked="true"]::after{transform:translateX(14px);background:#fff}
+.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* 单选 / 复选 */
+.radio,.checkbox{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong);flex:none;cursor:pointer;position:relative;transition:border-color var(--t),background var(--t);background:transparent}
+.radio[aria-checked="true"]{border-color:var(--indigo)}
+.radio[aria-checked="true"]::after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--indigo)}
+.checkbox{border-radius:4px}
+.checkbox[aria-checked="true"]{background:var(--primary);border-color:var(--primary)}
+.checkbox[aria-checked="true"]::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.checkbox[aria-checked="mixed"]{background:var(--primary);border-color:var(--primary)}
+.checkbox[aria-checked="mixed"]::after{content:'';position:absolute;left:3px;top:6.5px;width:8px;height:2px;background:#fff;border:none;transform:none}
+/* ---------------- chip ---------------- */
+.chip{
+  display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+  font-size:12px;font-weight:500;line-height:1;white-space:nowrap;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);
+  cursor:pointer;transition:border-color var(--t),color var(--t),background var(--t);
+}
+.chip:hover{border-color:var(--primary-border);color:var(--text)}
+.chip .icon{width:12.5px;height:12.5px}
+.chip-skill{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent)}
+.chip-attach{background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.35);color:var(--green)}
+.chip-static{cursor:default}
+.chip-static:hover{border-color:var(--border);color:var(--text-2)}
+.chip .chip-x{display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;border-radius:50%;color:inherit;opacity:.7}
+.chip .chip-x:hover{opacity:1;background:rgba(255,255,255,.12)}
+.chip .chip-x .icon{width:10px;height:10px}
+/* ---------------- 模态 ---------------- */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:900;display:none;align-items:center;justify-content:center;padding:24px;
+  background:rgba(7,5,18,.72);backdrop-filter:blur(6px);
+}
+.modal-backdrop.open{display:flex;animation:fadeIn 180ms ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{
+  display:flex;flex-direction:column;max-width:min(920px,100%);max-height:min(82vh,760px);width:100%;
+  background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-3);overflow:hidden;animation:slideUp 240ms cubic-bezier(.22,1,.36,1);
+}
+@keyframes slideUp{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+.modal-head{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--border);flex:none}
+.modal-head h3{font-size:15px;font-weight:600;letter-spacing:-.2px}
+.modal-head .head-meta{font-family:var(--mono);font-size:12px;color:var(--text-3)}
+.modal-head .spacer{flex:1}
+.modal-body{overflow:auto;flex:1}
+.modal-foot{display:flex;align-items:center;gap:10px;padding:13px 18px;border-top:1px solid var(--border);flex:none}
+/* ---------------- 弹出菜单 ---------------- */
+.menu{
+  position:absolute;z-index:600;min-width:230px;padding:6px;border-radius:var(--radius);
+  background:var(--surface-2);border:1px solid var(--border-strong);box-shadow:var(--shadow-2);
+  display:none;animation:menuIn 160ms cubic-bezier(.22,1,.36,1);
+}
+.menu.open{display:block}
+@keyframes menuIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.menu-item{
+  display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:var(--radius-sm);
+  font-size:13px;color:var(--text-2);text-align:left;transition:background var(--t),color var(--t);
+}
+.menu-item:hover,.menu-item.active{background:var(--primary-soft);color:var(--text)}
+.menu-item .icon{width:15px;height:15px;color:var(--text-3)}
+.menu-item.active .icon{color:var(--primary-hover)}
+.menu-item .mi-sub{font-size:11.5px;color:var(--text-3);margin-left:auto}
+.menu-item .mi-mono{font-family:var(--mono);font-size:12px}
+.menu-sep{height:1px;background:var(--border);margin:5px 8px}
+.menu-label{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);padding:6px 10px 3px}
+/* ---------------- 代码块 ---------------- */
+.code-block{
+  font-family:var(--mono);font-size:12px;line-height:1.65;color:var(--text-2);
+  background:#0B0917;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;
+  overflow:auto;white-space:pre;
+}
+.code-block .ck{color:#C4B5FD}.code-block .cs{color:#86EFAC}.code-block .cn{color:var(--amber)}.code-block .cc{color:var(--text-3)}
+/* ---------------- Toast ---------------- */
+.toast-wrap{position:fixed;right:20px;bottom:20px;z-index:1200;display:flex;flex-direction:column;gap:10px}
+.toast{
+  display:flex;align-items:center;gap:10px;padding:11px 15px;border-radius:var(--radius);
+  background:var(--surface-2);border:1px solid var(--border-strong);box-shadow:var(--shadow-2);
+  font-size:13px;animation:toastIn 260ms cubic-bezier(.22,1,.36,1);max-width:360px;
+}
+.toast .icon{color:var(--green)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.toast.out{opacity:0;transform:translateY(6px);transition:all 240ms ease}
+/* ---------------- 屏幕容器 ---------------- */
+.screen{position:fixed;inset:0;display:none;flex-direction:column;overflow:hidden}
+.screen.active{display:flex}
+/* ---------------- 折叠面板 ---------------- */
+[data-collapse]{cursor:pointer}
+.collapsible-body{overflow:hidden;transition:max-height var(--t-slow),opacity var(--t)}
+.collapsed>.collapsible-body{max-height:0!important;opacity:0}
+.collapse-caret{transition:transform var(--t)}
+.collapsed .collapse-caret{transform:rotate(-90deg)}
+/* ---------------- 键位提示 ---------------- */
+.kbd{
+  display:inline-flex;align-items:center;height:20px;padding:0 6px;border-radius:5px;
+  font-family:var(--mono);font-size:11px;color:var(--text-3);
+  background:var(--surface-3);border:1px solid var(--border);border-bottom-width:2px;
+}
+/* ---------------- 可访问性 ---------------- */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus:not(:focus-visible){outline:none}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+  .dot-green.live::after{display:none}
+}
+/* ================================================================
+   登录屏
+   ================================================================ */
+#screen-login{
+  align-items:center;justify-content:center;position:relative;
+  background:
+    radial-gradient(900px 520px at 18% 8%,rgba(124,58,237,.16),transparent 60%),
+    radial-gradient(760px 480px at 85% 90%,rgba(34,211,238,.09),transparent 60%),
+    var(--bg);
+}
+#screen-login::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(124,58,237,.05) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(124,58,237,.05) 1px,transparent 1px);
+  background-size:44px 44px;
+  mask-image:radial-gradient(640px 480px at 50% 42%,#000 20%,transparent 78%);
+}
+.login-card{
+  position:relative;z-index:1;width:430px;max-width:calc(100vw - 32px);
+  background:rgba(22,19,39,.88);border:1px solid var(--border-strong);border-radius:18px;
+  box-shadow:var(--shadow-3);padding:34px 36px 28px;backdrop-filter:blur(10px);
+}
+.login-brand{display:flex;align-items:center;gap:13px;margin-bottom:6px}
+.login-brand .logo-mark{
+  width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--primary),#4C1D95);color:#fff;box-shadow:0 6px 20px rgba(124,58,237,.45);
+}
+.login-brand .logo-mark svg{width:24px;height:24px}
+.login-brand h1{font-size:19px;font-weight:700;letter-spacing:-.3px}
+.login-brand .brand-sub{font-size:12px;color:var(--text-3);font-family:var(--mono);letter-spacing:.02em}
+.login-desc{font-size:13px;color:var(--text-2);margin:12px 0 20px}
+.seg{display:flex;gap:4px;padding:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:20px}
+.seg button{
+  flex:1;height:32px;border-radius:7px;font-size:13px;font-weight:500;color:var(--text-3);
+  transition:background var(--t),color var(--t);
+}
+.seg button:hover{color:var(--text)}
+.seg button.active{background:var(--primary);color:#fff;box-shadow:0 2px 10px rgba(124,58,237,.4)}
+.login-form .fgroup{margin-bottom:14px}
+.login-error{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;margin-bottom:14px;border-radius:var(--radius-sm);
+  background:var(--red-soft);border:1px solid var(--red-border);color:var(--red);font-size:12.5px;
+}
+.login-btn{width:100%;height:40px;font-size:14px;margin-top:4px}
+.login-arch{margin-top:24px;padding-top:18px;border-top:1px dashed var(--border-strong)}
+.login-arch .la-title{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--text-3);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.la-steps{display:flex;align-items:center;gap:6px}
+.la-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2);text-align:center}
+.la-step .icon{width:17px;height:17px}
+.la-step .la-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);border:1px solid var(--border)}
+.la-arrow{color:var(--text-3);display:flex;align-items:center}
+.la-arrow .icon{width:13px;height:13px}
+.la-step.s1 .la-ic{color:#38BDF8;border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.1)}
+.la-step.s2 .la-ic{color:#A78BFA;border-color:rgba(167,139,250,.35);background:rgba(167,139,250,.1)}
+.la-step.s3 .la-ic{color:var(--accent);border-color:var(--accent-border);background:var(--accent-soft)}
+.login-hint{margin-top:16px;text-align:center;font-size:12px;color:var(--text-3)}
+.login-hint .kbd{margin:0 2px}
+/* ================================================================
+   聊天屏 · 布局
+   ================================================================ */
+.chat-shell{display:flex;height:100%;min-height:0;position:relative}
+/* ---------- 侧栏 ---------- */
+.sidebar{
+  width:296px;flex:none;display:flex;flex-direction:column;min-height:0;
+  background:var(--surface);border-right:1px solid var(--border);
+}
+.side-head{padding:16px 16px 12px;border-bottom:1px solid var(--border)}
+.brand-row{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.brand-row .logo-mark{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--primary),#4C1D95);color:#fff}
+.brand-row .logo-mark svg{width:17px;height:17px}
+.brand-row .bt{font-size:14.5px;font-weight:700;letter-spacing:-.2px}
+.brand-row .bs{font-size:10.5px;font-family:var(--mono);color:var(--text-3)}
+.user-row{display:flex;align-items:center;gap:9px}
+.avatar{
+  width:32px;height:32px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:600;color:#fff;letter-spacing:0;
+}
+.avatar.a-user{background:linear-gradient(135deg,#2563EB,#7C3AED)}
+.avatar.a-bot{background:linear-gradient(135deg,var(--primary),#4C1D95)}
+.avatar.a-bot svg{width:16px;height:16px}
+.user-row .un{font-size:13.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-row .btn-icon{color:var(--text-3)}
+.user-row .btn-icon:hover{color:var(--text);background:var(--surface-3)}
+/* 状态面板 */
+.side-status{padding:14px 16px;border-bottom:1px solid var(--border)}
+.ss-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:10px}
+.ss-title .icon{width:13px;height:13px;color:var(--text-3)}
+.status-line{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.status-line .st-sub{font-size:11.5px;color:var(--text-3);font-weight:400}
+.runtime-box{
+  margin-top:10px;padding:10px 12px;border-radius:var(--radius-sm);
+  background:var(--surface-2);border:1px solid var(--border);
+}
+.runtime-box .rb-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-2);padding:2.5px 0}
+.runtime-box .rb-row .icon{width:12px;height:12px;color:var(--text-3)}
+.runtime-box .rb-row .rb-k{width:44px;flex:none;color:var(--text-3)}
+.runtime-box .rb-row .rb-v{font-family:var(--mono);font-size:11px;letter-spacing:-.2px}
+.ss-actions{display:flex;gap:8px;margin-top:12px}
+.ss-actions .btn{flex:1}
+/* 会话列表 */
+.side-sessions{flex:1;overflow-y:auto;padding:12px 10px;min-height:0}
+.ss-list-head{display:flex;align-items:center;justify-content:space-between;padding:2px 7px 8px}
+.ss-list-head .t{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2)}
+.ss-list-head .t .icon{width:13px;height:13px;color:var(--text-3)}
+.sess-item{
+  position:relative;display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:var(--radius-sm);
+  color:var(--text-2);cursor:pointer;transition:background var(--t),color var(--t);margin-bottom:2px;
+}
+.sess-item:hover{background:var(--surface-2);color:var(--text)}
+.sess-item.active{background:var(--primary-soft);color:var(--text)}
+.sess-item.active::before{content:'';position:absolute;left:-10px;top:7px;bottom:7px;width:3px;border-radius:2px;background:var(--primary)}
+.sess-item .si-icon{width:14px;height:14px;color:var(--text-3);flex:none}
+.sess-item.active .si-icon{color:var(--primary-hover)}
+.sess-item .si-title{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sess-item .si-acts{display:none;gap:2px}
+.sess-item:hover .si-acts{display:flex}
+.sess-item .si-acts button{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.sess-item .si-acts button:hover{background:var(--surface-3);color:var(--text)}
+.sess-item .si-acts button.si-del:hover{color:var(--red)}
+.sess-item .si-acts .icon{width:13px;height:13px}
+.sess-empty{padding:14px 10px;text-align:center;font-size:12px;color:var(--text-3)}
+/* 架构面板 */
+.side-arch{padding:12px 16px 14px;border-top:1px solid var(--border)}
+.side-arch .sa-title{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-bottom:9px}
+.side-arch .sa-title .icon{width:12px;height:12px}
+.sa-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);padding:2.5px 0}
+.sa-row .sa-d{width:7px;height:7px;border-radius:50%;flex:none}
+.sa-row .sa-n{flex:1}
+.sa-row .sa-s{font-size:10.5px;color:var(--text-3);font-family:var(--mono)}
+/* ---------- 主区 ---------- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+.modelbar{
+  height:54px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;
+  border-bottom:1px solid var(--border);background:var(--surface);
+}
+.mb-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.mb-sess{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;color:var(--text);min-width:0}
+.mb-sess .icon{width:14px;height:14px;color:var(--text-3)}
+.mb-sess .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mb-right{display:flex;align-items:center;gap:8px}
+.sse-ind{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3);font-family:var(--mono)}
+/* 横幅 */
+.banner{display:none;align-items:flex-start;gap:10px;padding:10px 16px;font-size:12.5px;border-bottom:1px solid}
+.banner.show{display:flex;animation:bannerIn 220ms ease}
+@keyframes bannerIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.banner .icon{width:15px;height:15px;flex:none;margin-top:1px}
+.banner .b-body{flex:1;line-height:1.5}
+.banner .b-title{font-weight:600}
+.banner .b-sub{color:inherit;opacity:.75}
+.banner-warn{background:var(--amber-soft);border-color:var(--amber-border);color:var(--amber)}
+.banner-err{background:var(--red-soft);border-color:var(--red-border);color:var(--red)}
+.banner .btn{margin-top:2px}
+/* 聊天主体 */
+.chat-body{flex:1;display:flex;min-height:0;position:relative}
+.msg-col{flex:1;overflow-y:auto;min-width:0;scroll-behavior:smooth}
+.msg-col-inner{max-width:860px;margin:0 auto;padding:26px 28px 20px;display:flex;flex-direction:column}
+/* 欢迎页 */
+.welcome{display:none;flex:1;align-items:center;justify-content:center;padding:24px}
+.welcome.show{display:flex}
+.wc-card{max-width:620px;text-align:center}
+.wc-logo{
+  width:64px;height:64px;border-radius:18px;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--primary),#4C1D95);color:#fff;box-shadow:0 10px 36px rgba(124,58,237,.5);
+}
+.wc-logo svg{width:32px;height:32px}
+.wc-card h2{font-size:22px;font-weight:700;letter-spacing:-.4px;margin-bottom:8px}
+.wc-card .wc-sub{font-size:13.5px;color:var(--text-2);margin-bottom:26px}
+.wc-feats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:26px;text-align:left}
+.wc-feat{
+  display:flex;gap:11px;padding:14px;border-radius:var(--radius);
+  background:var(--surface);border:1px solid var(--border);transition:border-color var(--t),transform var(--t),box-shadow var(--t);
+}
+.wc-feat:hover{border-color:var(--primary-border);transform:translateY(-2px);box-shadow:var(--shadow-1)}
+.wc-feat .wf-ic{width:34px;height:34px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-hover)}
+.wc-feat.f2 .wf-ic{background:var(--accent-soft);color:var(--accent)}
+.wc-feat.f3 .wf-ic{background:var(--green-soft);color:var(--green)}
+.wc-feat.f4 .wf-ic{background:var(--indigo-soft);color:var(--indigo)}
+.wc-feat .wf-t{font-size:13px;font-weight:600;margin-bottom:2px}
+.wc-feat .wf-d{font-size:12px;color:var(--text-3);line-height:1.5}
+.wc-start{height:42px;padding:0 26px;font-size:14px}
+/* ================================================================
+   消息流组件
+   ================================================================ */
+.msg{display:flex;gap:12px;margin-bottom:26px;animation:msgIn 320ms cubic-bezier(.22,1,.36,1)}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.msg.user{flex-direction:row-reverse}
+.msg-side{display:flex;flex-direction:column;align-items:center;gap:6px}
+.msg-main{min-width:0;max-width:calc(100% - 48px);flex:1}
+.msg.user .msg-main{display:flex;flex-direction:column;align-items:flex-end}
+/* 角色行 */
+.msg-role{display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap}
+.msg-role .mr-name{font-size:12.5px;font-weight:600;color:var(--text-2)}
+.msg-role .mr-time{font-size:11px;color:var(--text-3);font-family:var(--mono)}
+.agent-tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--indigo);background:var(--indigo-soft);border:1px solid rgba(129,140,248,.35);border-radius:5px;padding:1.5px 7px}
+.agent-tag .icon{width:11px;height:11px}
+.model-tag{font-family:var(--mono);font-size:11px;color:var(--accent);background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:5px;padding:1.5px 7px;letter-spacing:-.2px}
+.stream-tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--primary-hover);background:var(--primary-soft);border:1px solid var(--primary-border);border-radius:5px;padding:1.5px 7px}
+.stream-tag .icon{width:11px;height:11px;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.role-acts{display:flex;gap:3px;margin-left:2px;opacity:0;transition:opacity var(--t)}
+.msg:hover .role-acts{opacity:1}
+.role-acts button{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3)}
+.role-acts button:hover{background:var(--surface-3);color:var(--text)}
+.role-acts .icon{width:13px;height:13px}
+/* 气泡 */
+.bubble{
+  padding:11px 15px;border-radius:14px;font-size:13.5px;line-height:1.68;max-width:76%;
+}
+.msg.assistant .bubble{background:var(--surface);border:1px solid var(--border);border-top-left-radius:4px;max-width:100%}
+.msg.user .bubble{background:linear-gradient(135deg,var(--primary-deep),var(--primary));color:#fff;border-top-right-radius:4px;box-shadow:0 4px 16px rgba(124,58,237,.28)}
+.bubble p{margin-bottom:8px}
+.bubble p:last-child{margin-bottom:0}
+.bubble code{font-family:var(--mono);font-size:12px;background:rgba(124,58,237,.16);border:1px solid rgba(139,92,246,.25);border-radius:5px;padding:1px 6px;color:#C4B5FD}
+.msg.user .bubble code{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.25);color:#fff}
+.stream-cursor{display:inline-block;width:8px;height:15px;vertical-align:-2px;margin-left:2px;background:var(--accent);border-radius:1.5px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+/* 附件 chip（消息内） */
+.msg-attach{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+/* chunk 引用徽章 */
+.chunk-ref{
+  display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;margin:2px 2px;
+  border-radius:7px;font-size:12px;vertical-align:middle;
+  background:var(--primary-soft);border:1px solid var(--primary-border);color:var(--purple-300);
+  cursor:pointer;transition:background var(--t),border-color var(--t);
+}
+.chunk-ref:hover{background:rgba(124,58,237,.3);border-color:var(--primary-hover)}
+.chunk-ref .icon{width:12.5px;height:12.5px}
+.chunk-ref .cr-path{font-family:var(--mono);font-size:11px;opacity:.8}
+/* 系统胶囊 */
+.sys-pill{
+  align-self:center;display:inline-flex;align-items:center;gap:7px;margin:4px auto 22px;
+  font-size:11.5px;color:var(--text-3);background:var(--surface-2);border:1px dashed var(--border-strong);
+  border-radius:999px;padding:4px 13px;
+}
+.sys-pill .icon{width:12px;height:12px}
+.sys-pill .sp-mono{font-family:var(--mono);font-size:11px}
+.sys-row{display:flex;justify-content:center}
+/* 推理框 */
+.reasoning-box{
+  margin:0 0 10px;border:1px dashed var(--border-strong);border-radius:var(--radius);
+  background:rgba(29,25,50,.5);overflow:hidden;
+}
+.reasoning-head{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;color:var(--text-3);cursor:pointer;user-select:none}
+.reasoning-head .icon{width:13px;height:13px;color:var(--indigo)}
+.reasoning-head .rh-t{font-weight:500}
+.reasoning-head .rh-hint{margin-left:auto;font-size:10.5px;display:flex;align-items:center;gap:4px}
+.reasoning-body{padding:2px 13px 11px;font-size:12.5px;color:var(--text-3);line-height:1.7}
+/* 工具卡 */
+.tool-card{margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.tool-card.error{border-color:var(--red-border)}
+.tool-head{display:flex;align-items:center;gap:9px;padding:8px 12px;cursor:pointer;user-select:none;transition:background var(--t)}
+.tool-head:hover{background:var(--surface-2)}
+.tool-head .icon{width:14px;height:14px;color:var(--text-3)}
+.tool-head .th-name{font-family:var(--mono);font-size:12.5px;font-weight:500;color:var(--text-2)}
+.tool-head .th-desc{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-head .th-status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-3)}
+.tool-head .th-status .st-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.th-status.st-running .st-dot{background:var(--amber);animation:blink 1s steps(2) infinite}
+.th-status.st-running{color:var(--amber)}
+.th-status.st-completed .st-dot{background:var(--green)}
+.th-status.st-completed{color:var(--green)}
+.th-status.st-error .st-dot{background:var(--red)}
+.th-status.st-error{color:var(--red)}
+.th-status.st-pending .st-dot{background:var(--text-3)}
+.tool-body{border-top:1px solid var(--border);padding:11px 13px;display:flex;flex-direction:column;gap:10px}
+.tool-sec .ts-l{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px}
+.tool-out{font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--text-3);background:#0B0917;border-radius:var(--radius-sm);padding:10px 12px;white-space:pre-wrap;word-break:break-all}
+.tool-out .to-green{color:var(--green)}
+.tool-out .to-red{color:var(--red)}
+/* Diff 卡 */
+.diff-card{margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.diff-head{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;user-select:none}
+.diff-head:hover{background:var(--surface-2)}
+.diff-head .icon{width:14px;height:14px;color:var(--text-3)}
+.diff-head .dh-t{font-size:12.5px;font-weight:600}
+.diff-stats{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px}
+.diff-stats .ds-add{color:var(--green)}
+.diff-stats .ds-del{color:var(--red)}
+.diff-body{border-top:1px solid var(--border);padding:4px 0}
+.diff-file{padding:9px 13px;display:flex;align-items:center;gap:9px;font-size:12.5px;transition:background var(--t)}
+.diff-file:hover{background:var(--surface-2)}
+.diff-file .icon{width:14px;height:14px;color:var(--text-3);flex:none}
+.diff-file .df-path{font-family:var(--mono);font-size:12px;color:var(--text-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.diff-file .df-stats{font-family:var(--mono);font-size:11px;display:flex;gap:6px}
+.diff-file .df-stats .a{color:var(--green)}
+.diff-file .df-stats .d{color:var(--red)}
+.diff-file .df-badge{flex:none}
+.diff-patch{margin:0 13px 12px;font-family:var(--mono);font-size:11.5px;line-height:1.7;border-radius:var(--radius-sm);border:1px solid var(--border);overflow:hidden}
+.diff-patch .dl{padding:1px 12px;white-space:pre-wrap;word-break:break-all}
+.diff-patch .dl.add{background:rgba(52,211,153,.1);color:#A7F3D0}
+.diff-patch .dl.del{background:rgba(248,113,113,.09);color:#FCA5A5}
+.diff-patch .dl.ctx{color:var(--text-3)}
+.diff-patch .dl.hunk{color:var(--indigo);background:var(--indigo-soft)}
+.diff-foot{display:flex;gap:8px;padding:10px 13px;border-top:1px solid var(--border)}
+/* Todo 卡 */
+.todo-card{margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.todo-head{display:flex;align-items:center;gap:9px;padding:9px 12px}
+.todo-head .icon{width:14px;height:14px;color:var(--primary-hover)}
+.todo-head .th-t{font-size:12.5px;font-weight:600}
+.todo-prog{margin-left:auto;width:110px;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.todo-prog i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--primary),var(--accent))}
+.todo-body{padding:4px 12px 10px}
+.todo-item{display:flex;align-items:flex-start;gap:9px;padding:5.5px 0;font-size:12.5px;color:var(--text-2)}
+.todo-item .ti-check{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--border-strong);flex:none;margin-top:1px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background var(--t),border-color var(--t)}
+.todo-item.done .ti-check{background:var(--green-fill);border-color:var(--green-fill);color:#fff}
+.todo-item.done .ti-check .icon{width:10px;height:10px}
+.todo-item.done .ti-t{text-decoration:line-through;color:var(--text-3)}
+.todo-item.run .ti-check{border-color:var(--amber);color:var(--amber)}
+.todo-item.run .ti-check .icon{width:10px;height:10px;animation:spin 1.4s linear infinite}
+.todo-item .ti-t{flex:1;line-height:1.5}
+/* 权限卡 */
+.perm-card{
+  margin-bottom:8px;border:1px solid var(--amber-border);border-radius:var(--radius);
+  background:rgba(251,191,36,.06);overflow:hidden;
+}
+.perm-head{display:flex;align-items:center;gap:9px;padding:10px 13px;border-bottom:1px solid rgba(251,191,36,.2)}
+.perm-head .icon{width:15px;height:15px;color:var(--amber)}
+.perm-head .ph-t{font-size:13px;font-weight:600;color:var(--amber)}
+.perm-head .badge{margin-left:auto}
+.perm-body{padding:11px 13px}
+.perm-res{
+  display:flex;align-items:center;gap:9px;padding:8px 11px;margin-bottom:9px;border-radius:var(--radius-sm);
+  background:var(--code-bg);border:1px solid var(--code-border);
+}
+.perm-res .icon{width:13px;height:13px;color:var(--code-amber);flex:none}
+.perm-res .pr-cmd{font-family:var(--mono);font-size:12px;color:var(--code-text-2);word-break:break-all}
+.perm-res .pr-cmd b{color:var(--code-red);font-weight:600}
+.perm-meta{margin-bottom:11px}
+.perm-meta .ts-l{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px}
+.perm-acts{display:flex;gap:8px;flex-wrap:wrap}
+/* 提问卡 */
+.ques-card{margin-bottom:8px;border:1px solid rgba(129,140,248,.4);border-radius:var(--radius);background:rgba(129,140,248,.05);overflow:hidden}
+.ques-head{display:flex;align-items:center;gap:9px;padding:10px 13px;border-bottom:1px solid rgba(129,140,248,.2)}
+.ques-head .icon{width:15px;height:15px;color:var(--indigo)}
+.ques-head .qh-t{font-size:13px;font-weight:600;color:var(--indigo)}
+.ques-body{padding:12px 13px}
+.ques-q{font-size:13px;color:var(--text);margin-bottom:11px;line-height:1.6}
+.ques-opt{display:flex;align-items:center;gap:9px;padding:8px 11px;margin-bottom:6px;border-radius:var(--radius-sm);border:1px solid var(--border);cursor:pointer;transition:border-color var(--t),background var(--t);font-size:12.5px;color:var(--text-2)}
+.ques-opt:hover{border-color:var(--indigo);background:var(--indigo-soft)}
+.ques-opt.sel{border-color:var(--indigo);background:var(--indigo-soft);color:var(--text)}
+.ques-custom{display:flex;align-items:center;gap:8px;margin-top:9px}
+.ques-custom .field{flex:1}
+.ques-acts{display:flex;gap:8px;margin-top:11px}
+/* 子任务 / 压缩 / 重试 */
+.subtask-card{margin-bottom:8px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);font-size:12.5px}
+.subtask-card .st-ic{width:26px;height:26px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--indigo-soft);color:var(--indigo)}
+.subtask-card .st-ic .icon{width:13px;height:13px}
+.subtask-card .st-t{flex:1;color:var(--text-2)}
+.subtask-card .st-t b{color:var(--indigo);font-weight:600}
+.compaction-pill{display:flex;justify-content:center;margin-bottom:22px}
+.compaction-pill .cp{
+  display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:#C4B5FD;
+  background:var(--primary-soft);border:1px dashed var(--primary-border);border-radius:999px;padding:4px 14px;
+}
+.compaction-pill .icon{width:12px;height:12px}
+.retry-card{margin-bottom:8px;display:flex;gap:10px;padding:10px 13px;border:1px solid var(--amber-border);border-radius:var(--radius);background:var(--amber-soft);font-size:12.5px;color:var(--amber)}
+.retry-card .icon{width:14px;height:14px;flex:none;margin-top:2px}
+/* turn 元信息 */
+.turn-meta{display:flex;align-items:center;gap:10px;margin-top:9px;font-size:11px;color:var(--text-3);font-family:var(--mono);flex-wrap:wrap}
+.turn-meta .tm-sep{opacity:.4}
+.turn-meta .icon{width:11px;height:11px;vertical-align:-1px}
+/* ================================================================
+   输入区
+   ================================================================ */
+.composer-wrap{flex:none;border-top:1px solid var(--border);background:var(--surface);position:relative}
+.composer{max-width:860px;margin:0 auto;padding:12px 20px 14px}
+/* 输入卡片：上 textarea / 下工具栏 */
+.input-row{position:relative;display:flex;flex-direction:column;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:6px 8px 7px;transition:border-color var(--t),box-shadow var(--t)}
+.input-row:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+#prompt-input{
+  width:100%;min-height:36px;max-height:160px;resize:none;border:none;background:transparent;color:var(--text);
+  font-family:inherit;font-size:13.5px;line-height:1.6;padding:6px 6px 0;outline:none;
+}
+#prompt-input::placeholder{color:var(--text-3)}
+/* 已激活 Skill / 附件 chips（框内顶部，仅有内容时占行） */
+.prompt-chips{display:flex;gap:7px;padding:4px 6px 2px;flex-wrap:wrap}
+.prompt-chips:empty{display:none}
+/* 底部工具栏：左工具 / 右选择器 + 发送 */
+.input-bar{display:flex;align-items:center;gap:8px;padding-top:5px}
+.input-tools{display:flex;gap:3px}
+.input-tools .btn-icon{color:var(--text-3)}
+.input-tools .btn-icon:hover{color:var(--text);background:var(--surface-3)}
+.input-ctx{display:flex;gap:6px;min-width:0}
+.input-ctx .chip{max-width:220px;overflow:hidden}
+.ib-spacer{flex:1}
+.send-btn{width:34px;height:34px;border-radius:10px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;transition:background var(--t),box-shadow var(--t),transform var(--t)}
+.send-btn:hover{background:var(--primary-hover);box-shadow:0 4px 16px rgba(124,58,237,.45)}
+.send-btn:active{transform:scale(.95)}
+.send-btn.stop{background:var(--red-fill)}
+.send-btn.stop:hover{background:#EF4444;box-shadow:0 4px 16px rgba(220,38,38,.4)}
+.send-btn .icon{width:16px;height:16px}
+/* 第 4 层：提示行 */
+.input-hints{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--text-3);flex-wrap:wrap}
+.input-hints .ih-sep{opacity:.4}
+/* 斜杠 / @ 菜单 */
+.input-menu{
+  position:absolute;bottom:calc(100% - 2px);left:20px;z-index:500;width:min(480px,calc(100% - 40px));
+  max-height:300px;overflow-y:auto;
+}
+.input-menu .menu-item .mi-desc{font-size:11.5px;color:var(--text-3);margin-left:auto}
+/* Skill 选择弹窗 */
+.skill-pop{position:absolute;bottom:calc(100% - 2px);left:20px;z-index:510;width:min(440px,calc(100% - 40px));max-height:340px;overflow-y:auto}
+.skill-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);cursor:pointer;transition:background var(--t)}
+.skill-item:hover{background:var(--primary-soft)}
+.skill-item .si-ic{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent)}
+.skill-item .si-ic .icon{width:14px;height:14px}
+.skill-item .si-name{font-size:12.5px;font-weight:500;font-family:var(--mono)}
+.skill-item .si-desc{font-size:11px;color:var(--text-3);margin-top:1px}
+.skill-item .si-scope{margin-left:auto;flex:none}
+/* ================================================================
+   文件面板
+   ================================================================ */
+.file-panel{
+  width:336px;flex:none;display:none;flex-direction:column;min-height:0;
+  border-left:1px solid var(--border);background:var(--surface);
+}
+.file-panel.open{display:flex}
+.fp-head{padding:11px 14px;border-bottom:1px solid var(--border);flex:none}
+.fp-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:9px}
+.fp-title .icon{width:14px;height:14px;color:var(--text-3)}
+.fp-title .fp-count{font-size:11px;color:var(--text-3);font-weight:400}
+.fp-acts{display:flex;gap:4px;flex-wrap:wrap}
+.fp-acts .btn{height:26px;font-size:11.5px;padding:0 9px}
+.fp-notice{
+  display:flex;align-items:center;gap:7px;margin-top:9px;padding:7px 10px;border-radius:var(--radius-sm);
+  background:var(--accent-soft);border:1px solid var(--accent-border);color:var(--accent);font-size:11px;
+}
+.fp-notice .icon{width:12px;height:12px;flex:none}
+.fp-body{flex:1;overflow-y:auto;min-height:0;padding:8px}
+/* 文件树 */
+.ft-row{display:flex;align-items:center;gap:7px;padding:4.5px 7px;border-radius:6px;font-size:12.5px;color:var(--text-2);cursor:pointer;transition:background var(--t)}
+.ft-row:hover{background:var(--surface-2)}
+.ft-row .checkbox{width:14px;height:14px}
+.ft-row .icon{width:14px;height:14px;flex:none;color:var(--text-3)}
+.ft-row.is-folder .icon{color:var(--amber)}
+.ft-row .ft-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ft-row .ft-size{font-family:var(--mono);font-size:10.5px;color:var(--text-3);flex:none}
+.ft-row .ft-at{width:20px;height:20px;border-radius:5px;display:none;align-items:center;justify-content:center;color:var(--text-3);flex:none}
+.ft-row:hover .ft-at{display:flex}
+.ft-row .ft-at:hover{color:var(--accent);background:var(--surface-3)}
+.ft-row .ft-at .icon{width:12px;height:12px}
+.ft-children{margin-left:15px;border-left:1px solid var(--border);padding-left:4px}
+.ft-children.collapsed{display:none}
+/* 文件预览 */
+.fp-preview{flex:none;border-top:1px solid var(--border);display:none;flex-direction:column;max-height:46%}
+.fp-preview.open{display:flex}
+.fpv-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);flex:none}
+.fpv-head .icon{width:13px;height:13px;color:var(--text-3)}
+.fpv-head .fpv-name{flex:1;min-width:0;font-family:var(--mono);font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fpv-body{overflow:auto;padding:12px;font-size:11.5px;line-height:1.7}
+.fpv-body pre{font-family:var(--mono);color:var(--text-2);white-space:pre;min-width:max-content}
+.fpv-body pre .lc{color:var(--text-3);display:inline-block;width:26px;text-align:right;margin-right:12px;user-select:none}
+.fpv-img{width:100%;border-radius:var(--radius-sm);border:1px solid var(--border)}
+.fpv-bin{display:flex;flex-direction:column;align-items:center;gap:8px;padding:26px 10px;color:var(--text-3);font-size:12px;text-align:center}
+/* ================================================================
+   模态内容：日志 / Chunk 查看器
+   ================================================================ */
+.log-toolbar{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.log-toolbar .select{width:auto;height:30px;font-size:12px}
+.log-count{font-size:11.5px;color:var(--text-3);margin-left:auto;font-family:var(--mono)}
+.log-body{flex:1;overflow:auto;padding:13px 16px;background:#0B0917;font-family:var(--mono);font-size:11.5px;line-height:1.75}
+.log-line{display:flex;gap:12px;white-space:pre-wrap;word-break:break-all}
+.log-line .lg-t{color:var(--text-3);flex:none}
+.log-line .lg-lv{flex:none;width:52px;font-weight:600}
+.log-line .lg-m{color:var(--text-2)}
+.log-line.lv-info .lg-lv{color:var(--accent)}
+.log-line.lv-warn .lg-lv{color:var(--amber)}
+.log-line.lv-warn .lg-m{color:var(--amber)}
+.log-line.lv-error .lg-lv{color:var(--red)}
+.log-line.lv-error .lg-m{color:var(--red)}
+.log-line.lv-debug .lg-lv{color:var(--text-3)}
+/* Chunk 查看器 */
+.chunk-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.cm-cell{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 11px}
+.cm-cell .cm-k{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);margin-bottom:3px}
+.cm-cell .cm-v{font-family:var(--mono);font-size:11.5px;color:var(--text-2);word-break:break-all}
+.chunk-content{padding:18px 20px;overflow:auto}
+.chunk-content h4{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text)}
+.chunk-content .cc-text{font-size:13px;line-height:1.95;color:var(--text-2);text-align:justify;margin-bottom:16px}
+.chunk-content .cc-text b{color:var(--text);font-weight:600}
+.chunk-fig .cf-l{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.chunk-fig img{width:100%;border-radius:var(--radius);border:1px solid var(--border)}
+.chunk-fig .cf-cap{font-size:11px;color:var(--text-3);margin-top:7px;text-align:center}
+/* ================================================================
+   管理屏
+   ================================================================ */
+#screen-admin{background:var(--bg)}
+.admin-head{
+  flex:none;height:58px;display:flex;align-items:center;gap:12px;padding:0 22px;
+  border-bottom:1px solid var(--border);background:var(--surface);
+}
+.admin-head .ah-ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--primary-soft);color:var(--primary-hover)}
+.admin-head .ah-ic .icon{width:17px;height:17px}
+.admin-head h2{font-size:16px;font-weight:700;letter-spacing:-.2px}
+.admin-head .ah-sub{font-size:11px;color:var(--text-3);font-family:var(--mono)}
+.admin-head .spacer{flex:1}
+.admin-body{flex:1;overflow-y:auto;padding:22px 24px 40px}
+.admin-inner{max-width:1280px;margin:0 auto}
+/* 总览卡 */
+.ov-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.ov-card{display:flex;align-items:center;gap:14px;padding:17px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);transition:border-color var(--t),transform var(--t)}
+.ov-card:hover{border-color:var(--primary-border);transform:translateY(-2px)}
+.ov-card .ov-ic{width:42px;height:42px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
+.ov-card .ov-ic .icon{width:19px;height:19px}
+.ov-card.c1 .ov-ic{background:var(--primary-soft);color:var(--primary-hover)}
+.ov-card.c2 .ov-ic{background:var(--indigo-soft);color:var(--indigo)}
+.ov-card.c3 .ov-ic{background:var(--green-soft);color:var(--green)}
+.ov-card.c4 .ov-ic{background:var(--accent-soft);color:var(--accent)}
+.ov-card .ov-num{font-size:22px;font-weight:700;letter-spacing:-.5px;font-family:var(--sans);line-height:1.1}
+.ov-card .ov-num small{font-size:12px;font-weight:500;color:var(--text-3);margin-left:3px}
+.ov-card .ov-l{font-size:12px;color:var(--text-3);margin-top:2px}
+/* 工具栏 */
+.admin-toolbar{display:flex;align-items:center;gap:10px;padding:13px 15px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:14px;flex-wrap:wrap}
+.admin-toolbar .at-search{position:relative;flex:1;min-width:220px;max-width:340px}
+.admin-toolbar .at-search .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--text-3)}
+.admin-toolbar .at-search .field{padding-left:34px}
+.admin-toolbar .select{width:auto;min-width:128px;height:34px;font-size:12.5px}
+.at-count{font-size:12px;color:var(--text-3);margin-left:auto;white-space:nowrap}
+.at-count b{color:var(--text);font-family:var(--mono);font-weight:600}
+/* 自动刷新 */
+.auto-refresh{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);padding:0 4px}
+/* 批量栏 */
+.batch-bar{
+  display:none;align-items:center;gap:10px;padding:10px 15px;margin-bottom:14px;
+  background:var(--primary-soft);border:1px solid var(--primary-border);border-radius:var(--radius-lg);
+}
+.batch-bar.show{display:flex;animation:bannerIn 200ms ease}
+.batch-bar .bb-t{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+.batch-bar .bb-t b{color:var(--primary-hover)}
+.batch-bar .spacer{flex:1}
+/* 表格 */
+.tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.tbl-scroll{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse;min-width:1180px}
+.tbl th{
+  text-align:left;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);
+  padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface-2);white-space:nowrap;
+}
+.tbl th.sortable{cursor:pointer;user-select:none}
+.tbl th.sortable:hover{color:var(--text-2)}
+.tbl th .th-sort{display:inline-flex;vertical-align:-2px;margin-left:3px}
+.tbl th .th-sort .icon{width:11px;height:11px}
+.tbl th.sorted{color:var(--primary-hover)}
+.tbl td{padding:11px 12px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text-2);vertical-align:middle}
+.tbl tbody tr{transition:background var(--t)}
+.tbl tbody tr:hover{background:var(--surface-2)}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl .mono{font-family:var(--mono);font-size:11.5px;letter-spacing:-.2px}
+.tbl .t-user{display:flex;align-items:center;gap:9px}
+.tbl .t-user .avatar{width:26px;height:26px;font-size:11px}
+.tbl .t-user .tu-n{font-size:12.5px;font-weight:600;color:var(--text)}
+.tbl .t-user .tu-r{font-size:10.5px;color:var(--text-3)}
+.td-stack{display:flex;flex-direction:column;gap:3px;min-width:0}
+.td-stack .ts-1{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+.td-stack .ts-2{font-family:var(--mono);font-size:10.5px;color:var(--text-3);display:flex;align-items:center;gap:5px}
+.td-stack .ts-err{font-size:10.5px;color:var(--red);font-family:var(--mono)}
+.td-metrics{display:flex;flex-direction:column;gap:2px;min-width:96px}
+.td-metrics .tm-1{font-family:var(--mono);font-size:11.5px;color:var(--text)}
+.td-metrics .tm-2{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.mem-bar{width:74px;height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;margin-top:3px}
+.mem-bar i{display:block;height:100%;border-radius:2px;background:var(--primary)}
+.mem-bar.warn i{background:var(--amber)}
+.rel-time{font-size:11.5px;color:var(--text-3);white-space:nowrap}
+.act-ico{display:flex;gap:3px}
+.act-ico .btn-icon{width:27px;height:27px;color:var(--text-3)}
+.act-ico .btn-icon:hover{background:var(--surface-3);color:var(--text)}
+.act-ico .btn-icon.danger:hover{background:var(--red-soft);color:var(--red)}
+/* 状态徽章复用 badge */
+.st-cell{display:inline-flex;align-items:center;gap:6px}
+/* 销毁确认模态 */
+.destroy-warn{
+  display:flex;gap:11px;padding:12px 13px;border-radius:var(--radius-sm);margin-bottom:14px;
+  background:var(--red-soft);border:1px solid var(--red-border);color:var(--red);font-size:12.5px;line-height:1.6;
+}
+.destroy-warn .icon{width:16px;height:16px;flex:none;margin-top:2px}
+.confirm-target{
+  font-family:var(--mono);font-size:13px;color:var(--text);background:#0B0917;border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:9px 12px;margin-bottom:12px;word-break:break-all;
+}
+.confirm-hint{font-size:11.5px;color:var(--text-3);margin:-4px 0 10px}
+/* ================================================================
+   配置面板模态
+   ================================================================ */
+.cfg-modal .modal{max-width:780px}
+.cfg-scopebar{display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.scope-btn{
+  display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 14px;border-radius:999px;
+  font-size:12.5px;font-weight:500;color:var(--text-2);border:1px solid var(--border);
+  transition:all var(--t);
+}
+.scope-btn .sc-dot{width:7px;height:7px;border-radius:50%}
+.scope-btn:hover{border-color:var(--border-strong);color:var(--text)}
+.scope-btn.active{background:var(--surface-3);color:var(--text);border-color:var(--border-strong)}
+.scope-btn .icon{width:12px;height:12px;color:var(--primary-hover)}
+.cfg-tabs{display:flex;gap:2px;padding:9px 18px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.cfg-tab{
+  display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;font-size:13px;color:var(--text-3);
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--t),border-color var(--t);
+}
+.cfg-tab:hover{color:var(--text-2)}
+.cfg-tab.active{color:var(--primary-hover);border-bottom-color:var(--primary)}
+.cfg-tab .icon{width:14px;height:14px}
+.cfg-body{padding:18px;overflow:auto;flex:1}
+.cfg-pane{display:none}
+.cfg-pane.active{display:block;animation:msgIn 240ms ease}
+.cfg-pane .cp-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cfg-pane .cp-head .icon{width:15px;height:15px;color:var(--text-3)}
+.cfg-pane .cp-head h4{font-size:14px;font-weight:600;flex:1}
+.cfg-pane .cp-head .cp-desc{font-size:12px;color:var(--text-3)}
+/* Provider 卡 */
+.prov-grid{display:flex;flex-direction:column;gap:10px}
+.prov-card{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);transition:border-color var(--t)}
+.prov-card:hover{border-color:var(--border-strong)}
+.prov-card.active{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.prov-card .pc-logo{width:38px;height:38px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;font-family:var(--mono)}
+.prov-card .pc-main{flex:1;min-width:0}
+.prov-card .pc-name{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prov-card .pc-meta{font-size:11.5px;color:var(--text-3);margin-top:3px;font-family:var(--mono);display:flex;gap:12px;flex-wrap:wrap}
+.prov-card .pc-acts{display:flex;gap:6px;flex:none}
+.add-row{
+  display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;margin-top:2px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius);color:var(--text-3);font-size:12.5px;
+  cursor:pointer;transition:border-color var(--t),color var(--t),background var(--t);width:100%;
+}
+.add-row:hover{border-color:var(--primary);color:var(--primary-hover);background:var(--primary-soft)}
+/* 配置表格（MCP/Skills） */
+.cfg-table{width:100%;border-collapse:collapse}
+.cfg-table th{text-align:left;font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);padding:8px 10px;border-bottom:1px solid var(--border)}
+.cfg-table td{padding:10px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text-2);vertical-align:middle}
+.cfg-table tr:last-child td{border-bottom:none}
+.cfg-table .mono{font-family:var(--mono);font-size:11.5px}
+.cfg-table .ct-name{display:flex;align-items:center;gap:8px;color:var(--text);font-weight:500}
+/* JSON 编辑区 */
+.json-editor{width:100%;min-height:280px;resize:vertical;
+  font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--code-text-2);
+  background:var(--code-bg);border:1px solid var(--code-border);border-radius:var(--radius);padding:14px;outline:none;
+}
+.json-editor:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.cfg-note{display:flex;gap:9px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--accent-soft);border:1px solid var(--accent-border);color:var(--accent);font-size:12px;margin-bottom:14px;line-height:1.6}
+.cfg-note .icon{width:14px;height:14px;flex:none;margin-top:2px}
+/* scope 说明 footer */
+.cfg-foot-hint{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-3);flex:1;min-width:0}
+.cfg-foot-hint .icon{width:13px;height:13px;flex:none}
+/* ================================================================
+   原型控制面板
+   ================================================================ */
+.proto-fab{
+  position:fixed;right:22px;bottom:22px;z-index:1000;width:46px;height:46px;border-radius:14px;
+  background:linear-gradient(135deg,var(--primary),#4C1D95);color:#fff;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 28px rgba(124,58,237,.5);transition:transform var(--t),box-shadow var(--t);
+}
+.proto-fab:hover{transform:translateY(-2px);box-shadow:0 12px 34px rgba(124,58,237,.6)}
+.proto-fab .icon{width:20px;height:20px}
+.proto-panel{
+  position:fixed;right:22px;bottom:78px;z-index:1000;width:264px;display:none;flex-direction:column;
+  background:rgba(22,19,39,.96);border:1px solid var(--border-strong);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-3);backdrop-filter:blur(10px);overflow:hidden;
+}
+.proto-panel.open{display:flex;animation:slideUp 220ms cubic-bezier(.22,1,.36,1)}
+.pp-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600}
+.pp-head .icon{width:13px;height:13px;color:var(--primary-hover)}
+.pp-head .pp-badge{margin-left:auto}
+.pp-body{padding:12px 14px;display:flex;flex-direction:column;gap:14px;max-height:min(480px,70vh);overflow-y:auto}
+.pp-sec .pps-l{font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px}
+.pp-screens{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.pp-screen-btn{
+  display:flex;align-items:center;gap:7px;height:32px;padding:0 10px;border-radius:var(--radius-sm);
+  font-size:12px;color:var(--text-2);border:1px solid var(--border);transition:all var(--t);
+}
+.pp-screen-btn:hover{color:var(--text);border-color:var(--border-strong)}
+.pp-screen-btn.active{background:var(--primary);border-color:var(--primary);color:#fff}
+.pp-screen-btn .icon{width:13px;height:13px}
+.pp-toggles{display:flex;flex-direction:column;gap:8px}
+.pp-tg{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--text-2);cursor:pointer}
+.pp-tg .tg-l{flex:1}
+.pp-note{font-size:10.5px;color:var(--text-3);line-height:1.6;padding-top:2px}
+/* ================================================================
+   响应式
+   ================================================================ */
+@media (max-width:1200px){
+  .ov-grid{grid-template-columns:repeat(2,1fr)}
+  .chunk-meta{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:1024px){
+  .file-panel{position:absolute;right:0;top:0;bottom:0;z-index:400;box-shadow:var(--shadow-2)}
+}
+@media (max-width:860px){
+  .sidebar{position:absolute;left:0;top:0;bottom:0;z-index:450;transform:translateX(-100%);transition:transform var(--t-slow);box-shadow:var(--shadow-2)}
+  .sidebar.open{transform:none}
+  .side-toggle{display:inline-flex!important}
+  .wc-feats{grid-template-columns:1fr}
+  .msg-col-inner{padding:20px 16px}
+  .composer{padding:10px 14px 12px}
+  .bubble{max-width:90%}
+  .admin-body{padding:16px 14px 32px}
+  .ov-grid{grid-template-columns:1fr 1fr}
+  .modal-backdrop{padding:12px}
+  .chunk-meta{grid-template-columns:repeat(2,1fr)}
+  .pp-panel-note{display:none}
+}
+@media (max-width:560px){
+  .ov-grid{grid-template-columns:1fr}
+  .admin-toolbar .at-search{max-width:none}
+  .mb-sess .t{max-width:120px}
+  .la-steps{flex-direction:column;gap:8px}
+  .la-arrow{transform:rotate(90deg)}
+  .chunk-meta{grid-template-columns:1fr 1fr}
+  .input-menu{left:12px;width:calc(100% - 24px)}
+  .skill-pop{left:12px;width:calc(100% - 24px)}
+}
+.side-toggle{display:none}
+/* ---- 追加：登录 / 聊天补充 ---- */
+/* 欢迎页显示时隐藏消息流（互斥） */
+.chat-body:has(.welcome.show) .msg-col{display:none}
+/* 欢迎页特性卡（button 语义化） */
+.wc-feat{cursor:pointer;text-align:left;width:100%}
+.wc-feat .wf-t,.wc-feat .wf-d{display:block}
+.wc-feat .wf-body{min-width:0}
+/* 登录屏架构步骤副标题 */
+.la-step .la-sub{font-size:10.5px;color:var(--text-3);font-family:var(--mono);margin-top:-2px}
+/* ---- 追加：输入区 / 文件面板修补 ---- */
+.badge-indigo{background:var(--indigo-soft);color:var(--indigo);border:1px solid rgba(129,140,248,.35)}
+.fp-title .fp-close{margin-left:auto}
+.ps-menu{bottom:calc(100% + 8px);top:auto;left:0}
+.skill-item .si-txt{flex:1;min-width:0;text-align:left}
+.ft-row.is-folder .collapse-caret{color:var(--text-3)}
+/* 文件树选中态 */
+.ft-row.sel{background:var(--primary-soft)}
+.ft-row.sel .ft-name{color:var(--text);font-weight:500}
+.ft-row.sel:hover{background:var(--primary-soft)}
+/* 侧栏打开遮罩点击区（移动端） */
+@media (max-width:860px){.sidebar.open::after{content:"";position:fixed;inset:0;z-index:-1}}
+/* ================================================================
+   亮色主题（html[data-theme="light"]）
+   --code-* 系列不覆盖：代码/日志/终端区双主题恒为深色（编辑器风格）
+   ================================================================ */
+html[data-theme="light"]{
+  color-scheme:light;
+  /* 背景层次 */
+  --bg:#F6F5FB;
+  --surface:#FFFFFF;
+  --surface-2:#F1EFF8;
+  --surface-3:#E7E4F2;
+  --border:#E2DEF0;
+  --border-strong:#C7C1DD;
+  /* 文字 */
+  --text:#211B3D;
+  --text-2:#57516F;
+  --text-3:#837D9E;
+  /* 主色 / 强调 */
+  --primary:#7C3AED;
+  --primary-hover:#6D28D9;
+  --primary-deep:#6D28D9;
+  --primary-soft:rgba(124,58,237,.08);
+  --primary-border:rgba(124,58,237,.32);
+  --accent:#0891B2;
+  --accent-soft:rgba(8,145,178,.08);
+  --accent-border:rgba(8,145,178,.32);
+  /* 语义色（亮色下调深以保证对比度） */
+  --green:#059669;
+  --green-soft:rgba(5,150,105,.1);
+  --green-fill:#059669;
+  --red:#DC2626;
+  --red-soft:rgba(220,38,38,.07);
+  --red-border:rgba(220,38,38,.3);
+  --red-fill:#DC2626;
+  --amber:#B45309;
+  --amber-soft:rgba(180,83,9,.09);
+  --amber-border:rgba(180,83,9,.32);
+  --indigo:#4F46E5;
+  --indigo-soft:rgba(79,70,229,.08);
+  --scope-global:#B45309;
+  --scope-project:#0284C7;
+  --scope-user:#7C3AED;
+  /* 随主题翻转的语义色 */
+  --purple-300:#6D28D9;
+  --diff-add:#047857;
+  --diff-del:#B91C1C;
+  --scrollbar-hover:#B7B0D6;
+  /* 阴影（亮色用低透明度墨色） */
+  --shadow-1:0 2px 10px rgba(33,27,61,.08);
+  --shadow-2:0 12px 40px rgba(33,27,61,.12);
+  --shadow-3:0 24px 72px rgba(33,27,61,.16);
+}
+/* 亮色局部覆盖：硬编码深色半透明底 / 白色叠层 */
+html[data-theme="light"] .modal-backdrop{background:rgba(33,27,61,.42)}
+html[data-theme="light"] .login-card{background:rgba(255,255,255,.92)}
+html[data-theme="light"] #screen-login::before{
+  background-image:
+    linear-gradient(rgba(76,29,149,.08) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(76,29,149,.08) 1px,transparent 1px);
+}
+html[data-theme="light"] .reasoning-box{background:rgba(124,58,237,.04)}
+html[data-theme="light"] .proto-panel{background:rgba(255,255,255,.97)}
+html[data-theme="light"] .chip .chip-x:hover{background:rgba(33,27,61,.1)}
+html[data-theme="light"] .chunk-ref:hover{background:rgba(124,58,237,.16)}
+html[data-theme="light"] .badge-green{border-color:rgba(5,150,105,.45)}
+html[data-theme="light"] .chip-attach{border-color:rgba(5,150,105,.4)}
+html[data-theme="light"] .diff-patch .dl.add{background:rgba(5,150,105,.09)}
+html[data-theme="light"] .diff-patch .dl.del{background:rgba(220,38,38,.07)}
+
+/* ================================================================
+   主题切换按钮（暗色下显示 sun = 切到亮色；亮色下显示 moon）
+   ================================================================ */
+.theme-btn .icon-moon{display:none}
+html[data-theme="light"] .theme-btn .icon-moon{display:block}
+html[data-theme="light"] .theme-btn .icon-sun{display:none}
+.login-theme{position:absolute;top:18px;right:18px}
+</style>
+</head>
+<body>
+<!-- ================= SVG 图标 sprite（Lucide 风格 · 24×24 · stroke-2） ================= -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-file-code" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m10 12-2 2 2 2"/><path d="m14 12 2 2-2 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+  <symbol id="i-git-branch" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-list-todo" viewBox="0 0 24 24"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+  <symbol id="i-at" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></symbol>
+  <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></symbol>
+  <symbol id="i-panel-right" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></symbol>
+  <symbol id="i-hard-drive" viewBox="0 0 24 24"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-git-commit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><line x1="3" x2="9" y1="12" y2="12"/><line x1="15" x2="21" y1="12" y2="12"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+</svg>
+<!-- ================= 屏 1 · 登录 / 注册 ================= -->
+<div class="screen active" id="screen-login">
+  <div class="login-card">
+    <button class="btn btn-ghost btn-icon theme-btn login-theme" data-theme-toggle title="切换主题" aria-label="切换亮色/暗色主题"><svg class="icon icon-sun"><use href="#i-sun"/></svg><svg class="icon icon-moon"><use href="#i-moon"/></svg></button>
+    <div class="login-brand">
+      <div class="logo-mark"><svg class="icon"><use href="#i-logo"/></svg></div>
+      <div>
+        <h1>Agent Docker Platform</h1>
+        <div class="brand-sub">per-user sandboxed coding agent</div>
+      </div>
+    </div>
+    <p class="login-desc">每用户独立容器沙箱中的编码智能体。登录后自动为你的会话分配隔离的 Docker 运行环境，代码执行互不影响。</p>
+    <div class="seg" role="tablist" aria-label="登录或注册">
+      <button class="active" role="tab" aria-selected="true" data-seg="login">登录</button>
+      <button role="tab" aria-selected="false" data-seg="register">注册</button>
+    </div>
+    <div class="login-form">
+      <div class="login-error" id="login-error" hidden>
+        <svg class="icon"><use href="#i-alert-circle"/></svg>
+        <span>用户名或密码错误（401 Unauthorized）</span>
+      </div>
+      <div class="fgroup">
+        <label class="lbl" for="login-username">用户名</label>
+        <input class="field" id="login-username" value="linxiao" autocomplete="username">
+      </div>
+      <div class="fgroup">
+        <label class="lbl" for="login-password">密码</label>
+        <input class="field" id="login-password" type="password" value="demo-pass-2026" autocomplete="current-password">
+      </div>
+      <div class="fgroup" id="fgroup-confirm" hidden>
+        <label class="lbl" for="login-confirm">确认密码</label>
+        <input class="field" id="login-confirm" type="password" placeholder="再次输入密码">
+      </div>
+      <button class="btn btn-primary login-btn" data-goto="chat">
+        <svg class="icon"><use href="#i-arrow-right"/></svg>
+        <span id="login-btn-text">进入工作台</span>
+      </button>
+    </div>
+    <div class="login-arch">
+      <div class="la-title"><svg class="icon"><use href="#i-layers"/></svg>三段式架构</div>
+      <div class="la-steps">
+        <div class="la-step s1">
+          <span class="la-ic"><svg class="icon"><use href="#i-monitor"/></svg></span>
+          <span>浏览器层</span>
+          <span class="la-sub">React SPA</span>
+        </div>
+        <span class="la-arrow"><svg class="icon"><use href="#i-chevron-right"/></svg></span>
+        <div class="la-step s2">
+          <span class="la-ic"><svg class="icon"><use href="#i-layers"/></svg></span>
+          <span>平台控制层</span>
+          <span class="la-sub">FastAPI</span>
+        </div>
+        <span class="la-arrow"><svg class="icon"><use href="#i-chevron-right"/></svg></span>
+        <div class="la-step s3">
+          <span class="la-ic"><svg class="icon"><use href="#i-box"/></svg></span>
+          <span>容器执行层</span>
+          <span class="la-sub">Docker</span>
+        </div>
+      </div>
+    </div>
+    <p class="login-hint">高保真原型 · 任意账号可直接进入 · 按 <span class="kbd">Enter</span> 快速登录</p>
+  </div>
+</div>
+
+<!-- ================= 屏 2 · 聊天工作台 ================= -->
+<div class="screen" id="screen-chat">
+  <div class="chat-shell">
+
+    <!-- 侧栏 -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <div class="brand-row">
+          <span class="logo-mark"><svg class="icon"><use href="#i-logo"/></svg></span>
+          <div>
+            <div class="bt">Agent Docker</div>
+            <div class="bs">platform console</div>
+          </div>
+        </div>
+        <div class="user-row">
+          <span class="avatar a-user">晓</span>
+          <span class="un">林晓 <span class="badge badge-purple">管理员</span></span>
+          <button class="btn-icon" data-goto="admin" title="管理控制台" aria-label="管理控制台"><svg class="icon"><use href="#i-shield"/></svg></button>
+          <button class="btn-icon" data-goto="login" title="退出登录" aria-label="退出登录"><svg class="icon"><use href="#i-logout"/></svg></button>
+        </div>
+      </div>
+
+      <div class="side-status">
+        <div class="ss-title"><svg class="icon"><use href="#i-gauge"/></svg>Agent 运行状态</div>
+        <div class="status-line">
+          <span class="dot dot-green live" id="agent-dot"></span>
+          <span id="agent-status-text">运行中</span>
+          <span class="st-sub" id="agent-status-sub">stream · SSE</span>
+        </div>
+        <div class="runtime-box" id="runtime-box">
+          <div class="rb-row"><svg class="icon"><use href="#i-box"/></svg><span class="rb-k">容器</span><span class="rb-v">agent-464d6e13-a2</span></div>
+          <div class="rb-row"><svg class="icon"><use href="#i-layers"/></svg><span class="rb-k">镜像</span><span class="rb-v">opencode:2.4.0</span></div>
+          <div class="rb-row"><svg class="icon"><use href="#i-clock"/></svg><span class="rb-k">时长</span><span class="rb-v">02:47:18</span></div>
+          <div class="rb-row"><svg class="icon"><use href="#i-cpu"/></svg><span class="rb-k">CPU</span><span class="rb-v">3.2%</span></div>
+          <div class="rb-row"><svg class="icon"><use href="#i-hard-drive"/></svg><span class="rb-k">内存</span><span class="rb-v">412MB / 2.0GB</span></div>
+        </div>
+        <div class="ss-actions">
+          <button class="btn btn-danger-outline btn-sm"><svg class="icon"><use href="#i-power"/></svg>停止</button>
+          <button class="btn btn-outline btn-sm" data-modal-open="modal-logs"><svg class="icon"><use href="#i-terminal"/></svg>日志</button>
+          <button class="btn btn-outline btn-sm" data-modal-open="modal-config"><svg class="icon"><use href="#i-settings"/></svg>配置</button>
+        </div>
+      </div>
+
+      <div class="side-sessions">
+        <div class="ss-list-head">
+          <div class="t"><svg class="icon"><use href="#i-history"/></svg>历史会话</div>
+          <button class="btn btn-ghost btn-icon btn-sm" id="btn-new-session" title="新建会话" aria-label="新建会话"><svg class="icon"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="sess-item active">
+          <svg class="icon si-icon"><use href="#i-message"/></svg>
+          <span class="si-title">修复登录页 CORS 报错</span>
+          <span class="si-acts">
+            <button title="重命名" aria-label="重命名"><svg class="icon"><use href="#i-edit"/></svg></button>
+            <button class="si-del" title="删除" aria-label="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+          </span>
+        </div>
+        <div class="sess-item">
+          <svg class="icon si-icon"><use href="#i-message"/></svg>
+          <span class="si-title">重构用户鉴权中间件</span>
+          <span class="si-acts">
+            <button title="重命名" aria-label="重命名"><svg class="icon"><use href="#i-edit"/></svg></button>
+            <button class="si-del" title="删除" aria-label="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+          </span>
+        </div>
+        <div class="sess-item">
+          <svg class="icon si-icon"><use href="#i-message"/></svg>
+          <span class="si-title">编排数据库迁移脚本</span>
+          <span class="si-acts">
+            <button title="重命名" aria-label="重命名"><svg class="icon"><use href="#i-edit"/></svg></button>
+            <button class="si-del" title="删除" aria-label="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+          </span>
+        </div>
+        <div class="sess-item">
+          <svg class="icon si-icon"><use href="#i-message"/></svg>
+          <span class="si-title">分析 Nginx 日志定位 502</span>
+          <span class="si-acts">
+            <button title="重命名" aria-label="重命名"><svg class="icon"><use href="#i-edit"/></svg></button>
+            <button class="si-del" title="删除" aria-label="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+          </span>
+        </div>
+        <div class="sess-item">
+          <svg class="icon si-icon"><use href="#i-message"/></svg>
+          <span class="si-title">生成 API 文档初稿</span>
+          <span class="si-acts">
+            <button title="重命名" aria-label="重命名"><svg class="icon"><use href="#i-edit"/></svg></button>
+            <button class="si-del" title="删除" aria-label="删除"><svg class="icon"><use href="#i-trash"/></svg></button>
+          </span>
+        </div>
+      </div>
+
+      <div class="side-arch">
+        <div class="sa-title"><svg class="icon"><use href="#i-layers"/></svg>平台架构</div>
+        <div class="sa-row"><span class="sa-d" style="background:#38BDF8"></span><span class="sa-n">浏览器层</span><span class="sa-s">react-spa</span></div>
+        <div class="sa-row"><span class="sa-d" style="background:#A78BFA"></span><span class="sa-n">平台控制层</span><span class="sa-s">fastapi</span></div>
+        <div class="sa-row"><span class="sa-d" style="background:#22D3EE"></span><span class="sa-n">容器执行层</span><span class="sa-s">docker-oci</span></div>
+        <div class="sa-row"><span class="sa-d" style="background:#F59E0B"></span><span class="sa-n">共享服务层</span><span class="sa-s">pg · redis</span></div>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main">
+      <div class="modelbar">
+        <button class="btn btn-ghost btn-icon side-toggle" aria-label="打开侧栏"><svg class="icon"><use href="#i-menu"/></svg></button>
+        <div class="mb-left">
+          <div class="mb-sess">
+            <svg class="icon"><use href="#i-message"/></svg>
+            <span class="t" id="mb-sess-title">修复登录页 CORS 报错</span>
+          </div>
+        </div>
+        <div class="mb-right">
+          <span class="sse-ind" id="sse-ind"><span class="dot dot-green live"></span>SSE 已连接</span>
+          <button class="btn btn-ghost btn-icon" id="btn-fp-toggle" title="文件面板" aria-label="切换文件面板"><svg class="icon"><use href="#i-panel-right"/></svg></button>
+          <button class="btn btn-ghost btn-icon theme-btn" data-theme-toggle title="切换主题" aria-label="切换亮色/暗色主题"><svg class="icon icon-sun"><use href="#i-sun"/></svg><svg class="icon icon-moon"><use href="#i-moon"/></svg></button>
+        </div>
+      </div>
+
+      <div class="banner banner-warn" id="banner-warn" role="alert">
+        <svg class="icon"><use href="#i-alert-triangle"/></svg>
+        <span class="b-body">
+          <span class="b-title">容器资源接近限制</span>
+          <span class="b-sub">内存 412MB / 2.0GB（20.6%）· CPU 峰值 87.4%，长任务存在被 OOM 终止的风险。</span>
+        </span>
+        <button class="btn btn-amber btn-sm">查看监控</button>
+        <button class="btn btn-ghost btn-icon" data-banner-close="banner-warn" aria-label="关闭警告"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="banner banner-err" id="banner-err" role="alert">
+        <svg class="icon"><use href="#i-alert-circle"/></svg>
+        <span class="b-body">
+          <span class="b-title">Agent 流连接中断</span>
+          <span class="b-sub">SSE 重试 3 次后仍失败（HTTP 502 · upstream unavailable），容器可能已停止响应。</span>
+        </span>
+        <button class="btn btn-danger btn-sm">重新连接</button>
+        <button class="btn btn-ghost btn-icon" data-banner-close="banner-err" aria-label="关闭错误"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+
+      <div class="chat-body">
+        <!-- 欢迎页（新会话时显示） -->
+        <div class="welcome" id="welcome">
+          <div class="wc-card">
+            <div class="wc-logo"><svg class="icon"><use href="#i-logo"/></svg></div>
+            <h2>下午好，林晓</h2>
+            <p class="wc-sub">你的专属编码智能体已在独立容器中就绪。直接描述任务，或从下面的核心能力开始。</p>
+            <div class="wc-feats">
+              <button class="wc-feat" data-prompt="在沙箱终端运行 npm test，并把失败的用例整理成清单">
+                <span class="wf-ic"><svg class="icon"><use href="#i-terminal"/></svg></span>
+                <span class="wf-body"><span class="wf-t">沙箱终端</span><span class="wf-d">在专属 Docker 容器内执行命令与脚本，环境完全隔离</span></span>
+              </button>
+              <button class="wc-feat f2" data-prompt="读取 src/middleware/auth.ts，梳理当前鉴权流程并指出隐患">
+                <span class="wf-ic"><svg class="icon"><use href="#i-git-branch"/></svg></span>
+                <span class="wf-body"><span class="wf-t">仓库感知编辑</span><span class="wf-d">自动读取项目结构，所有改动以统一 Diff 呈现</span></span>
+              </button>
+              <button class="wc-feat f3" data-prompt="把这个需求拆解为 Todo 清单，并逐步实施：为管理面板增加批量重启">
+                <span class="wf-ic"><svg class="icon"><use href="#i-list-todo"/></svg></span>
+                <span class="wf-body"><span class="wf-t">任务规划</span><span class="wf-d">多步任务自动拆解为可追踪的 Todo 清单</span></span>
+              </button>
+              <button class="wc-feat f4" data-prompt="清理 build 目录并重装依赖（我会审批高危命令）">
+                <span class="wf-ic"><svg class="icon"><use href="#i-shield"/></svg></span>
+                <span class="wf-body"><span class="wf-t">权限审批</span><span class="wf-d">高危命令执行前需一键确认，安全可控</span></span>
+              </button>
+            </div>
+            <button class="btn btn-primary wc-start" id="wc-start"><svg class="icon"><use href="#i-sparkles"/></svg>开始新任务</button>
+          </div>
+        </div>
+
+        <!-- 消息流 -->
+        <div class="msg-col" id="msg-col">
+          <div class="msg-col-inner">
+<!-- 系统事件：会话创建 -->
+<div class="sys-row">
+  <span class="sys-pill">
+    <svg class="icon"><use href="#i-git-commit"/></svg>
+    会话创建 <span class="sp-mono">464d6e13</span>
+    <span class="sp-mono">·</span> 容器 <span class="sp-mono">agent-464d6e13-a2</span>
+    <span class="sp-mono">·</span> opencode:2.4.0
+  </span>
+</div>
+
+<!-- 用户消息 1 -->
+<div class="msg user">
+  <div class="msg-side"><span class="avatar a-user">晓</span></div>
+  <div class="msg-main">
+    <div class="msg-role">
+      <span class="mr-name">林晓</span>
+      <span class="mr-time">14:02</span>
+      <span class="role-acts">
+        <button title="复制" aria-label="复制"><svg class="icon"><use href="#i-copy"/></svg></button>
+      </span>
+    </div>
+    <div class="bubble">
+      <p>登录页一直报 CORS 错误：<code>Access-Control-Allow-Origin</code> 头缺失，OPTIONS 预检直接 405。帮我排查并修复，报错日志在附件里。</p>
+    </div>
+    <div class="msg-attach">
+      <span class="chip chip-attach chip-static"><svg class="icon"><use href="#i-file-text"/></svg>cors-error.log · 2.4KB</span>
+    </div>
+  </div>
+</div>
+
+<!-- 助手回合 1（历史 · 已完成） -->
+<div class="msg assistant">
+  <div class="msg-side"><span class="avatar a-bot"><svg class="icon"><use href="#i-bot"/></svg></span></div>
+  <div class="msg-main">
+    <div class="msg-role">
+      <span class="mr-name">Agent</span>
+      <span class="agent-tag"><svg class="icon"><use href="#i-bot"/></svg>build</span>
+      <span class="model-tag">deepseek-v4-flash</span>
+      <span class="mr-time">14:02 · 47s</span>
+      <span class="role-acts">
+        <button title="复制" aria-label="复制"><svg class="icon"><use href="#i-copy"/></svg></button>
+        <button title="重试此回合" aria-label="重试此回合"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+      </span>
+    </div>
+
+    <!-- 推理过程（展开） -->
+    <div class="reasoning-box">
+      <div class="reasoning-head" data-collapse>
+        <svg class="icon"><use href="#i-brain"/></svg>
+        <span class="rh-t">推理过程</span>
+        <span class="rh-hint">1.8s<svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg></span>
+      </div>
+      <div class="reasoning-body collapsible-body">
+        用户报告 CORS 报错，附件日志显示 OPTIONS 返回 405 —— 预检请求根本没被处理。排查路径：先验证响应头确实缺失，再分别检查 Node 中间件与 Nginx 两层配置，注意两层同时加头会导致重复叠加。优先读 <code>src/middleware/cors.ts</code> 与 <code>nginx/conf.d/api.conf</code>。
+      </div>
+    </div>
+
+    <!-- 任务清单 -->
+    <div class="todo-card">
+      <div class="todo-head">
+        <svg class="icon"><use href="#i-list-todo"/></svg>
+        <span class="th-t">任务清单</span>
+        <span class="badge badge-purple badge-mono">3/7</span>
+        <span class="todo-prog"><i style="width:43%"></i></span>
+      </div>
+      <div class="todo-body">
+        <div class="todo-item done"><span class="ti-check"><svg class="icon"><use href="#i-check"/></svg></span><span class="ti-t">复现问题：curl 验证登录接口响应头与预检状态码</span></div>
+        <div class="todo-item done"><span class="ti-check"><svg class="icon"><use href="#i-check"/></svg></span><span class="ti-t">读取 src/middleware/cors.ts 与 nginx/conf.d/api.conf</span></div>
+        <div class="todo-item done"><span class="ti-check"><svg class="icon"><use href="#i-check"/></svg></span><span class="ti-t">确认 OPTIONS 405 根因：Nginx 未透传预检请求</span></div>
+        <div class="todo-item run"><span class="ti-check"><svg class="icon"><use href="#i-loader"/></svg></span><span class="ti-t">重写 CORS 中间件：白名单 + Vary: Origin + 预检短路</span></div>
+        <div class="todo-item"><span class="ti-check"></span><span class="ti-t">Nginx 改为纯透传，移除重复响应头</span></div>
+        <div class="todo-item"><span class="ti-check"></span><span class="ti-t">补充预检单测 tests/cors.spec.ts</span></div>
+        <div class="todo-item"><span class="ti-check"></span><span class="ti-t">回归验证并输出修复总结</span></div>
+      </div>
+    </div>
+
+    <!-- 权限卡（已批准） -->
+    <div class="perm-card">
+      <div class="perm-head">
+        <svg class="icon"><use href="#i-shield"/></svg>
+        <span class="ph-t">高危命令审批</span>
+        <span class="badge badge-green">已批准</span>
+      </div>
+      <div class="perm-body">
+        <div class="perm-res">
+          <svg class="icon"><use href="#i-terminal"/></svg>
+          <span class="pr-cmd"><b>rm -rf</b> node_modules/.cache &amp;&amp; npm cache clean --force</span>
+        </div>
+        <div class="perm-meta">
+          <div class="ts-l">请求元数据</div>
+          <div class="tool-out">{"tool":"bash","risk":"high","reason":"清理依赖缓存，排除陈旧缓存干扰排查","session":"464d6e13","container":"agent-464d6e13-a2"}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工具卡：bash（完成 · 展开） -->
+    <div class="tool-card">
+      <div class="tool-head" data-collapse>
+        <svg class="icon"><use href="#i-terminal"/></svg>
+        <span class="th-name">bash</span>
+        <span class="th-desc">curl -sI -X OPTIONS https://api.example.com/api/login</span>
+        <span class="th-status st-completed"><span class="st-dot"></span>完成 · 1.2s</span>
+        <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+      </div>
+      <div class="tool-body collapsible-body">
+        <div class="tool-sec"><div class="ts-l">命令</div><div class="tool-out">curl -sI -X OPTIONS https://api.example.com/api/login</div></div>
+        <div class="tool-sec"><div class="ts-l">输出</div><div class="tool-out">HTTP/1.1 <span class="to-red">405 Method Not Allowed</span>
+server: nginx/1.25.3
+allow: GET, POST
+<span class="to-red">access-control-allow-origin: (missing)</span></div></div>
+      </div>
+    </div>
+
+    <!-- 工具卡：read（完成 · 收起） -->
+    <div class="tool-card">
+      <div class="tool-head" data-collapse>
+        <svg class="icon"><use href="#i-file-text"/></svg>
+        <span class="th-name">read</span>
+        <span class="th-desc">src/middleware/cors.ts · 84 行</span>
+        <span class="th-status st-completed"><span class="st-dot"></span>完成 · 0.3s</span>
+      </div>
+    </div>
+
+    <!-- 结论气泡（含 chunk 引用） -->
+    <div class="bubble">
+      <p>排查完成，问题有两层：</p>
+      <p>1. 中间件白名单写死 <code>*</code>，与前端 <code>credentials: 'include'</code> 冲突，浏览器按规范直接拒绝响应；</p>
+      <p>2. Nginx 对 <code>OPTIONS</code> 返回 405，预检请求从未透传到 Node 层 —— 这是控制台报错的直接原因。</p>
+      <p>两处关键文件
+        <button class="chunk-ref" data-modal-open="modal-chunk"><svg class="icon"><use href="#i-file-code"/></svg><span class="cr-path">src/middleware/cors.ts</span>chunk 12</button>
+        <button class="chunk-ref" data-modal-open="modal-chunk"><svg class="icon"><use href="#i-file"/></svg><span class="cr-path">nginx/conf.d/api.conf</span>chunk 7</button>
+        已读取，修复方案见下方选项。</p>
+    </div>
+
+    <!-- 提问卡（已选择方案 B） -->
+    <div class="ques-card">
+      <div class="ques-head">
+        <svg class="icon"><use href="#i-help"/></svg>
+        <span class="qh-t">需要你确认修复方案</span>
+        <span class="badge badge-indigo" style="margin-left:auto">已回答</span>
+      </div>
+      <div class="ques-body">
+        <div class="ques-q">Nginx 与 Node 两层目前都配置了 CORS 头，会产生重复叠加。你倾向哪种修复策略？</div>
+        <div class="ques-opt"><span class="radio" aria-checked="false" role="radio"></span>方案 A：仅保留 Nginx 层配置，移除 Node 中间件</div>
+        <div class="ques-opt sel"><span class="radio" aria-checked="true" role="radio"></span>方案 B：Node 中间件作为唯一 CORS 来源，Nginx 仅做代理透传</div>
+        <div class="ques-opt"><span class="radio" aria-checked="false" role="radio"></span>先只修 OPTIONS 405，重复头问题下个迭代再处理</div>
+        <div class="ques-custom">
+          <input class="field" placeholder="或输入自定义指示…">
+          <button class="btn btn-outline btn-sm"><svg class="icon"><use href="#i-send"/></svg>提交</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="turn-meta">
+      <svg class="icon"><use href="#i-zap"/></svg>
+      <span>turn #4</span><span class="tm-sep">·</span>
+      <span>↑12.4K ↓3.2K tokens</span><span class="tm-sep">·</span>
+      <span>$0.0421</span><span class="tm-sep">·</span>
+      <span>耗时 47s</span><span class="tm-sep">·</span>
+      <span>bash ×2 · read ×1</span>
+    </div>
+  </div>
+</div>
+
+<!-- 上下文压缩 -->
+<div class="compaction-pill">
+  <span class="cp">
+    <svg class="icon"><use href="#i-layers"/></svg>
+    上下文已自动压缩 · 38,412 → 12,046 tokens · 保留最近 2 轮完整对话与任务清单
+  </span>
+</div>
+
+<!-- 用户消息 2 -->
+<div class="msg user">
+  <div class="msg-side"><span class="avatar a-user">晓</span></div>
+  <div class="msg-main">
+    <div class="msg-role">
+      <span class="mr-name">林晓</span>
+      <span class="mr-time">14:10</span>
+      <span class="role-acts">
+        <button title="复制" aria-label="复制"><svg class="icon"><use href="#i-copy"/></svg></button>
+      </span>
+    </div>
+    <div class="bubble">
+      <p>按方案 B 改。OPTIONS 预检也一起处理掉，改完跑一遍 <code>tests/cors.spec.ts</code> 给我看结果。</p>
+    </div>
+  </div>
+</div>
+
+<!-- 助手回合 2（当前 · 流式输出中） -->
+<div class="msg assistant">
+  <div class="msg-side"><span class="avatar a-bot"><svg class="icon"><use href="#i-bot"/></svg></span></div>
+  <div class="msg-main">
+    <div class="msg-role">
+      <span class="mr-name">Agent</span>
+      <span class="agent-tag"><svg class="icon"><use href="#i-bot"/></svg>build</span>
+      <span class="stream-tag"><svg class="icon"><use href="#i-loader"/></svg>流式输出中</span>
+      <span class="mr-time">14:11</span>
+      <span class="role-acts">
+        <button title="复制" aria-label="复制"><svg class="icon"><use href="#i-copy"/></svg></button>
+        <button title="停止生成" aria-label="停止生成"><svg class="icon"><use href="#i-square"/></svg></button>
+      </span>
+    </div>
+
+    <!-- 推理过程（折叠） -->
+    <div class="reasoning-box collapsed">
+      <div class="reasoning-head" data-collapse>
+        <svg class="icon"><use href="#i-brain"/></svg>
+        <span class="rh-t">推理过程</span>
+        <span class="rh-hint">0.9s<svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg></span>
+      </div>
+      <div class="reasoning-body collapsible-body">
+        用户确认方案 B。执行顺序：先改中间件（白名单 + 预检短路 204），再改 Nginx 透传，最后补单测。
+      </div>
+    </div>
+
+    <!-- 工具卡：edit（完成） -->
+    <div class="tool-card">
+      <div class="tool-head" data-collapse>
+        <svg class="icon"><use href="#i-edit"/></svg>
+        <span class="th-name">edit</span>
+        <span class="th-desc">src/middleware/cors.ts · 替换 6 处（白名单 + 预检短路）</span>
+        <span class="th-status st-completed"><span class="st-dot"></span>完成 · 0.9s</span>
+        <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+      </div>
+      <div class="tool-body collapsible-body">
+        <div class="tool-sec"><div class="ts-l">编辑摘要</div><div class="tool-out">6 replacements · 28 insertions(+) · 6 deletions(-) · 文件 84 → 106 行</div></div>
+      </div>
+    </div>
+
+    <!-- Diff 卡 -->
+    <div class="diff-card">
+      <div class="diff-head" data-collapse>
+        <svg class="icon"><use href="#i-git-branch"/></svg>
+        <span class="dh-t">代码变更</span>
+        <span class="diff-stats"><span class="ds-add">+142</span><span class="ds-del">−38</span></span>
+        <span class="badge badge-gray badge-mono">3 files</span>
+        <svg class="icon collapse-caret" style="margin-left:auto"><use href="#i-chevron-down"/></svg>
+      </div>
+      <div class="diff-body collapsible-body">
+        <div class="diff-file">
+          <svg class="icon"><use href="#i-file-code"/></svg>
+          <span class="df-path">src/middleware/cors.ts</span>
+          <span class="df-stats"><span class="a">+28</span><span class="d">−6</span></span>
+          <span class="df-badge"><span class="badge badge-purple">修改</span></span>
+        </div>
+        <div class="diff-file">
+          <svg class="icon"><use href="#i-file-code"/></svg>
+          <span class="df-path">nginx/conf.d/api.conf</span>
+          <span class="df-stats"><span class="a">+112</span><span class="d">−30</span></span>
+          <span class="df-badge"><span class="badge badge-cyan">重写</span></span>
+        </div>
+        <div class="diff-patch">
+          <div class="dl hunk">@@ -18,9 +18,16 @@ server {</div>
+          <div class="dl ctx">  location /api {</div>
+          <div class="dl ctx">    proxy_pass http://node:3000;</div>
+          <div class="dl del">-    add_header Access-Control-Allow-Origin *;</div>
+          <div class="dl del">-    add_header Access-Control-Allow-Methods "GET, POST";</div>
+          <div class="dl add">+    # CORS 由 Node 中间件统一处理，Nginx 仅透传</div>
+          <div class="dl add">+    proxy_set_header Origin $http_origin;</div>
+          <div class="dl add">+    proxy_set_header Access-Control-Request-Method $http_access_control_request_method;</div>
+          <div class="dl add">+    if ($request_method = OPTIONS) {</div>
+          <div class="dl add">+      proxy_pass http://node:3000;</div>
+          <div class="dl add">+    }</div>
+          <div class="dl ctx">  }</div>
+        </div>
+        <div class="diff-file">
+          <svg class="icon"><use href="#i-file-code"/></svg>
+          <span class="df-path">tests/cors.spec.ts</span>
+          <span class="df-stats"><span class="a">+2</span><span class="d">−2</span></span>
+          <span class="df-badge"><span class="badge badge-green">测试</span></span>
+        </div>
+        <div class="diff-foot">
+          <button class="btn btn-green btn-sm"><svg class="icon"><use href="#i-check"/></svg>全部应用</button>
+          <button class="btn btn-outline btn-sm"><svg class="icon"><use href="#i-download"/></svg>导出 patch</button>
+          <button class="btn btn-ghost btn-sm"><svg class="icon"><use href="#i-refresh"/></svg>重新生成</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 子任务 -->
+    <div class="subtask-card">
+      <span class="st-ic"><svg class="icon"><use href="#i-sparkles"/></svg></span>
+      <span class="st-t">已派发子任务 <b>subtask-7f2c</b> · 验证预检请求经 Nginx 透传后的完整链路</span>
+      <span class="badge badge-gray badge-mono">running</span>
+    </div>
+
+    <!-- 重试 -->
+    <div class="retry-card">
+      <svg class="icon"><use href="#i-rotate-ccw"/></svg>
+      <span>模型返回 429（rate limit），自动退避重试… 第 2 次成功，输出已恢复。</span>
+    </div>
+
+    <!-- 工具卡：bash（排队中） -->
+    <div class="tool-card">
+      <div class="tool-head" data-collapse>
+        <svg class="icon"><use href="#i-terminal"/></svg>
+        <span class="th-name">bash</span>
+        <span class="th-desc">npm test -- tests/cors.spec.ts</span>
+        <span class="th-status st-pending"><span class="st-dot"></span>排队中</span>
+      </div>
+    </div>
+
+    <!-- 流式气泡 -->
+    <div class="bubble">
+      <p>已按方案 B 完成三处修改：中间件接管全部 CORS 逻辑（白名单 + <code>Vary: Origin</code>）、Nginx 改为纯透传、预检请求在中间件短路返回 204。共 3 个文件
+        <button class="chunk-ref" data-modal-open="modal-chunk"><svg class="icon"><use href="#i-file-code"/></svg><span class="cr-path">nginx/conf.d/api.conf</span>chunk 7</button>
+        可点击查看完整上下文。回归测试已排队，完成后立即汇报<span class="stream-cursor"></span></p>
+    </div>
+
+    <div class="turn-meta">
+      <svg class="icon"><use href="#i-zap"/></svg>
+      <span>turn #5</span><span class="tm-sep">·</span>
+      <span>↑8.1K ↓1.9K tokens</span><span class="tm-sep">·</span>
+      <span>$0.0291</span><span class="tm-sep">·</span>
+      <span>已运行 36s</span><span class="tm-sep">·</span>
+      <span>edit ×1 · bash ×1（排队）</span>
+    </div>
+  </div>
+</div>
+          </div>
+        </div>
+
+        <!-- 文件面板：GET /api/sessions/{id}/files · GET /api/files/content -->
+        <aside class="file-panel open" id="file-panel" aria-label="工作区文件面板">
+          <div class="fp-head">
+            <div class="fp-title">
+              <svg class="icon"><use href="#i-folder"/></svg>
+              工作区文件
+              <span class="fp-count">12 files · 81K · agent-464d6e13</span>
+              <button class="btn-icon fp-close" id="btn-fp-close" aria-label="关闭文件面板"><svg class="icon"><use href="#i-x"/></svg></button>
+            </div>
+            <div class="fp-acts">
+              <button class="btn btn-ghost btn-sm" id="btn-ws-upload" title="上传文件到容器工作区（POST /workspace/files/upload）"><svg class="icon"><use href="#i-upload"/></svg>上传</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ws-download" title="打包下载勾选的文件/目录（POST /workspace/files/download）"><svg class="icon"><use href="#i-download"/></svg>下载</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ft-expand">全部展开</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ft-collapse">全部折叠</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ft-refresh" title="重新读取容器文件树"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+            </div>
+            <div class="fp-notice">
+              <svg class="icon"><use href="#i-info"/></svg>
+              勾选文件可加入对话上下文 · 点击文件名预览
+            </div>
+          </div>
+
+          <div class="fp-body" id="fp-body">
+            <!-- src/ -->
+            <div class="ft-row is-folder" data-ft-toggle="ft-src" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="mixed" tabindex="-1" data-toggle="checkbox" aria-label="选择 src 目录"></span>
+              <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+              <svg class="icon"><use href="#i-folder"/></svg>
+              <span class="ft-name">src</span>
+              <span class="ft-size">8 files</span>
+            </div>
+            <div class="ft-children" id="ft-src">
+              <div class="ft-row sel" data-fp="src/main.py" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 main.py"></span>
+                <svg class="icon"><use href="#i-file-code"/></svg>
+                <span class="ft-name">main.py</span>
+                <span class="ft-size">18.2K</span>
+                <button class="ft-at" title="在输入框引用此文件" aria-label="引用 main.py"><svg class="icon"><use href="#i-at"/></svg></button>
+              </div>
+              <!-- src/auth/（折叠） -->
+              <div class="ft-row is-folder collapsed" data-ft-toggle="ft-auth" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 auth 目录"></span>
+                <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+                <svg class="icon"><use href="#i-folder"/></svg>
+                <span class="ft-name">auth</span>
+                <span class="ft-size">3 files</span>
+              </div>
+              <div class="ft-children collapsed" id="ft-auth">
+                <div class="ft-row" data-fp="src/auth/jwt.py" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 jwt.py"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">jwt.py</span>
+                  <span class="ft-size">4.6K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 jwt.py"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+                <div class="ft-row" data-fp="src/auth/session.py" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 session.py"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">session.py</span>
+                  <span class="ft-size">3.9K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 session.py"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+                <div class="ft-row" data-fp="src/auth/deps.py" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 deps.py"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">deps.py</span>
+                  <span class="ft-size">2.1K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 deps.py"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+              </div>
+              <!-- src/api/（折叠） -->
+              <div class="ft-row is-folder collapsed" data-ft-toggle="ft-api" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 api 目录"></span>
+                <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+                <svg class="icon"><use href="#i-folder"/></svg>
+                <span class="ft-name">api</span>
+                <span class="ft-size">2 files</span>
+              </div>
+              <div class="ft-children collapsed" id="ft-api">
+                <div class="ft-row" data-fp="src/api/routes.py" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 routes.py"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">routes.py</span>
+                  <span class="ft-size">9.4K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 routes.py"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+                <div class="ft-row" data-fp="src/api/schemas.py" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 schemas.py"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">schemas.py</span>
+                  <span class="ft-size">3.3K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 schemas.py"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- nginx/ -->
+            <div class="ft-row is-folder" data-ft-toggle="ft-nginx" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 nginx 目录"></span>
+              <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+              <svg class="icon"><use href="#i-folder"/></svg>
+              <span class="ft-name">nginx</span>
+              <span class="ft-size">1 file</span>
+            </div>
+            <div class="ft-children" id="ft-nginx">
+              <div class="ft-row is-folder" data-ft-toggle="ft-confd" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 conf.d 目录"></span>
+                <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+                <svg class="icon"><use href="#i-folder"/></svg>
+                <span class="ft-name">conf.d</span>
+                <span class="ft-size">1 file</span>
+              </div>
+              <div class="ft-children" id="ft-confd">
+                <div class="ft-row sel" data-fp="nginx/conf.d/api.conf" tabindex="0">
+                  <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 api.conf"></span>
+                  <svg class="icon"><use href="#i-file-code"/></svg>
+                  <span class="ft-name">api.conf</span>
+                  <span class="ft-size">4.1K</span>
+                  <button class="ft-at" title="在输入框引用此文件" aria-label="引用 api.conf"><svg class="icon"><use href="#i-at"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- tests/ -->
+            <div class="ft-row is-folder" data-ft-toggle="ft-tests" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="mixed" tabindex="-1" data-toggle="checkbox" aria-label="选择 tests 目录"></span>
+              <svg class="icon collapse-caret"><use href="#i-chevron-down"/></svg>
+              <svg class="icon"><use href="#i-folder"/></svg>
+              <span class="ft-name">tests</span>
+              <span class="ft-size">2 files</span>
+            </div>
+            <div class="ft-children" id="ft-tests">
+              <div class="ft-row sel" data-fp="tests/cors.spec.ts" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 cors.spec.ts"></span>
+                <svg class="icon"><use href="#i-file-code"/></svg>
+                <span class="ft-name">cors.spec.ts</span>
+                <span class="ft-size">6.8K</span>
+                <button class="ft-at" title="在输入框引用此文件" aria-label="引用 cors.spec.ts"><svg class="icon"><use href="#i-at"/></svg></button>
+              </div>
+              <div class="ft-row" data-fp="tests/auth.spec.ts" tabindex="0">
+                <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 auth.spec.ts"></span>
+                <svg class="icon"><use href="#i-file-code"/></svg>
+                <span class="ft-name">auth.spec.ts</span>
+                <span class="ft-size">3.2K</span>
+                <button class="ft-at" title="在输入框引用此文件" aria-label="引用 auth.spec.ts"><svg class="icon"><use href="#i-at"/></svg></button>
+              </div>
+            </div>
+
+            <!-- 根级文件 -->
+            <div class="ft-row sel" data-fp="cors-error.log" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="true" tabindex="-1" data-toggle="checkbox" aria-label="选择 cors-error.log"></span>
+              <svg class="icon"><use href="#i-file-text"/></svg>
+              <span class="ft-name">cors-error.log</span>
+              <span class="ft-size">2.4K</span>
+              <button class="ft-at" title="在输入框引用此文件" aria-label="引用 cors-error.log"><svg class="icon"><use href="#i-at"/></svg></button>
+            </div>
+            <div class="ft-row" data-fp="package.json" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 package.json"></span>
+              <svg class="icon"><use href="#i-file"/></svg>
+              <span class="ft-name">package.json</span>
+              <span class="ft-size">1.1K</span>
+              <button class="ft-at" title="在输入框引用此文件" aria-label="引用 package.json"><svg class="icon"><use href="#i-at"/></svg></button>
+            </div>
+            <div class="ft-row" data-fp="README.md" tabindex="0">
+              <span class="checkbox" role="checkbox" aria-checked="false" tabindex="-1" data-toggle="checkbox" aria-label="选择 README.md"></span>
+              <svg class="icon"><use href="#i-file-text"/></svg>
+              <span class="ft-name">README.md</span>
+              <span class="ft-size">0.9K</span>
+              <button class="ft-at" title="在输入框引用此文件" aria-label="引用 README.md"><svg class="icon"><use href="#i-at"/></svg></button>
+            </div>
+          </div>
+
+          <!-- 预览：nginx/conf.d/api.conf（修复后） -->
+          <div class="fp-preview open" id="fp-preview">
+            <div class="fpv-head">
+              <svg class="icon"><use href="#i-file-code"/></svg>
+              <span class="fpv-name" id="fpv-name">nginx/conf.d/api.conf</span>
+              <button class="btn-icon" id="btn-fpv-close" aria-label="关闭预览"><svg class="icon"><use href="#i-x"/></svg></button>
+            </div>
+            <div class="fpv-body">
+<pre><span class="lc">1</span>upstream api_backend {
+<span class="lc">2</span>    server api:8000;
+<span class="lc">3</span>}
+<span class="lc">4</span>
+<span class="lc">5</span>server {
+<span class="lc">6</span>    listen 80;
+<span class="lc">7</span>    server_name api.example.com;
+<span class="lc">8</span>
+<span class="lc">9</span>    # 预检请求直接短路，不再透传到后端
+<span class="lc">10</span>    location / {
+<span class="lc">11</span>        if ($request_method = OPTIONS) {
+<span class="lc">12</span>            return 204;
+<span class="lc">13</span>        }
+<span class="lc">14</span>
+<span class="lc">15</span>        # 统一 CORS 响应头（由中间件写值，网关只透传）
+<span class="lc">16</span>        add_header Vary Origin always;
+<span class="lc">17</span>
+<span class="lc">18</span>        proxy_pass http://api_backend;
+<span class="lc">19</span>        proxy_set_header Host $host;
+<span class="lc">20</span>        proxy_set_header X-Real-IP $remote_addr;
+<span class="lc">21</span>    }
+<span class="lc">22</span>}</pre>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- 输入区：POST /api/chat（SSE 流式） -->
+      <div class="composer-wrap">
+        <div class="composer">
+          <!-- 输入卡片：框内 chips / textarea / 底部工具栏 -->
+          <div class="input-row">
+            <div class="prompt-chips" id="prompt-chips">
+              <span class="chip chip-skill chip-static">
+                <svg class="icon"><use href="#i-sparkles"/></svg>
+                skill · api-docs
+                <button class="chip-x" aria-label="移除 skill api-docs"><svg class="icon"><use href="#i-x"/></svg></button>
+              </span>
+              <span class="chip chip-attach chip-static">
+                <svg class="icon"><use href="#i-paperclip"/></svg>
+                cors-error.log · 2.4KB
+                <button class="chip-x" aria-label="移除附件 cors-error.log"><svg class="icon"><use href="#i-x"/></svg></button>
+              </span>
+              <span class="chip chip-attach chip-static">
+                <svg class="icon"><use href="#i-at"/></svg>
+                nginx/conf.d/api.conf
+                <button class="chip-x" aria-label="移除引用 api.conf"><svg class="icon"><use href="#i-x"/></svg></button>
+              </span>
+            </div>
+
+            <textarea id="prompt-input" rows="1" aria-label="消息输入框"
+              placeholder="描述任务，或输入 / 唤起命令、@ 引用文件…"></textarea>
+
+            <div class="input-bar">
+              <div class="input-tools">
+                <button class="btn-icon" id="btn-attach" aria-label="附加文件" title="附加文件"><svg class="icon"><use href="#i-paperclip"/></svg></button>
+                <button class="btn-icon" id="btn-skill" aria-label="选择 Skill" title="选择 Skill"><svg class="icon"><use href="#i-sparkles"/></svg></button>
+                <button class="btn-icon" id="btn-cmds" aria-label="斜杠命令" title="斜杠命令"><svg class="icon"><use href="#i-command"/></svg></button>
+              </div>
+              <div class="input-ctx">
+                <button class="chip" id="chip-agent" aria-haspopup="menu" title="子代理 · 会话级覆盖，不写入全局配置">
+                  <svg class="icon"><use href="#i-bot"/></svg>
+                  build
+                  <svg class="icon"><use href="#i-chevron-down"/></svg>
+                </button>
+                <button class="chip" id="chip-model" aria-haspopup="menu" title="模型 · 会话级覆盖，不写入全局配置">
+                  <svg class="icon"><use href="#i-zap"/></svg>
+                  deepseek-v4-flash
+                  <svg class="icon"><use href="#i-chevron-down"/></svg>
+                </button>
+              </div>
+              <span class="ib-spacer"></span>
+              <button class="send-btn stop" id="btn-send" aria-label="停止生成" title="停止生成">
+                <svg class="icon"><use href="#i-square"/></svg>
+              </button>
+            </div>
+
+            <!-- Agent 选择菜单（向上弹出） -->
+            <div class="ps-menu menu" id="menu-agents" role="menu" aria-label="选择子代理">
+              <div class="menu-label">子代理（per-prompt）</div>
+              <button class="menu-item active" role="menuitem"><svg class="icon"><use href="#i-bot"/></svg><span class="mi-mono">build</span><span class="mi-sub">默认 · 读写 + 终端</span></button>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-list-todo"/></svg><span class="mi-mono">plan</span><span class="mi-sub">只读规划</span></button>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-eye"/></svg><span class="mi-mono">review</span><span class="mi-sub">代码审查</span></button>
+              <div class="menu-sep"></div>
+              <div class="menu-label">自定义</div>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-plus"/></svg><span>新建子代理…</span></button>
+            </div>
+
+            <!-- 模型选择菜单（向上弹出） -->
+            <div class="ps-menu menu" id="menu-models" role="menu" aria-label="选择模型">
+              <div class="menu-label">阿里百炼 · deepseek 系列</div>
+              <button class="menu-item active" role="menuitem"><svg class="icon"><use href="#i-zap"/></svg><span class="mi-mono">deepseek-v4-flash</span><span class="mi-sub">128K</span></button>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-zap"/></svg><span class="mi-mono">deepseek-v4-pro</span><span class="mi-sub">256K</span></button>
+              <div class="menu-sep"></div>
+              <div class="menu-label">其他供应商</div>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-globe"/></svg><span class="mi-mono">qwen3-max</span><span class="mi-sub">256K</span></button>
+              <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-globe"/></svg><span class="mi-mono">glm-5-air</span><span class="mi-sub">128K</span></button>
+            </div>
+          </div>
+
+          <!-- 第 4 层：提示行 -->
+          <div class="input-hints">
+            <span><span class="kbd">Enter</span> 发送</span><span class="ih-sep">·</span>
+            <span><span class="kbd">Shift+Enter</span> 换行</span><span class="ih-sep">·</span>
+            <span><span class="kbd">/</span> 命令</span><span class="ih-sep">·</span>
+            <span><span class="kbd">@</span> 文件</span><span class="ih-sep">·</span>
+            <span>上下文 12.0K / 128K tokens</span>
+          </div>
+
+          <!-- 斜杠命令菜单 -->
+          <div class="input-menu menu" id="menu-slash" role="menu" aria-label="斜杠命令">
+            <div class="menu-label">命令</div>
+            <button class="menu-item active" role="menuitem"><svg class="icon"><use href="#i-layers"/></svg><span class="mi-mono">/compact</span><span class="mi-desc">压缩当前会话上下文</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-plus"/></svg><span class="mi-mono">/new</span><span class="mi-desc">新建会话（新容器）</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-list-todo"/></svg><span class="mi-mono">/todo</span><span class="mi-desc">查看任务清单</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-terminal"/></svg><span class="mi-mono">/terminal</span><span class="mi-desc">容器内打开终端</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-rotate-ccw"/></svg><span class="mi-mono">/retry</span><span class="mi-desc">重试上一轮请求</span></button>
+            <div class="menu-sep"></div>
+            <div class="menu-label">切换子代理</div>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-bot"/></svg><span class="mi-mono">/agent plan</span><span class="mi-desc">只读规划模式</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-eye"/></svg><span class="mi-mono">/agent review</span><span class="mi-desc">代码审查模式</span></button>
+          </div>
+
+          <!-- @ 文件引用菜单 -->
+          <div class="input-menu menu" id="menu-at" role="menu" aria-label="引用文件">
+            <div class="menu-label">匹配文件</div>
+            <button class="menu-item active" role="menuitem"><svg class="icon"><use href="#i-file-code"/></svg><span class="mi-mono">nginx/conf.d/api.conf</span><span class="mi-desc">4.1K</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-file-code"/></svg><span class="mi-mono">src/main.py</span><span class="mi-desc">18.2K</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-file-code"/></svg><span class="mi-mono">tests/cors.spec.ts</span><span class="mi-desc">6.8K</span></button>
+            <button class="menu-item" role="menuitem"><svg class="icon"><use href="#i-file-text"/></svg><span class="mi-mono">cors-error.log</span><span class="mi-desc">2.4K</span></button>
+          </div>
+
+          <!-- Skill 选择弹层 -->
+          <div class="skill-pop menu" id="skill-pop" aria-label="选择 Skill">
+            <div class="menu-label">项目 Skill · .trae/skills</div>
+            <button class="skill-item">
+              <span class="si-ic"><svg class="icon"><use href="#i-book"/></svg></span>
+              <span class="si-txt">
+                <span class="si-name">api-docs</span>
+                <span class="si-desc">扫描路由生成 OpenAPI 3.1 文档</span>
+              </span>
+              <span class="badge badge-cyan si-scope">项目</span>
+            </button>
+            <button class="skill-item">
+              <span class="si-ic"><svg class="icon"><use href="#i-shield"/></svg></span>
+              <span class="si-txt">
+                <span class="si-name">cors-audit</span>
+                <span class="si-desc">审计 CORS / 安全响应头配置</span>
+              </span>
+              <span class="badge badge-cyan si-scope">项目</span>
+            </button>
+            <div class="menu-sep"></div>
+            <div class="menu-label">用户 Skill · ~/.agent/skills</div>
+            <button class="skill-item">
+              <span class="si-ic"><svg class="icon"><use href="#i-check-circle"/></svg></span>
+              <span class="si-txt">
+                <span class="si-name">deploy-check</span>
+                <span class="si-desc">部署前检查清单与冒烟测试</span>
+              </span>
+              <span class="badge badge-gray si-scope">用户</span>
+            </button>
+            <button class="skill-item">
+              <span class="si-ic"><svg class="icon"><use href="#i-activity"/></svg></span>
+              <span class="si-txt">
+                <span class="si-name">log-parse</span>
+                <span class="si-desc">结构化解析 Nginx / 应用日志</span>
+              </span>
+              <span class="badge badge-gray si-scope">用户</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<!-- ================= 模态：容器日志（GET /api/sessions/{id}/logs） ================= -->
+<div class="modal-backdrop" id="modal-logs" role="dialog" aria-modal="true" aria-label="容器日志">
+  <div class="modal">
+    <div class="modal-head">
+      <svg class="icon"><use href="#i-terminal"/></svg>
+      <h3>容器日志</h3>
+      <span class="head-meta">agent-464d6e13-a2 · opencode:2.4.0</span>
+      <span class="spacer"></span>
+      <button class="btn-icon" data-modal-close aria-label="关闭日志"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="log-toolbar">
+        <select class="select" id="log-level" aria-label="日志级别筛选">
+          <option>全部级别</option>
+          <option>INFO</option>
+          <option>WARN</option>
+          <option>ERROR</option>
+          <option>DEBUG</option>
+        </select>
+        <button class="btn btn-sm btn-outline"><svg class="icon"><use href="#i-download"/></svg>导出 .log</button>
+        <button class="btn btn-sm btn-ghost">跟随滚动</button>
+        <button class="switch" role="switch" aria-checked="true" aria-label="实时推送" id="log-live"></button>
+        <span class="log-count">214 行 · 实时流</span>
+      </div>
+      <div class="log-body">
+        <div class="log-line lv-info"><span class="lg-t">14:02:11.482</span><span class="lg-lv">INFO</span><span class="lg-m">[opencode] session 464d6e13 attached · agent=build</span></div>
+        <div class="log-line lv-debug"><span class="lg-t">14:02:11.530</span><span class="lg-lv">DEBUG</span><span class="lg-m">[opencode] context loaded: 12,046 tokens (post-compaction)</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:14.207</span><span class="lg-lv">INFO</span><span class="lg-m">[tool:bash] exec: curl -s -o /dev/null -w '%{http_code}' -X OPTIONS http://localhost/api/auth/login</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:14.391</span><span class="lg-lv">INFO</span><span class="lg-m">[tool:bash] → 405 Method Not Allowed</span></div>
+        <div class="log-line lv-warn"><span class="lg-t">14:02:19.882</span><span class="lg-lv">WARN</span><span class="lg-m">[opencode] llm rate limited (429) · retrying in 2.4s (attempt 1/3)</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:22.339</span><span class="lg-lv">INFO</span><span class="lg-m">[opencode] llm request ok · model=deepseek-v4-flash · 3.1s</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:31.104</span><span class="lg-lv">INFO</span><span class="lg-m">[tool:edit] nginx/conf.d/api.conf · +9 -4</span></div>
+        <div class="log-line lv-warn"><span class="lg-t">14:02:33.556</span><span class="lg-lv">WARN</span><span class="lg-m">[guard] bash requires approval: rm -rf /tmp/cache/*</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:33.581</span><span class="lg-lv">INFO</span><span class="lg-m">[guard] approved by user (ui) · expires in 10m</span></div>
+        <div class="log-line lv-error"><span class="lg-t">14:02:41.928</span><span class="lg-lv">ERROR</span><span class="lg-m">[opencode] sse stream interrupted: HTTP 502 from upstream</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:43.115</span><span class="lg-lv">INFO</span><span class="lg-m">[opencode] sse reconnecting (attempt 1) · Last-Event-ID: 9471</span></div>
+        <div class="log-line lv-info"><span class="lg-t">14:02:43.882</span><span class="lg-lv">INFO</span><span class="lg-m">[opencode] sse reconnected · resuming from event 9471</span></div>
+        <div class="log-line lv-debug"><span class="lg-t">14:02:52.310</span><span class="lg-lv">DEBUG</span><span class="lg-m">[tool:bash] queued: pytest tests/cors.spec.ts -q</span></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="head-meta">日志保留 24h · 每 2s 轮询 / SSE 推送</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost" data-modal-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 模态：Chunk 上下文片段查看器 ================= -->
+<div class="modal-backdrop" id="modal-chunk" role="dialog" aria-modal="true" aria-label="上下文片段查看器">
+  <div class="modal">
+    <div class="modal-head">
+      <svg class="icon"><use href="#i-book"/></svg>
+      <h3>上下文片段查看器</h3>
+      <span class="head-meta">chunk 12 · nginx/conf.d/api.conf · L8–L21</span>
+      <span class="spacer"></span>
+      <button class="btn-icon" data-modal-close aria-label="关闭片段查看器"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="chunk-meta">
+        <div class="cm-cell"><div class="cm-k">来源文件</div><div class="cm-v">nginx/conf.d/api.conf</div></div>
+        <div class="cm-cell"><div class="cm-k">行范围</div><div class="cm-v">L8 – L21</div></div>
+        <div class="cm-cell"><div class="cm-k">Token 数</div><div class="cm-v">1,024</div></div>
+        <div class="cm-cell"><div class="cm-k">写入于</div><div class="cm-v">turn #5 · 14:02:31</div></div>
+      </div>
+      <div class="chunk-content">
+        <h4>变更摘要 · 网关层拦截预检请求</h4>
+        <p class="cc-text">
+          该片段来自 <b>nginx/conf.d/api.conf</b> 第 8–21 行，由 edit 工具在本轮写入。核心变更：预检请求（<b>OPTIONS</b>）在网关层直接返回 <b>204</b>，不再转发至后端；同时为所有响应补充 <b>Vary: Origin</b> 与 Access-Control-Allow-* 头，避免代理缓存跨源串扰。<b>Agent 判断</b>：上游 FastAPI 对简单请求的 CORS 处理正确，仅预检转发缺失——在 Nginx 层拦截成本最低、影响面最小，无需改动应用代码。
+        </p>
+        <div class="chunk-fig">
+          <div class="cf-l"><svg class="icon"><use href="#i-image"/></svg>检索快照 · 压缩前捕获</div>
+          <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Technical%20architecture%20diagram%20on%20dark%20background%2C%20a%20web%20browser%20sending%20an%20OPTIONS%20preflight%20request%20to%20an%20Nginx%20reverse%20proxy%20which%20returns%20204%20directly%20and%20forwards%20CORS%20headers%20to%20a%20backend%20API%20server%2C%20flat%20vector%20infographic%20style%2C%20purple%20and%20cyan%20color%20scheme%2C%20clean%20minimal%20layout&image_size=landscape_4_3" alt="CORS 预检流程示意：浏览器 → Nginx 网关（OPTIONS 直接返回 204）→ FastAPI 后端透传">
+          <div class="cf-cap">图：预检请求在网关层直接放行，简单请求透传至后端</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span class="head-meta">压缩后仍保留的检索片段 · 引用时自动回填原文</span>
+      <span class="spacer"></span>
+      <button class="btn btn-outline"><svg class="icon"><use href="#i-copy"/></svg>复制原文</button>
+      <button class="btn btn-primary"><svg class="icon"><use href="#i-message"/></svg>在对话中引用</button>
+      <button class="btn btn-ghost" data-modal-close>关闭</button>
+    </div>
+  </div>
+</div>
+<!-- ============ 管理屏 ============ -->
+<div class="screen" id="screen-admin">
+  <div class="admin-head">
+    <div class="ah-ic"><svg class="icon"><use href="#i-shield"/></svg></div>
+    <h2>平台管理</h2>
+    <span class="ah-sub">platform-control · fastapi · v1.4.2</span>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost btn-icon theme-btn" data-theme-toggle title="切换主题" aria-label="切换亮色/暗色主题"><svg class="icon icon-sun"><use href="#i-sun"/></svg><svg class="icon icon-moon"><use href="#i-moon"/></svg></button>
+    <button class="btn btn-outline btn-sm" data-modal-open="modal-config"><svg class="icon"><use href="#i-sliders"/></svg>平台配置</button>
+    <button class="btn btn-ghost btn-sm" id="btn-admin-refresh"><svg class="icon"><use href="#i-refresh"/></svg>刷新</button>
+    <button class="btn btn-primary btn-sm" data-goto="chat"><svg class="icon"><use href="#i-message"/></svg>返回对话</button>
+  </div>
+
+  <div class="admin-body">
+    <div class="admin-inner">
+
+      <!-- 总览指标 -->
+      <div class="ov-grid">
+        <div class="ov-card c1">
+          <div class="ov-ic"><svg class="icon"><use href="#i-box"/></svg></div>
+          <div>
+            <div class="ov-num">8<small>/ 20</small></div>
+            <div class="ov-l">活跃容器 · 集群配额</div>
+          </div>
+        </div>
+        <div class="ov-card c2">
+          <div class="ov-ic"><svg class="icon"><use href="#i-users"/></svg></div>
+          <div>
+            <div class="ov-num">128</div>
+            <div class="ov-l">注册用户 · 14 今日活跃</div>
+          </div>
+        </div>
+        <div class="ov-card c3">
+          <div class="ov-ic"><svg class="icon"><use href="#i-zap"/></svg></div>
+          <div>
+            <div class="ov-num">12.4<small>K</small></div>
+            <div class="ov-l">今日 API 请求 · SSE 平均 340ms</div>
+          </div>
+        </div>
+        <div class="ov-card c4">
+          <div class="ov-ic"><svg class="icon"><use href="#i-gauge"/></svg></div>
+          <div>
+            <div class="ov-num">$86.40</div>
+            <div class="ov-l">今日平台费用 · 较昨日 -12%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 工具栏 -->
+      <div class="admin-toolbar">
+        <div class="at-search">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input class="field" type="search" placeholder="搜索用户 / 容器 ID / 镜像" aria-label="搜索容器">
+        </div>
+        <select class="select" aria-label="状态筛选">
+          <option>全部状态</option>
+          <option>运行中</option>
+          <option>已停止</option>
+          <option>创建中</option>
+          <option>异常</option>
+        </select>
+        <select class="select" aria-label="排序方式">
+          <option>按最近活跃排序</option>
+          <option>按创建时间</option>
+          <option>按 CPU 占用</option>
+          <option>按内存占用</option>
+        </select>
+        <div class="auto-refresh">
+          <button class="switch" role="switch" aria-checked="true" data-toggle="switch" aria-label="自动刷新"></button>
+          5s 自动刷新
+        </div>
+        <div class="at-count">共 <b>14</b> 个容器 · <b>8</b> 运行中 · <b>1</b> 异常</div>
+      </div>
+
+      <!-- 批量操作栏 -->
+      <div class="batch-bar show" id="batch-bar">
+        <div class="bb-t"><svg class="icon"><use href="#i-check-circle"/></svg>已选择 <b id="batch-count">2</b> 个容器</div>
+        <button class="btn btn-outline btn-sm"><svg class="icon"><use href="#i-rotate-ccw"/></svg>批量重启</button>
+        <button class="btn btn-amber btn-sm"><svg class="icon"><use href="#i-power"/></svg>批量停止</button>
+        <div class="spacer"></div>
+        <button class="btn btn-ghost btn-sm" id="btn-batch-clear">取消选择</button>
+      </div>
+
+      <!-- 容器表格 -->
+      <div class="tbl-wrap">
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:36px"><span class="checkbox" role="checkbox" aria-checked="mixed" tabindex="0" data-toggle="checkbox" data-batch-all aria-label="全选"></span></th>
+                <th>用户</th>
+                <th class="sortable">容器 / 运行环境 <span class="th-sort"><svg class="icon"><use href="#i-chevron-down"/></svg></span></th>
+                <th>状态</th>
+                <th class="sortable">运行时长 <span class="th-sort"><svg class="icon"><use href="#i-chevron-down"/></svg></span></th>
+                <th>CPU / 内存</th>
+                <th>模型</th>
+                <th class="sortable sorted">今日费用 <span class="th-sort"><svg class="icon"><use href="#i-arrow-down"/></svg></span></th>
+                <th style="width:132px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="true" tabindex="0" data-toggle="checkbox" aria-label="选择 admin 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">AD</div>
+                    <div><div class="tu-n">admin</div><div class="tu-r">平台管理员</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-464d6e13-a2</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-box"/></svg>opencode:2.4.0 · 会话 5 进行中</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="badge badge-green">●</span>运行中</span></td>
+                <td class="rel-time">2d 14h</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1">CPU 12%</span>
+                    <span class="tm-2">MEM 412MB / 2GB</span>
+                    <div class="mem-bar"><i style="width:21%"></i></div>
+                  </div>
+                </td>
+                <td class="mono">deepseek-v4-flash</td>
+                <td class="mono">$3.42</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon" title="重启"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="false" tabindex="0" data-toggle="checkbox" aria-label="选择 chenyu 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">CY</div>
+                    <div><div class="tu-n">chenyu</div><div class="tu-r">研发 · 后端组</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-8f3a2b91-c4</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-box"/></svg>opencode:2.4.0</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="dot dot-green"></span>运行中</span></td>
+                <td class="rel-time">5d 02h</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1">CPU 8%</span>
+                    <span class="tm-2">MEM 286MB / 2GB</span>
+                    <div class="mem-bar"><i style="width:14%"></i></div>
+                  </div>
+                </td>
+                <td class="mono">qwen3-max</td>
+                <td class="mono">$5.18</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon" title="停止"><svg class="icon"><use href="#i-power"/></svg></button>
+                    <button class="btn-icon" title="重启"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="false" tabindex="0" data-toggle="checkbox" aria-label="选择 liwei 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">LW</div>
+                    <div><div class="tu-n">liwei</div><div class="tu-r">研发 · 前端组</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-d29e7741-b8</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-power"/></svg>3h 前由用户手动停止</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="dot dot-gray"></span>已停止</span></td>
+                <td class="rel-time">—</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1" style="color:var(--text-3)">—</span>
+                    <span class="tm-2">已释放</span>
+                  </div>
+                </td>
+                <td class="mono">—</td>
+                <td class="mono">$0.00</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon" title="启动"><svg class="icon"><use href="#i-play"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="true" tabindex="0" data-toggle="checkbox" aria-label="选择 zhangsan 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">ZS</div>
+                    <div><div class="tu-n">zhangsan</div><div class="tu-r">研发 · 测试组</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-91c4e0f2-a7</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-alert-triangle"/></svg>opencode:2.4.0</div>
+                    <div class="ts-err">OOMKilled · exit 137 · 22m 前崩溃</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="dot dot-red"></span>异常</span></td>
+                <td class="rel-time">8d 11h</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1">CPU 96%</span>
+                    <span class="tm-2">MEM 1.9GB / 2GB</span>
+                    <div class="mem-bar warn"><i style="width:95%"></i></div>
+                  </div>
+                </td>
+                <td class="mono">glm-5-air</td>
+                <td class="mono">$2.07</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon" title="重启"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="false" tabindex="0" data-toggle="checkbox" aria-label="选择 wangfang 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">WF</div>
+                    <div><div class="tu-n">wangfang</div><div class="tu-r">研发 · 平台组</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-33b8d1e6-c2</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-box"/></svg>opencode:2.3.9 · 待升级</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="badge badge-green">●</span>运行中</span></td>
+                <td class="rel-time">1d 03h</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1">CPU 15%</span>
+                    <span class="tm-2">MEM 512MB / 2GB</span>
+                    <div class="mem-bar"><i style="width:25%"></i></div>
+                  </div>
+                </td>
+                <td class="mono">deepseek-v4-pro</td>
+                <td class="mono">$1.86</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon" title="停止"><svg class="icon"><use href="#i-power"/></svg></button>
+                    <button class="btn-icon" title="重启"><svg class="icon"><use href="#i-rotate-ccw"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="checkbox" role="checkbox" aria-checked="false" tabindex="0" data-toggle="checkbox" aria-label="选择 liuyang 的容器"></span></td>
+                <td>
+                  <div class="t-user">
+                    <div class="avatar a-user">LY</div>
+                    <div><div class="tu-n">liuyang</div><div class="tu-r">研发 · 算法组</div></div>
+                  </div>
+                </td>
+                <td>
+                  <div class="td-stack">
+                    <div class="ts-1">agent-7a55c0e8-f9</div>
+                    <div class="ts-2"><svg class="icon"><use href="#i-loader"/></svg>正在拉取镜像 opencode:2.4.0</div>
+                  </div>
+                </td>
+                <td><span class="st-cell"><span class="dot dot-amber"></span>创建中</span></td>
+                <td class="rel-time">18s</td>
+                <td>
+                  <div class="td-metrics">
+                    <span class="tm-1" style="color:var(--text-3)">—</span>
+                    <span class="tm-2">待就绪</span>
+                  </div>
+                </td>
+                <td class="mono">deepseek-v4-flash</td>
+                <td class="mono">$0.00</td>
+                <td>
+                  <div class="act-ico">
+                    <button class="btn-icon" data-modal-open="modal-logs" title="查看日志"><svg class="icon"><use href="#i-terminal"/></svg></button>
+                    <button class="btn-icon danger" data-modal-open="modal-destroy" title="销毁"><svg class="icon"><use href="#i-trash"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============ 销毁确认模态 ============ -->
+<div class="modal-backdrop" id="modal-destroy" role="dialog" aria-modal="true" aria-label="销毁容器确认">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>销毁容器</h3>
+      <span class="head-meta">不可逆操作 · POST /api/admin/containers/destroy</span>
+      <div class="spacer"></div>
+      <button class="btn-icon" data-modal-close aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="destroy-warn">
+        <svg class="icon"><use href="#i-alert-triangle"/></svg>
+        <div>销毁将<b>永久删除</b>该容器内的全部工作区文件、会话历史与未保存更改。该操作不可撤销，系统不会保留任何备份。</div>
+      </div>
+      <div class="confirm-target">agent-91c4e0f2-a7</div>
+      <div class="confirm-hint">该容器当前处于异常状态（OOMKilled · exit 137），销毁后用户下次登录时将自动创建新容器。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-modal-close>取消</button>
+      <div class="spacer"></div>
+      <button class="btn btn-danger" id="btn-destroy-confirm"><svg class="icon"><use href="#i-trash"/></svg>确认销毁</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Toast ============ -->
+<div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+<!-- ============ 配置中心模态 ============ -->
+<div class="modal-backdrop cfg-modal" id="modal-config" role="dialog" aria-modal="true" aria-label="配置中心">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>配置中心</h3>
+      <span class="head-meta">配置优先级：项目 &gt; 用户 &gt; 平台</span>
+      <div class="spacer"></div>
+      <button class="btn-icon" data-modal-close aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+
+    <div class="cfg-scopebar" role="tablist" aria-label="配置作用域">
+      <button class="scope-btn active" data-scope="project"><span class="sc-dot" style="background:var(--primary)"></span><svg class="icon"><use href="#i-git-branch"/></svg>项目 · agent-docker-platform</button>
+      <button class="scope-btn" data-scope="user"><span class="sc-dot" style="background:var(--indigo)"></span><svg class="icon"><use href="#i-user"/></svg>用户 · admin</button>
+      <button class="scope-btn" data-scope="platform"><span class="sc-dot" style="background:var(--accent)"></span><svg class="icon"><use href="#i-server"/></svg>平台 · 全局默认</button>
+    </div>
+
+    <div class="cfg-tabs" role="tablist" aria-label="配置分类">
+      <button class="cfg-tab active" data-tab="models"><svg class="icon"><use href="#i-cpu"/></svg>模型供应商</button>
+      <button class="cfg-tab" data-tab="mcp"><svg class="icon"><use href="#i-plug"/></svg>MCP 服务器</button>
+      <button class="cfg-tab" data-tab="skills"><svg class="icon"><use href="#i-sparkles"/></svg>Skills</button>
+      <button class="cfg-tab" data-tab="rules"><svg class="icon"><use href="#i-book"/></svg>Rules</button>
+      <button class="cfg-tab" data-tab="json"><svg class="icon"><use href="#i-code"/></svg>源码 (JSON)</button>
+    </div>
+
+    <div class="cfg-body">
+
+      <!-- Pane: 模型供应商 -->
+      <div class="cfg-pane active" data-pane="models">
+        <div class="cp-head">
+          <svg class="icon"><use href="#i-cpu"/></svg>
+          <h4>模型供应商</h4>
+          <span class="cp-desc">API Key 加密存储于容器卷 · 永不回传前端</span>
+        </div>
+        <div class="prov-grid">
+          <div class="prov-card active">
+            <div class="pc-logo" style="background:var(--primary-soft);color:var(--primary-hover)">DS</div>
+            <div class="pc-main">
+              <div class="pc-name">DeepSeek <span class="badge badge-green">已连接</span></div>
+              <div class="pc-meta"><span>deepseek-v4-flash</span><span>deepseek-v4-pro</span><span>延迟 340ms</span></div>
+            </div>
+            <div class="pc-acts">
+              <button class="btn-icon" title="测试连接"><svg class="icon"><use href="#i-plug"/></svg></button>
+              <button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button>
+            </div>
+          </div>
+          <div class="prov-card">
+            <div class="pc-logo" style="background:var(--amber-soft);color:var(--amber)">QW</div>
+            <div class="pc-main">
+              <div class="pc-name">通义千问 · 百炼 <span class="badge badge-gray">未配置</span></div>
+              <div class="pc-meta"><span>qwen3-max</span><span>qwen3-plus</span></div>
+            </div>
+            <div class="pc-acts">
+              <button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button>
+            </div>
+          </div>
+          <div class="prov-card">
+            <div class="pc-logo" style="background:var(--accent-soft);color:var(--accent)">GL</div>
+            <div class="pc-main">
+              <div class="pc-name">智谱 GLM <span class="badge badge-gray">未配置</span></div>
+              <div class="pc-meta"><span>glm-5-air</span><span>glm-5-flash</span></div>
+            </div>
+            <div class="pc-acts">
+              <button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button>
+            </div>
+          </div>
+          <button class="add-row"><svg class="icon" style="width:14px;height:14px"><use href="#i-plus"/></svg>添加供应商（OpenAI 兼容协议）</button>
+        </div>
+      </div>
+
+      <!-- Pane: MCP -->
+      <div class="cfg-pane" data-pane="mcp">
+        <div class="cp-head">
+          <svg class="icon"><use href="#i-plug"/></svg>
+          <h4>MCP 服务器</h4>
+          <span class="cp-desc">变更后需重启会话生效</span>
+        </div>
+        <table class="cfg-table">
+          <thead>
+            <tr><th>名称</th><th>启动命令</th><th>状态</th><th>工具</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--primary-hover)"><use href="#i-hard-drive"/></svg>filesystem</div></td>
+              <td class="mono">npx @mcp/server-filesystem /workspace</td>
+              <td><span class="badge badge-green">运行中</span></td>
+              <td class="mono">11</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--primary-hover)"><use href="#i-git-branch"/></svg>github</div></td>
+              <td class="mono">npx @mcp/server-github</td>
+              <td><span class="badge badge-gray">已停止</span></td>
+              <td class="mono">—</td>
+              <td><div class="act-ico"><button class="btn-icon" title="启动"><svg class="icon"><use href="#i-play"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--primary-hover)"><use href="#i-monitor"/></svg>browser</div></td>
+              <td class="mono">npx @mcp/server-puppeteer</td>
+              <td><span class="badge badge-amber">启动中</span></td>
+              <td class="mono">—</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="add-row" style="margin-top:10px"><svg class="icon" style="width:14px;height:14px"><use href="#i-plus"/></svg>添加 MCP 服务器</button>
+      </div>
+
+      <!-- Pane: Skills -->
+      <div class="cfg-pane" data-pane="skills">
+        <div class="cp-head">
+          <svg class="icon"><use href="#i-sparkles"/></svg>
+          <h4>Skills</h4>
+          <span class="cp-desc">输入 <b>/</b> 或点击输入框 Sparkles 图标调用</span>
+        </div>
+        <table class="cfg-table">
+          <thead>
+            <tr><th>名称</th><th>描述</th><th>作用域</th><th>调用次数</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--accent)"><use href="#i-book"/></svg>api-docs</div></td>
+              <td>从 OpenAPI 规范生成交互式接口文档</td>
+              <td><span class="badge badge-purple">项目</span></td>
+              <td class="mono">23</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--accent)"><use href="#i-shield"/></svg>cors-audit</div></td>
+              <td>扫描跨域配置并给出 Nginx / 网关修复建议</td>
+              <td><span class="badge badge-purple">项目</span></td>
+              <td class="mono">9</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--indigo)"><use href="#i-upload"/></svg>deploy-check</div></td>
+              <td>部署前检查镜像体积、环境变量与端口映射</td>
+              <td><span class="badge badge-indigo">用户</span></td>
+              <td class="mono">41</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+            <tr>
+              <td><div class="ct-name"><svg class="icon" style="width:14px;height:14px;color:var(--indigo)"><use href="#i-file-text"/></svg>log-parse</div></td>
+              <td>解析容器日志并按级别 / 模块聚合统计</td>
+              <td><span class="badge badge-indigo">用户</span></td>
+              <td class="mono">17</td>
+              <td><div class="act-ico"><button class="btn-icon" title="编辑"><svg class="icon"><use href="#i-edit"/></svg></button><button class="btn-icon danger" title="移除"><svg class="icon"><use href="#i-trash"/></svg></button></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="add-row" style="margin-top:10px"><svg class="icon" style="width:14px;height:14px"><use href="#i-plus"/></svg>从模板创建 Skill</button>
+      </div>
+
+      <!-- Pane: Rules -->
+      <div class="cfg-pane" data-pane="rules">
+        <div class="cp-head">
+          <svg class="icon"><use href="#i-book"/></svg>
+          <h4>项目规则</h4>
+          <span class="cp-desc">AGENTS.md · 对话与工具调用全程生效</span>
+        </div>
+        <div class="cfg-note">
+          <svg class="icon"><use href="#i-info"/></svg>
+          <div>规则按顺序注入系统提示词，越靠前权重越高。支持引用 Skills 与 MCP 工具名。</div>
+        </div>
+        <textarea class="json-editor" spellcheck="false" aria-label="项目规则编辑"># agent-docker-platform 项目规则
+
+## 技术栈约束
+- 后端 FastAPI + SQLAlchemy 2.0，异步路由必须使用 Depends 注入会话
+- 前端 React 18 + TypeScript strict，禁止 any
+- 容器层变更需通过 POST /api/admin/containers/* 管理接口
+
+## CORS 排障路径
+1. 复现：curl -X OPTIONS -H "Origin: https://app.example.com" 目标接口
+2. 优先在网关层（nginx/conf.d）拦截预检请求，直接返回 204
+3. 后端仅保留凭据场景的 Access-Control-Allow-Credentials
+
+## 工具调用
+- 修改 nginx 配置后必须执行 nginx -t 验证
+- rm -rf 等危险命令需等待 guard 审批</textarea>
+      </div>
+
+      <!-- Pane: JSON -->
+      <div class="cfg-pane" data-pane="json">
+        <div class="cp-head">
+          <svg class="icon"><use href="#i-code"/></svg>
+          <h4>源码视图</h4>
+          <span class="cp-desc">项目配置聚合结果 · 只读</span>
+        </div>
+        <div class="cfg-note">
+          <svg class="icon"><use href="#i-info"/></svg>
+          <div>此处展示三层配置合并后的最终生效值。修改请切换上方作用域后在对应面板操作。</div>
+        </div>
+        <textarea class="json-editor" spellcheck="false" readonly aria-label="配置 JSON 只读视图">{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "deepseek-v4-flash",
+  "small_model": "deepseek-v4-flash",
+  "autoshare": false,
+  "mcp": {
+    "filesystem": {
+      "type": "local",
+      "command": ["npx", "@mcp/server-filesystem", "/workspace"],
+      "enabled": true
+    },
+    "github": { "type": "local", "command": ["npx", "@mcp/server-github"], "enabled": false }
+  },
+  "skills": ["api-docs", "cors-audit", "deploy-check", "log-parse"],
+  "agent": { "plan": "deepseek-v4-pro", "build": "deepseek-v4-flash", "review": "qwen3-max" }
+}</textarea>
+      </div>
+
+    </div>
+
+    <div class="modal-foot">
+      <div class="cfg-foot-hint"><svg class="icon"><use href="#i-info"/></svg>当前编辑：项目配置 · 变更仅影响本项目的后续会话</div>
+      <button class="btn btn-ghost" data-modal-close>取消</button>
+      <button class="btn btn-primary" id="btn-cfg-save"><svg class="icon"><use href="#i-check"/></svg>保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 原型控制面板 ============ -->
+<button class="proto-fab" id="proto-fab" aria-expanded="false" aria-controls="proto-panel" title="原型控制面板"><svg class="icon"><use href="#i-sliders"/></svg></button>
+<div class="proto-panel" id="proto-panel">
+  <div class="pp-head"><svg class="icon"><use href="#i-monitor"/></svg>原型控制面板<span class="pp-badge badge badge-purple">hifi v1</span></div>
+  <div class="pp-body">
+    <div class="pp-sec">
+      <div class="pps-l">屏幕导航</div>
+      <div class="pp-screens">
+        <button class="pp-screen-btn" data-goto="login"><svg class="icon"><use href="#i-lock"/></svg>登录</button>
+        <button class="pp-screen-btn active" data-goto="chat"><svg class="icon"><use href="#i-message"/></svg>对话</button>
+        <button class="pp-screen-btn" data-goto="admin"><svg class="icon"><use href="#i-shield"/></svg>管理</button>
+      </div>
+    </div>
+    <div class="pp-sec">
+      <div class="pps-l">状态演示</div>
+      <div class="pp-toggles">
+        <label class="pp-tg"><span class="tg-l">流式生成中（停止按钮）</span><button class="switch" role="switch" aria-checked="true" data-toggle="switch" data-effect="streaming"></button></label>
+        <label class="pp-tg"><span class="tg-l">文件面板展开</span><button class="switch" role="switch" aria-checked="true" data-toggle="switch" data-effect="filepanel"></button></label>
+        <label class="pp-tg"><span class="tg-l">容器告警横幅</span><button class="switch" role="switch" aria-checked="true" data-toggle="switch" data-effect="banner"></button></label>
+        <label class="pp-tg"><span class="tg-l">批量操作栏（管理屏）</span><button class="switch" role="switch" aria-checked="true" data-toggle="switch" data-effect="batch"></button></label>
+      </div>
+    </div>
+    <div class="pp-sec">
+      <div class="pps-l">外观</div>
+      <div class="pp-toggles">
+        <label class="pp-tg"><span class="tg-l">亮色主题</span><button class="switch" role="switch" aria-checked="false" data-toggle="switch" data-effect="theme"></button></label>
+      </div>
+    </div>
+    <div class="pp-note">依据 frontend/src/api.ts 全量接口契约重设计 · 深色开发者控制台风格 · 紫 #7C3AED × 青 #22D3EE</div>
+  </div>
+</div>
+<script>
+/* ============================================================
+   高保真原型 · 交互脚本
+   依据 api.ts 契约模拟：屏幕切换 / 登录注册 / SSE 流式状态 /
+   菜单联动 / 文件树 / 配置中心 / 管理批量操作 / Toast
+   ============================================================ */
+const $=(s,c=document)=>c.querySelector(s);
+const $$=(s,c=document)=>[...c.querySelectorAll(s)];
+
+/* ---------- Toast ---------- */
+function toast(msg,sub){
+  const wrap=$('#toast-wrap');if(!wrap)return;
+  const t=document.createElement('div');
+  t.className='toast';
+  t.innerHTML='<svg class="icon"><use href="#i-check-circle"/></svg><div>'+msg+(sub?' · <span style="color:var(--text-3)">'+sub+'</span>':'')+'</div>';
+  wrap.appendChild(t);
+  setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),260)},2800);
+}
+
+/* ---------- 屏幕切换（data-goto）---------- */
+function gotoScreen(id){
+  $$('.screen').forEach(s=>s.classList.remove('active'));
+  const t=$('#screen-'+id);if(t)t.classList.add('active');
+  $$('.pp-screen-btn').forEach(b=>b.classList.toggle('active',b.dataset.goto===id));
+  if(id==='chat'){const m=$('#msg-col');if(m)m.scrollTop=m.scrollHeight}
+}
+document.addEventListener('click',e=>{
+  const g=e.target.closest('[data-goto]');
+  if(g)gotoScreen(g.dataset.goto);
+});
+
+/* ---------- 登录 / 注册分段 ---------- */
+$$('[data-seg]').forEach(btn=>btn.addEventListener('click',()=>{
+  const isReg=btn.dataset.seg==='register';
+  $$('[data-seg]').forEach(b=>{
+    const on=b===btn;
+    b.classList.toggle('active',on);
+    b.setAttribute('aria-selected',on);
+  });
+  const fg=$('#fgroup-confirm');if(fg)fg.hidden=!isReg;
+  const bt=$('#login-btn-text');if(bt)bt.textContent=isReg?'创建账户并进入':'进入工作台';
+}));
+
+/* ---------- 模态（data-modal-open / data-modal-close）---------- */
+document.addEventListener('click',e=>{
+  const open=e.target.closest('[data-modal-open]');
+  if(open){const m=$('#'+open.dataset.modalOpen);if(m)m.classList.add('open');return}
+  if(e.target.closest('[data-modal-close]')||e.target.classList.contains('modal-backdrop')){
+    $$('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+  }
+});
+
+/* ---------- 弹出菜单（Agent / 模型 / 斜杠 / @ / Skill）---------- */
+function closeAllMenus(){$$('.menu.open').forEach(m=>m.classList.remove('open'))}
+const MENU_MAP={'chip-agent':'menu-agents','chip-model':'menu-models','btn-cmds':'menu-slash','btn-skill':'skill-pop'};
+Object.entries(MENU_MAP).forEach(([bid,mid])=>{
+  const b=$('#'+bid),m=$('#'+mid);if(!b||!m)return;
+  b.addEventListener('click',e=>{
+    e.stopPropagation();
+    const was=m.classList.contains('open');
+    closeAllMenus();
+    if(!was)m.classList.add('open');
+  });
+});
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.menu,#chip-agent,#chip-model,#btn-cmds,#btn-skill,#prompt-input'))closeAllMenus();
+});
+
+/* 输入框 chips 管理 */
+function addChip(type,text){
+  const wrap=$('#prompt-chips');if(!wrap)return;
+  const chip=document.createElement('span');
+  chip.className='chip '+(type==='skill'?'chip-skill':'chip-attach');
+  chip.innerHTML='<svg class="icon"><use href="#'+(type==='skill'?'i-sparkles':'i-at')+'"/></svg>'
+    +(type==='skill'?'skill · ':'')+text
+    +' <button class="chip-x" aria-label="移除 '+text+'"><svg class="icon"><use href="#i-x"/></svg></button>';
+  wrap.appendChild(chip);
+}
+$('#prompt-chips')?.addEventListener('click',e=>{
+  const x=e.target.closest('.chip-x');
+  if(x){x.closest('.chip').remove();toast('已移除')}
+});
+
+/* Agent / 模型菜单选中 → 更新 chip 文案 */
+function bindPsMenu(menuId,chipId,tpl){
+  $$('#'+menuId+' .menu-item').forEach(mi=>mi.addEventListener('click',function(){
+    $$('#'+menuId+' .menu-item').forEach(x=>x.classList.remove('active'));
+    this.classList.add('active');
+    const chip=$('#'+chipId),name=this.querySelector('.mi-mono')?.textContent;
+    if(chip&&name)chip.innerHTML=tpl(name);
+    closeAllMenus();
+  }));
+}
+bindPsMenu('menu-agents','chip-agent',n=>'<svg class="icon"><use href="#i-bot"/></svg>Agent · '+n+'<svg class="icon" style="width:12px;height:12px"><use href="#i-chevron-down"/></svg>');
+bindPsMenu('menu-models','chip-model',n=>'<svg class="icon"><use href="#i-zap"/></svg>'+n+'<svg class="icon" style="width:12px;height:12px"><use href="#i-chevron-down"/></svg>');
+/* 斜杠命令 → 填入输入框 */
+$$('#menu-slash .menu-item').forEach(mi=>mi.addEventListener('click',function(){
+  const i=$('#prompt-input');if(i){i.value=this.querySelector('.mi-mono')?.textContent+' ';i.focus()}
+  closeAllMenus();
+}));
+/* @ 文件 → 追加引用 chip */
+$$('#menu-at .menu-item').forEach(mi=>mi.addEventListener('click',function(){
+  addChip('at',this.querySelector('.mi-mono')?.textContent);
+  closeAllMenus();toast('已引用文件');
+}));
+/* Skill → 追加 skill chip */
+$$('#skill-pop .skill-item').forEach(si=>si.addEventListener('click',function(){
+  addChip('skill',this.querySelector('.si-name')?.textContent);
+  closeAllMenus();
+}));
+/* 附件按钮（演示）*/
+$('#btn-attach')?.addEventListener('click',e=>{
+  e.stopPropagation();closeAllMenus();toast('附件上传','POST /api/files/upload · 最大 10MB');
+});
+
+/* ---------- 输入框行为 ---------- */
+const input=$('#prompt-input');
+if(input){
+  input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,180)+'px'});
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){closeAllMenus();return}
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendOrStop();return}
+    if(e.key==='/'&&input.value===''){closeAllMenus();$('#menu-slash')?.classList.add('open')}
+    if(e.key==='@'){closeAllMenus();$('#menu-at')?.classList.add('open')}
+  });
+}
+/* 欢迎卡 → 填入输入框 */
+$$('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{
+  const i=$('#prompt-input');
+  if(i){i.value=b.dataset.prompt;i.focus();i.dispatchEvent(new Event('input'))}
+  $('#welcome')?.classList.remove('show');
+}));
+
+/* ---------- 发送 / 停止（SSE 流式状态机）---------- */
+let streaming=true,timer=null;
+function renderSend(){
+  const b=$('#btn-send');if(!b)return;
+  b.classList.toggle('stop',streaming);
+  b.innerHTML='<svg class="icon"><use href="#'+(streaming?'i-square':'i-arrow-up')+'"/></svg>';
+  b.setAttribute('aria-label',streaming?'停止生成':'发送消息');
+  b.title=streaming?'停止生成':'发送消息';
+}
+function sendOrStop(){
+  const b=$('#btn-send');if(!b)return;
+  if(streaming){
+    streaming=false;renderSend();
+    if(timer){clearTimeout(timer);timer=null}
+    toast('已停止生成','turn #5 · SSE 已断开');
+  }else{
+    const i=$('#prompt-input'),v=i?i.value.trim():'';
+    if(!v){toast('请输入消息内容');return}
+    i.value='';i.style.height='auto';
+    streaming=true;renderSend();
+    toast('已发送','POST /api/chat · SSE 流式返回');
+    timer=setTimeout(()=>{
+      if(streaming){streaming=false;renderSend();toast('生成完成','turn #6 · ↑8.4K ↓1.2K tokens')}
+    },8000);
+  }
+}
+$('#btn-send')?.addEventListener('click',sendOrStop);
+
+/* ---------- 折叠卡片（推理 / 工具 / Diff）---------- */
+$$('[data-collapse]').forEach(h=>h.addEventListener('click',()=>{
+  h.parentElement.classList.toggle('collapsed');
+}));
+
+/* ---------- 文件面板：树折叠 / 预览 / 引用 ---------- */
+$$('[data-ft-toggle]').forEach(r=>r.addEventListener('click',e=>{
+  if(e.target.closest('.checkbox,.ft-at'))return;
+  const ch=$('#'+r.dataset.ftToggle);if(!ch)return;
+  r.classList.toggle('collapsed');
+  ch.classList.toggle('collapsed');
+}));
+$('#btn-ft-expand')?.addEventListener('click',()=>{
+  $$('#fp-body .ft-row.is-folder, #fp-body .ft-children').forEach(x=>x.classList.remove('collapsed'));
+});
+$('#btn-ft-collapse')?.addEventListener('click',()=>{
+  $$('#fp-body .ft-row.is-folder, #fp-body .ft-children').forEach(x=>x.classList.add('collapsed'));
+});
+$$('[data-fp]').forEach(r=>r.addEventListener('click',e=>{
+  if(e.target.closest('.checkbox,.ft-at'))return;
+  $$('#fp-body .ft-row').forEach(x=>x.classList.remove('sel'));
+  r.classList.add('sel');
+  $('#fp-preview')?.classList.add('open');
+  const n=$('#fpv-name');if(n)n.textContent=r.dataset.fp;
+}));
+$$('.ft-at').forEach(a=>a.addEventListener('click',e=>{
+  e.stopPropagation();
+  const row=a.closest('.ft-row');
+  if(row){addChip('at',row.dataset.fp);toast('已加入引用')}
+}));
+$('#btn-fpv-close')?.addEventListener('click',()=>$('#fp-preview')?.classList.remove('open'));
+$('#btn-fp-close')?.addEventListener('click',()=>$('#file-panel')?.classList.remove('open'));
+$('#btn-fp-toggle')?.addEventListener('click',()=>$('#file-panel')?.classList.toggle('open'));
+$('#btn-ft-refresh')?.addEventListener('click',()=>toast('文件树已刷新','GET /api/sessions/current/files'));
+/* 工作区上传 / 下载（对齐 api.ts 契约：uploadChatFile / downloadWorkspaceFiles） */
+const fpChecked=()=>$$('#fp-body .checkbox[aria-checked="true"]').length;
+$('#btn-ws-upload')?.addEventListener('click',()=>{
+  const inp=document.createElement('input');
+  inp.type='file';inp.style.display='none';
+  inp.onchange=()=>{ if(inp.files.length) toast('文件已上传','POST /workspace/files/upload · 已存入容器 '+(inp.files[0].name||'')); inp.remove(); };
+  document.body.appendChild(inp);inp.click();
+});
+$('#btn-ws-download')?.addEventListener('click',()=>{
+  const n=fpChecked();
+  if(n===0){toast('请先勾选要下载的文件/目录','POST /workspace/files/download · paths[]');return}
+  toast('已开始下载勾选内容','POST /workspace/files/download · '+n+' 项 · zip 打包');
+});
+
+/* ---------- 开关 / 复选框（含批量栏联动）---------- */
+function syncBatch(){
+  const boxes=$$('#screen-admin tbody .checkbox');
+  const n=boxes.filter(b=>b.getAttribute('aria-checked')==='true').length;
+  $('#batch-bar')?.classList.toggle('show',n>0);
+  const c=$('#batch-count');if(c)c.textContent=n;
+  const all=$('[data-batch-all]');
+  if(all)all.setAttribute('aria-checked',n===0?'false':n===boxes.length?'true':'mixed');
+}
+document.addEventListener('click',e=>{
+  const sw=e.target.closest('[data-toggle="switch"]');
+  if(sw){
+    const on=sw.getAttribute('aria-checked')!=='true';
+    sw.setAttribute('aria-checked',on);
+    const fx=sw.dataset.effect;
+    if(fx)applyEffect(fx,on);
+    return;
+  }
+  const cb=e.target.closest('[data-toggle="checkbox"]');
+  if(!cb)return;
+  if(cb.hasAttribute('data-batch-all')){
+    const boxes=$$('#screen-admin tbody .checkbox');
+    const on=cb.getAttribute('aria-checked')!=='true';
+    boxes.forEach(b=>b.setAttribute('aria-checked',on));
+    cb.setAttribute('aria-checked',on?'true':'false');
+    syncBatch();return;
+  }
+  cb.setAttribute('aria-checked',cb.getAttribute('aria-checked')==='true'?'false':'true');
+  if(cb.closest('#screen-admin'))syncBatch();
+});
+
+/* ---------- 原型面板：状态演示 ---------- */
+function applyEffect(fx,on){
+  if(fx==='streaming'){
+    streaming=on;renderSend();
+    if(!on&&timer){clearTimeout(timer);timer=null}
+  }
+  if(fx==='filepanel')$('#file-panel')?.classList.toggle('open',on);
+  if(fx==='banner'){
+    ['#banner-warn','#banner-err'].forEach(id=>{
+      const el=$(id);if(el)el.style.display=on?'':'none';
+    });
+  }
+  if(fx==='theme')setTheme(on?'light':'dark');
+  if(fx==='batch'){
+    const bar=$('#batch-bar');
+    if(on){bar?.classList.add('show')}
+    else{
+      bar?.classList.remove('show');
+      $$('#screen-admin tbody .checkbox').forEach(b=>b.setAttribute('aria-checked','false'));
+      syncBatch();
+    }
+  }
+}
+
+/* ---------- 主题切换（暗色默认 / 亮色可切换 + localStorage 持久化）---------- */
+function setTheme(t){
+  if(t==='light')document.documentElement.dataset.theme='light';
+  else delete document.documentElement.dataset.theme;
+  try{localStorage.setItem('theme',t)}catch(e){}
+  $$('[data-effect="theme"]').forEach(s=>s.setAttribute('aria-checked',t==='light'?'true':'false'));
+  $$('[data-theme-toggle]').forEach(b=>b.setAttribute('title',t==='light'?'切换到暗色主题':'切换到亮色主题'));
+}
+$$('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{
+  setTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+}));
+/* 若防 FOUC 脚本已恢复亮色，同步控件初始态 */
+if(document.documentElement.dataset.theme==='light')setTheme('light');
+const fab=$('#proto-fab');
+fab?.addEventListener('click',()=>{
+  const p=$('#proto-panel');
+  p?.classList.toggle('open');
+  fab.setAttribute('aria-expanded',String(p?.classList.contains('open')));
+});
+
+/* ---------- 横幅关闭 ---------- */
+$$('[data-banner-close]').forEach(b=>b.addEventListener('click',()=>{
+  const el=$('#'+b.dataset.bannerClose);if(el)el.remove();
+}));
+
+/* ---------- 侧栏（移动端抽屉）---------- */
+$$('.side-toggle').forEach(b=>b.addEventListener('click',e=>{
+  e.stopPropagation();
+  $('.sidebar')?.classList.toggle('open');
+}));
+document.addEventListener('click',e=>{
+  const sb=$('.sidebar');
+  if(sb?.classList.contains('open')&&!e.target.closest('.sidebar,.side-toggle'))sb.classList.remove('open');
+});
+
+/* ---------- 业务动作（模拟 API 调用）---------- */
+$('#btn-destroy-confirm')?.addEventListener('click',()=>{
+  $$('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+  toast('容器已销毁','agent-91c4e0f2-a7 · 工作区已清理');
+});
+$('#btn-cfg-save')?.addEventListener('click',()=>{
+  $$('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+  toast('配置已保存','PUT /api/config/{scope} · 下个会话生效');
+});
+$('#btn-admin-refresh')?.addEventListener('click',()=>toast('容器列表已刷新','GET /api/admin/containers'));
+$('#btn-batch-clear')?.addEventListener('click',()=>{
+  $$('#screen-admin tbody .checkbox').forEach(b=>b.setAttribute('aria-checked','false'));
+  syncBatch();
+});
+
+/* ---------- 配置中心：作用域 / 子 Tab ---------- */
+$$('.scope-btn').forEach(s=>s.addEventListener('click',()=>{
+  $$('.scope-btn').forEach(x=>x.classList.toggle('active',x===s));
+  const names={
+    project:'当前编辑：项目配置 · 变更仅影响本项目的后续会话',
+    user:'当前编辑：用户配置 · 跨项目生效，项目级配置可覆盖',
+    platform:'当前编辑：平台配置 · 全局默认值，仅管理员可修改'
+  };
+  const h=$('.cfg-foot-hint');
+  if(h&&h.lastChild)h.lastChild.textContent=names[s.dataset.scope]||'';
+}));
+$$('.cfg-tab').forEach(t=>t.addEventListener('click',()=>{
+  $$('.cfg-tab').forEach(x=>x.classList.toggle('active',x===t));
+  $$('.cfg-pane').forEach(p=>p.classList.toggle('active',p.dataset.pane===t.dataset.tab));
+}));
+
+/* ---------- Esc 全局收起 ---------- */
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    $$('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+    closeAllMenus();
+  }
+});
+
+/* ---------- 初始化 ---------- */
+renderSend();
+window.addEventListener('load',()=>{
+  const m=$('#msg-col');if(m)m.scrollTop=m.scrollHeight;
+});
+</script>
+</body>
+</html>

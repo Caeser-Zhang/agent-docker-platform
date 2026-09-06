@@ -488,7 +488,7 @@ export function AdminPanel({
         </div>
         <div style={s.headerRight}>
           <span style={s.whoami}>
-            {username} · <span style={{ color: "#fbbf24" }}>admin</span>
+            {username} · <span style={{ color: "var(--amber)" }}>admin</span>
           </span>
           <button className="adm-btn adm-btn-primary" style={s.btnPrimary} onClick={onExit}>
             返回聊天
@@ -599,7 +599,7 @@ export function AdminPanel({
             {loading ? "刷新中…" : "立即刷新"}
           </button>
           {filtered && (
-            <span style={{ fontSize: "12px", color: "#818cf8" }}>
+            <span style={{ fontSize: "12px", color: "var(--indigo)" }}>
               显示 {visibleContainers.length} / {containers.length}
             </span>
           )}
@@ -762,7 +762,7 @@ export function AdminPanel({
                           <span
                             className="adm-badge adm-badge-warn"
                             title="容器运行的镜像与当前镜像不一致（镜像已重建）— 点击「更新镜像」以应用"
-                            style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "999px", background: "#78350f", color: "#fbbf24" }}
+                            style={{ fontSize: "10px", padding: "1px 6px", borderRadius: "999px", background: "var(--amber-soft)", color: "var(--amber)" }}
                           >
                             镜像过期
                           </span>
@@ -770,7 +770,7 @@ export function AdminPanel({
                       </div>
                       {c.last_error && (
                         <div
-                          style={{ color: "#f87171", fontSize: "11px", marginTop: "4px", display: "flex", gap: "4px", alignItems: "center" }}
+                          style={{ color: "var(--red)", fontSize: "11px", marginTop: "4px", display: "flex", gap: "4px", alignItems: "center" }}
                           title={c.last_error}
                         >
                           <WarningIcon />
@@ -829,7 +829,7 @@ export function AdminPanel({
                           style={{
                             ...s.btnSmall,
                             ...(absent || disabled ? s.btnDisabled : {}),
-                            ...(c.image_stale && !disabled ? { borderColor: "#fbbf24", color: "#fbbf24" } : {}),
+                            ...(c.image_stale && !disabled ? { borderColor: "var(--amber)", color: "var(--amber)" } : {}),
                           }}
                           disabled={absent || disabled}
                           title="删除容器并用当前镜像重建（工作区/数据卷保留，容器会短暂重启）"
@@ -950,7 +950,7 @@ export function AdminPanel({
                 及其全部数据卷。该操作<b>不可恢复</b>，用户的工作区文件与 opencode
                 会话历史将被永久删除。用户下次进入聊天时容器会重新创建。
               </div>
-              <div style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "8px" }}>
+              <div style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "8px" }}>
                 请输入容器名 <span style={s.mono}>{destroyModal.containerName}</span> 以确认：
               </div>
               <input
@@ -1008,8 +1008,8 @@ export function AdminPanel({
                   </div>
                 ))}
               </div>
-              <div style={{ fontSize: "13px", color: "#94a3b8", marginBottom: "8px" }}>
-                请输入 <b style={{ color: "#f87171" }}>销毁</b> 二字以确认：
+              <div style={{ fontSize: "13px", color: "var(--text-3)", marginBottom: "8px" }}>
+                请输入 <b style={{ color: "var(--red)" }}>销毁</b> 二字以确认：
               </div>
               <input
                 className="adm-input"

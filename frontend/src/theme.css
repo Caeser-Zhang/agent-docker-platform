@@ -1,0 +1,221 @@
+/* ================================================================
+   Agent Docker Platform · 双主题令牌系统
+   视觉规范唯一真源：frontend/design/hifi-redesign.html
+   暗色默认（:root）+ 亮色切换（html[data-theme="light"]）
+   --code-* 系列：代码/日志/终端区双主题恒为深色（编辑器风格）
+   ================================================================ */
+:root {
+  /* 背景层次 */
+  --bg: #0e0c19;
+  --surface: #161327;
+  --surface-2: #1d1932;
+  --surface-3: #262045;
+  --border: #2a2444;
+  --border-strong: #3b3360;
+  /* 文字（对比度均 >= 4.5:1 于其常用底色） */
+  --text: #f1effb;
+  --text-2: #b7b2d6;
+  --text-3: #8f89b4;
+  /* 主色 */
+  --primary: #7c3aed;
+  --primary-hover: #8b5cf6;
+  --primary-deep: #6d28d9;
+  --primary-soft: rgba(124, 58, 237, 0.18);
+  --primary-border: rgba(139, 92, 246, 0.5);
+  /* 强调与语义 */
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.13);
+  --accent-border: rgba(34, 211, 238, 0.45);
+  --green: #34d399;
+  --green-soft: rgba(52, 211, 153, 0.14);
+  --green-fill: #047857;
+  --green-border: rgba(52, 211, 153, 0.4);
+  --red: #f87171;
+  --red-soft: rgba(248, 113, 113, 0.13);
+  --red-border: rgba(248, 113, 113, 0.45);
+  --red-fill: #dc2626;
+  --amber: #fbbf24;
+  --amber-soft: rgba(251, 191, 36, 0.13);
+  --amber-border: rgba(251, 191, 36, 0.42);
+  --indigo: #818cf8;
+  --indigo-soft: rgba(129, 140, 248, 0.15);
+  --indigo-border: rgba(129, 140, 248, 0.4);
+  --scope-global: #f59e0b;
+  --scope-global-soft: rgba(245, 158, 11, 0.14);
+  --scope-project: #38bdf8;
+  --scope-project-soft: rgba(56, 189, 248, 0.13);
+  --scope-user: #a78bfa;
+  --scope-user-soft: rgba(167, 139, 250, 0.15);
+  /* 字体 */
+  --sans: "Space Grotesk", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  /* 圆角 / 阴影 / 动效 */
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-1: 0 2px 10px rgba(5, 3, 15, 0.45);
+  --shadow-2: 0 12px 40px rgba(5, 3, 15, 0.55);
+  --shadow-3: 0 24px 72px rgba(5, 3, 15, 0.68);
+  --t: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-slow: 320ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* 代码 / 终端区（恒深色，不随主题翻转） */
+  --code-bg: #0b0917;
+  --code-border: #2a2444;
+  --code-text: #f1effb;
+  --code-text-2: #b7b2d6;
+  --code-text-muted: #8f89b4;
+  --code-accent: #22d3ee;
+  --code-amber: #fbbf24;
+  --code-red: #f87171;
+  --code-green: #34d399;
+
+  /* 随主题翻转的语义色（暗色用亮色调，亮色覆盖为深色调） */
+  --purple-300: #c4b5fd;
+  --diff-add: #a7f3d0;
+  --diff-del: #fca5a5;
+  --scrollbar-hover: #4a4173;
+  color-scheme: dark;
+}
+
+/* ================================================================
+   亮色主题（html[data-theme="light"]）
+   ================================================================ */
+html[data-theme="light"] {
+  color-scheme: light;
+  /* 背景层次 */
+  --bg: #f6f5fb;
+  --surface: #ffffff;
+  --surface-2: #f1eff8;
+  --surface-3: #e7e4f2;
+  --border: #e2def0;
+  --border-strong: #c7c1dd;
+  /* 文字 */
+  --text: #211b3d;
+  --text-2: #57516f;
+  --text-3: #837d9e;
+  /* 主色 / 强调 */
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-deep: #6d28d9;
+  --primary-soft: rgba(124, 58, 237, 0.08);
+  --primary-border: rgba(124, 58, 237, 0.32);
+  --accent: #0891b2;
+  --accent-soft: rgba(8, 145, 178, 0.08);
+  --accent-border: rgba(8, 145, 178, 0.32);
+  /* 语义色（亮色下调深以保证对比度） */
+  --green: #059669;
+  --green-soft: rgba(5, 150, 105, 0.1);
+  --green-fill: #059669;
+  --green-border: rgba(5, 150, 105, 0.35);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.07);
+  --red-border: rgba(220, 38, 38, 0.3);
+  --red-fill: #dc2626;
+  --amber: #b45309;
+  --amber-soft: rgba(180, 83, 9, 0.09);
+  --amber-border: rgba(180, 83, 9, 0.32);
+  --indigo: #4f46e5;
+  --indigo-soft: rgba(79, 70, 229, 0.08);
+  --indigo-border: rgba(79, 70, 229, 0.32);
+  --scope-global: #b45309;
+  --scope-global-soft: rgba(180, 83, 9, 0.1);
+  --scope-project: #0284c7;
+  --scope-project-soft: rgba(2, 132, 199, 0.1);
+  --scope-user: #7c3aed;
+  --scope-user-soft: rgba(124, 58, 237, 0.09);
+  /* 随主题翻转的语义色 */
+  --purple-300: #6d28d9;
+  --diff-add: #047857;
+  --diff-del: #b91c1c;
+  --scrollbar-hover: #b7b0d6;
+  /* 阴影（亮色用低透明度墨色） */
+  --shadow-1: 0 2px 10px rgba(33, 27, 61, 0.08);
+  --shadow-2: 0 12px 40px rgba(33, 27, 61, 0.12);
+  --shadow-3: 0 24px 72px rgba(33, 27, 61, 0.16);
+}
+
+/* ---------------- 全局基础 ---------------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+::selection { background: rgba(124, 58, 237, 0.4); }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+
+/* ---------------- 主题切换按钮（原型 .btn.btn-ghost.btn-icon.theme-btn） ---------------- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--t), color var(--t);
+}
+.theme-toggle:hover { background: var(--surface-3); color: var(--text); }
+.theme-toggle:active { transform: translateY(1px); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-toggle svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------------- Chat composer 交互态（inline style 无法表达 :hover/:focus-within） ---------------- */
+/* 输入卡片：聚焦时主色描边（原型 .input-row:focus-within） */
+.input-card { transition: border-color var(--t), box-shadow var(--t); }
+.input-card:focus-within {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+/* ghost 图标按钮（原型 .btn.btn-ghost.btn-icon） */
+.icon-btn { transition: background var(--t), color var(--t); }
+.icon-btn:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.icon-btn:active:not(:disabled) { transform: translateY(1px); }
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* composer 内的上下文 chip 选择器（原型 .chip） */
+.ctx-chip { transition: background var(--t), border-color var(--t), color var(--t); }
+.ctx-chip:hover { border-color: var(--border-strong); color: var(--text); }
+
+/* 发送 / 停止方形按钮（原型 .send-btn） */
+.send-btn { transition: filter var(--t), transform var(--t); }
+.send-btn:hover:not(:disabled) { filter: brightness(1.12); }
+.send-btn:active:not(:disabled) { transform: translateY(1px); }
+.send-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* 向上弹出菜单的菜单项（原型 .menu-item） */
+.ps-menu-item { transition: background var(--t), color var(--t); }
+.ps-menu-item:hover { background: var(--primary-soft); color: var(--text); }
+
+/* 侧栏边缘拖拽调宽手柄：默认隐形，hover / 拖动时高亮 */
+.panel-resizer { transition: background var(--t); }
+.panel-resizer:hover,
+.panel-resizer.dragging { background: var(--primary-soft); }
+
+/* SSE 状态点脉冲（原型 .dot.live::after） */
+@keyframes dot-ping {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+  70% { box-shadow: 0 0 0 5px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+.dot-live { animation: dot-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite; }
