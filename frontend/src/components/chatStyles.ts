@@ -1,50 +1,55 @@
 import type { CSSProperties } from "react";
 
 /**
- * Light, clean, minimal theme inspired by opencode's own web frontend.
+ * Agent Docker Platform chat styles, aligned with design/hifi-redesign.html.
  *
- * Palette (opencode light tokens, softened):
- *   page bg        #f7f8fa
- *   surface/card   #ffffff
- *   subtle fill    #f1f3f5
- *   border         #e6e8ee
- *   text primary   #16181d
- *   text secondary #5b6472
- *   text muted     #9aa2b1
- *   accent         #2563eb
+ * All colors resolve through CSS custom properties defined in src/theme.css
+ * (dark by default, light via html[data-theme="light"]), so every style below
+ * is automatically theme-aware.
  */
 
+/** Architecture layer dots (constant across themes, matching the prototype). */
 export const layerColors: Record<string, string> = {
-  browser: "#3b82f6",
-  platform: "#8b5cf6",
-  container: "#06b6d4",
-  shared: "#10b981",
+  browser: "#38bdf8",
+  platform: "#a78bfa",
+  container: "#22d3ee",
+  shared: "#f59e0b",
 };
 
 const toolColors: Record<string, string> = {
-  pending: "#9aa2b1",
-  running: "#f59e0b",
-  completed: "#16a34a",
-  error: "#dc2626",
+  pending: "var(--text-3)",
+  running: "var(--amber)",
+  completed: "var(--green)",
+  error: "var(--red)",
 };
 
-// Shared tokens -------------------------------------------------------------
-const border = "#e6e8ee";
-const borderStrong = "#d5dae3";
-const surface = "#ffffff";
-const subtle = "#f1f3f5";
-const page = "#f7f8fa";
-const text = "#16181d";
-const textSec = "#5b6472";
-const textMut = "#9aa2b1";
-const accent = "#2563eb";
-const accentSoft = "rgba(37,99,235,0.08)";
+// Shared tokens (theme-aware, resolved by theme.css) ------------------------
+const border = "var(--border)";
+const borderStrong = "var(--border-strong)";
+const surface = "var(--surface)";
+const subtle = "var(--surface-2)";
+const page = "var(--bg)";
+const text = "var(--text)";
+const textSec = "var(--text-2)";
+const textMut = "var(--text-3)";
+const accent = "var(--primary)";
+const accentSoft = "var(--primary-soft)";
 
 /** `any` because a few entries are style factories, not plain CSSProperties. */
 export const styles: Record<string, any> = {
   container: { display: "flex", height: "100vh", background: page, color: text },
+  // 侧栏边缘拖拽调宽手柄（flex 行内 6px 竖条，hover/拖动高亮见 theme.css
+  // 的 .panel-resizer）。宽度状态由 Chat 组件管理并持久化。
+  panelDragHandle: {
+    width: "6px",
+    flexShrink: 0,
+    cursor: "col-resize",
+    background: "transparent",
+    zIndex: 20,
+  },
   sidebar: {
     width: "300px",
+    flexShrink: 0,
     borderRight: `1px solid ${border}`,
     display: "flex",
     flexDirection: "column",
@@ -109,7 +114,7 @@ export const styles: Record<string, any> = {
     padding: "8px",
     border: "none",
     borderRadius: "8px",
-    background: "#16a34a",
+    background: "var(--green-fill)",
     color: "#fff",
     fontSize: "13px",
     fontWeight: 600,
@@ -120,7 +125,7 @@ export const styles: Record<string, any> = {
     padding: "8px",
     border: "none",
     borderRadius: "8px",
-    background: "#dc2626",
+    background: "var(--red-fill)",
     color: "#fff",
     fontSize: "13px",
     fontWeight: 600,
@@ -202,18 +207,18 @@ export const styles: Record<string, any> = {
 
   // --- permission / question approval cards ---
   permCard: {
-    background: "#fffbeb",
-    border: "1px solid #fcd34d",
+    background: "var(--amber-soft)",
+    border: "1px solid var(--amber-border)",
     borderRadius: "10px",
     padding: "12px 16px",
     marginBottom: "12px",
   },
-  permTitle: { fontSize: "13px", fontWeight: 600, color: "#b45309", marginBottom: "6px" },
+  permTitle: { fontSize: "13px", fontWeight: 600, color: "var(--amber)", marginBottom: "6px" },
   permRes: {
     fontSize: "12px",
     color: textSec,
     fontFamily: "monospace",
-    background: "#fff",
+    background: surface,
     border: `1px solid ${border}`,
     borderRadius: "6px",
     padding: "4px 8px",
@@ -224,7 +229,7 @@ export const styles: Record<string, any> = {
   permMeta: {
     margin: "8px 0 0",
     padding: "8px 10px",
-    background: "#fff",
+    background: surface,
     border: `1px solid ${border}`,
     borderRadius: "6px",
     fontSize: "11px",
@@ -240,7 +245,7 @@ export const styles: Record<string, any> = {
     padding: "6px 12px",
     border: "none",
     borderRadius: "6px",
-    background: "#16a34a",
+    background: "var(--green-fill)",
     color: "#fff",
     fontSize: "12px",
     fontWeight: 600,
@@ -248,10 +253,10 @@ export const styles: Record<string, any> = {
   },
   permAlwaysBtn: {
     padding: "6px 12px",
-    border: "1px solid #16a34a",
+    border: "1px solid var(--green)",
     borderRadius: "6px",
     background: "transparent",
-    color: "#16a34a",
+    color: "var(--green)",
     fontSize: "12px",
     cursor: "pointer",
   },
@@ -259,20 +264,20 @@ export const styles: Record<string, any> = {
     padding: "6px 12px",
     border: "none",
     borderRadius: "6px",
-    background: "#dc2626",
+    background: "var(--red-fill)",
     color: "#fff",
     fontSize: "12px",
     fontWeight: 600,
     cursor: "pointer",
   },
   quesCard: {
-    background: "#eef2ff",
-    border: "1px solid #c7d2fe",
+    background: "var(--indigo-soft)",
+    border: "1px solid var(--indigo-border)",
     borderRadius: "10px",
     padding: "12px 16px",
     marginBottom: "12px",
   },
-  quesTitle: { fontSize: "13px", fontWeight: 600, color: "#4338ca", marginBottom: "8px" },
+  quesTitle: { fontSize: "13px", fontWeight: 600, color: "var(--indigo)", marginBottom: "8px" },
   quesQuestion: { fontSize: "13px", color: text, marginBottom: "4px" },
   quesOptions: { display: "flex", flexDirection: "column", gap: "4px", marginBottom: "8px" },
   quesOption: {
@@ -309,7 +314,7 @@ export const styles: Record<string, any> = {
     padding: "6px 8px",
     border: `1px solid ${borderStrong}`,
     borderRadius: "6px",
-    background: "#fff",
+    background: surface,
     color: text,
     fontSize: "12px",
     outline: "none",
@@ -336,19 +341,59 @@ export const styles: Record<string, any> = {
     width: "8px",
     height: "8px",
     borderRadius: "50%",
-    background: layerColors[layer] || "#9aa2b1",
+    background: layerColors[layer] || textMut,
   }),
   mainArea: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" },
 
-  // --- model switcher bar ---
+  // --- model switcher bar（对齐原型 .modelbar：54px 高、左会话标题 + 右状态区） ---
   modelBar: {
+    height: "54px",
+    flex: "none",
     display: "flex",
     alignItems: "center",
-    gap: "8px",
-    padding: "10px 16px",
+    gap: "10px",
+    padding: "0 16px",
     borderBottom: `1px solid ${border}`,
     background: surface,
-    flexWrap: "wrap",
+  },
+  mbLeft: { flex: 1, minWidth: 0, display: "flex", alignItems: "center" },
+  mbSess: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    fontSize: "13.5px",
+    fontWeight: 600,
+    color: text,
+    minWidth: 0,
+  },
+  mbSessIcon: { width: "14px", height: "14px", color: textMut, flex: "none" },
+  mbRight: { display: "flex", alignItems: "center", gap: "8px" },
+  sseInd: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11.5px",
+    color: textMut,
+    fontFamily: "var(--mono)",
+    whiteSpace: "nowrap",
+  },
+  dot: { width: "8px", height: "8px", borderRadius: "50%", flex: "none" },
+  // ghost 图标按钮（原型 .btn.btn-ghost.btn-icon；hover 态见 theme.css .icon-btn）
+  iconBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "32px",
+    height: "32px",
+    padding: 0,
+    border: "none",
+    borderRadius: "9px",
+    background: "transparent",
+    color: textSec,
+    fontSize: "15px",
+    lineHeight: 1,
+    cursor: "pointer",
+    flex: "none",
   },
   modelLabel: { fontSize: "12px", color: textSec },
   select: {
@@ -382,9 +427,9 @@ export const styles: Record<string, any> = {
 
   errorBanner: {
     padding: "12px 20px",
-    background: "#fef2f2",
-    borderBottom: "1px solid #fecaca",
-    color: "#b91c1c",
+    background: "var(--red-soft)",
+    borderBottom: "1px solid var(--red-border)",
+    color: "var(--red)",
     fontSize: "13px",
     display: "flex",
     justifyContent: "space-between",
@@ -394,9 +439,9 @@ export const styles: Record<string, any> = {
   // from the red errorBanner — this is recoverable and auto-retries).
   sseDownBanner: {
     padding: "10px 20px",
-    background: "#fffbeb",
-    borderBottom: "1px solid #fde68a",
-    color: "#b45309",
+    background: "var(--amber-soft)",
+    borderBottom: "1px solid var(--amber-border)",
+    color: "var(--amber)",
     fontSize: "13px",
     display: "flex",
     alignItems: "center",
@@ -404,7 +449,7 @@ export const styles: Record<string, any> = {
   errorClose: {
     background: "none",
     border: "none",
-    color: "#b91c1c",
+    color: "var(--red)",
     cursor: "pointer",
     fontSize: "18px",
   },
@@ -582,7 +627,7 @@ export const styles: Record<string, any> = {
     width: "7px",
     height: "7px",
     borderRadius: "50%",
-    background: toolColors[status] || "#9aa2b1",
+    background: toolColors[status] || textMut,
     flexShrink: 0,
   }),
   toolName: { fontFamily: "monospace", color: text },
@@ -602,9 +647,9 @@ export const styles: Record<string, any> = {
   },
   turnError: {
     fontSize: "12px",
-    color: "#b91c1c",
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
+    color: "var(--red)",
+    background: "var(--red-soft)",
+    border: "1px solid var(--red-border)",
     padding: "8px 12px",
     borderRadius: "10px",
     marginTop: "6px",
@@ -660,8 +705,8 @@ export const styles: Record<string, any> = {
     background: subtle,
     borderBottom: `1px solid ${border}`,
   },
-  diffStatAdd: { color: "#16a34a", fontFamily: "ui-monospace, monospace" },
-  diffStatDel: { color: "#dc2626", fontFamily: "ui-monospace, monospace" },
+  diffStatAdd: { color: "var(--green)", fontFamily: "ui-monospace, monospace" },
+  diffStatDel: { color: "var(--red)", fontFamily: "ui-monospace, monospace" },
   diffFileRow: {
     display: "flex",
     alignItems: "center",
@@ -673,10 +718,10 @@ export const styles: Record<string, any> = {
   },
   diffFileStatus: (status: string): CSSProperties => {
     const map: Record<string, { background: string; color: string }> = {
-      added: { background: "rgba(22,163,74,0.12)", color: "#15803d" },
-      modified: { background: "rgba(37,99,235,0.10)", color: "#1d4ed8" },
-      deleted: { background: "rgba(220,38,38,0.10)", color: "#b91c1c" },
-      renamed: { background: "rgba(139,92,246,0.12)", color: "#6d28d9" },
+      added: { background: "var(--green-soft)", color: "var(--green)" },
+      modified: { background: "var(--primary-soft)", color: "var(--primary)" },
+      deleted: { background: "var(--red-soft)", color: "var(--red)" },
+      renamed: { background: "var(--indigo-soft)", color: "var(--indigo)" },
     };
     const s = map[status] || { background: subtle, color: textSec };
     return {
@@ -701,7 +746,7 @@ export const styles: Record<string, any> = {
   diffPatchBody: {
     margin: 0,
     padding: "6px 0",
-    background: "#fbfcfd",
+    background: "var(--code-bg)",
     borderTop: `1px solid ${border}`,
     borderBottom: `1px solid ${border}`,
     fontFamily: "ui-monospace, monospace",
@@ -711,8 +756,8 @@ export const styles: Record<string, any> = {
     overflowY: "auto",
   },
   diffLine: { padding: "0 12px", whiteSpace: "pre-wrap", wordBreak: "break-all" },
-  diffLineAdd: { color: "#067d47", background: "rgba(22,163,74,0.08)" },
-  diffLineDel: { color: "#b91c1c", background: "rgba(220,38,38,0.08)" },
+  diffLineAdd: { color: "var(--diff-add)", background: "var(--green-soft)" },
+  diffLineDel: { color: "var(--diff-del)", background: "var(--red-soft)" },
   diffLineHunk: { color: accent, background: accentSoft },
   diffLineMeta: { color: textMut },
   diffActions: {
@@ -724,10 +769,10 @@ export const styles: Record<string, any> = {
   },
   revertBtn: {
     padding: "5px 12px",
-    border: `1px solid #dc2626`,
+    border: `1px solid var(--red)`,
     borderRadius: "6px",
     background: "transparent",
-    color: "#dc2626",
+    color: "var(--red)",
     fontSize: "12px",
     cursor: "pointer",
   },
@@ -740,7 +785,7 @@ export const styles: Record<string, any> = {
     fontSize: "12px",
     cursor: "pointer",
   },
-  revertedNote: { fontSize: "12px", color: "#15803d" },
+  revertedNote: { fontSize: "12px", color: "var(--green)" },
 
   // --- P1-2: protocol capability rendering --------------------------------
   // Session-level todo card (SSE `todo.updated`, not a message part).
@@ -774,8 +819,8 @@ export const styles: Record<string, any> = {
     const map: Record<string, { background: string; color: string }> = {
       pending: { background: subtle, color: textSec },
       in_progress: { background: accentSoft, color: accent },
-      completed: { background: "rgba(22,163,74,0.12)", color: "#15803d" },
-      cancelled: { background: "rgba(107,114,128,0.12)", color: textMut },
+      completed: { background: "var(--green-soft)", color: "var(--green)" },
+      cancelled: { background: "var(--surface-3)", color: textMut },
     };
     const s = map[status] || map.pending;
     return {
@@ -793,13 +838,13 @@ export const styles: Record<string, any> = {
   todoDone: { textDecoration: "line-through", color: textMut },
   // Context-compaction marker part.
   compactionBox: {
-    background: "rgba(139,92,246,0.07)",
-    border: `1px solid rgba(139,92,246,0.25)`,
+    background: "var(--indigo-soft)",
+    border: `1px solid var(--indigo-border)`,
     borderRadius: "10px",
     marginBottom: "6px",
     padding: "6px 12px",
     fontSize: "12px",
-    color: "#6d28d9",
+    color: "var(--indigo)",
   },
   // Subagent delegation part.
   subtaskBox: {
@@ -822,13 +867,13 @@ export const styles: Record<string, any> = {
   },
   // Failed-and-retried attempt part.
   retryBox: {
-    background: "rgba(245,158,11,0.08)",
-    border: `1px solid rgba(245,158,11,0.3)`,
+    background: "var(--amber-soft)",
+    border: `1px solid var(--amber-border)`,
     borderRadius: "10px",
     marginBottom: "6px",
     padding: "6px 12px",
     fontSize: "12px",
-    color: "#b45309",
+    color: "var(--amber)",
   },
   // File attachment part chip.
   fileChip: {
@@ -883,44 +928,68 @@ export const styles: Record<string, any> = {
   turnMeta: { fontSize: "10px", color: textMut, marginTop: "4px" },
   streaming: { color: accent, fontSize: "11px" },
   cursor: { color: accent },
-  inputArea: { display: "flex", flexDirection: "column", gap: "8px", padding: "16px", borderTop: `1px solid ${border}`, background: surface },
-  inputRow: { display: "flex", gap: "8px", alignItems: "flex-end" },
+  // --- composer（对齐原型 .composer-wrap/.composer/.input-row 卡片化布局） ---
+  inputArea: {
+    flex: "none",
+    borderTop: `1px solid ${border}`,
+    background: surface,
+  },
+  composer: { maxWidth: "860px", width: "100%", margin: "0 auto", padding: "12px 20px 14px" },
+  // 单卡片输入区（focus 描边见 theme.css .input-card:focus-within）
+  inputRowCard: {
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    background: subtle,
+    border: `1px solid ${border}`,
+    borderRadius: "14px",
+    padding: "6px 8px 7px",
+  },
+  promptChips: { display: "flex", flexWrap: "wrap", gap: "7px", padding: "4px 6px 2px" },
+  inputBar: { display: "flex", alignItems: "center", gap: "8px", paddingTop: "5px" },
+  inputTools: { display: "flex", gap: "3px" },
+  inputCtx: { display: "flex", gap: "6px", minWidth: 0 },
+  ibSpacer: { flex: 1 },
+  inputHints: { display: "flex", gap: "8px", marginTop: "8px", fontSize: "11px", color: textMut },
+  hintDot: { color: "var(--border-strong)" },
   attachBar: { display: "flex", flexWrap: "wrap", gap: "6px" },
   skillChip: {
     display: "inline-flex",
     alignItems: "center",
     gap: "6px",
-    padding: "4px 10px",
-    borderRadius: "12px",
+    height: "26px",
+    padding: "0 10px",
+    borderRadius: "999px",
     background: accentSoft,
-    border: `1px solid ${accent}`,
+    border: "1px solid var(--accent-border)",
     color: accent,
     fontSize: "12px",
+    maxWidth: "240px",
   },
   attachChip: {
     display: "inline-flex",
     alignItems: "center",
     gap: "6px",
-    padding: "4px 10px",
-    borderRadius: "12px",
-    background: "rgba(16,185,129,0.10)",
-    border: "1px solid #34d399",
-    color: "#047857",
+    height: "26px",
+    padding: "0 10px",
+    borderRadius: "999px",
+    background: "var(--green-soft)",
+    border: "1px solid rgba(52, 211, 153, 0.35)",
+    color: "var(--green)",
     fontSize: "12px",
     maxWidth: "260px",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
   },
+  // chip 内文字省略（需要 span 包裹）
+  chipText: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
   agentChip: {
     display: "inline-flex",
     alignItems: "center",
     gap: "6px",
     padding: "4px 10px",
     borderRadius: "12px",
-    background: "rgba(139,92,246,0.10)",
-    border: "1px solid #a78bfa",
-    color: "#6d28d9",
+    background: "var(--indigo-soft)",
+    border: "1px solid var(--indigo-border)",
+    color: "var(--indigo)",
     fontSize: "12px",
   },
   chipRemove: {
@@ -928,35 +997,96 @@ export const styles: Record<string, any> = {
     background: "transparent",
     color: "inherit",
     cursor: "pointer",
-    padding: "0 2px",
+    padding: 0,
     fontSize: "13px",
     lineHeight: 1,
+    flex: "none",
   },
-  skillPickerWrap: { position: "relative" },
-  skillBtn: {
-    padding: "10px 12px",
+  // composer 底栏的上下文 chip 选择器（原型 .chip；hover 见 theme.css .ctx-chip）
+  ctxChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    height: "26px",
+    padding: "0 10px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    background: "transparent",
     border: `1px solid ${border}`,
-    borderRadius: "8px",
-    background: surface,
     color: textSec,
-    fontSize: "13px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    maxWidth: "220px",
+    minWidth: 0,
+  },
+  // 存在"本条覆盖"时高亮（accent 色系）
+  ctxChipActive: {
+    background: accentSoft,
+    borderColor: "var(--accent-border)",
+    color: accent,
+  },
+  ctxChipArrow: { fontSize: "9px", color: textMut, flex: "none" },
+  // 向上弹出的选择菜单（原型 .menu.ps-menu）
+  psMenu: {
+    position: "absolute",
+    bottom: "calc(100% + 8px)",
+    left: 0,
+    minWidth: "230px",
+    maxWidth: "320px",
+    maxHeight: "300px",
+    overflowY: "auto",
+    padding: "6px",
+    background: "var(--surface-2)",
+    border: `1px solid ${borderStrong}`,
+    borderRadius: "10px",
+    boxShadow: "var(--shadow-2)",
+    zIndex: 600,
+  },
+  psMenuTitle: { fontSize: "11px", color: textMut, padding: "6px 10px 4px", whiteSpace: "nowrap" },
+  // hover 态见 theme.css .ps-menu-item
+  psMenuItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 10px",
+    borderRadius: "7px",
+    fontSize: "12.5px",
+    color: textSec,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  psMenuItemActive: { background: "var(--primary-soft)", color: text },
+  psMenuDivider: { height: "1px", background: border, margin: "4px 2px" },
+  psMenuAction: {
+    display: "block",
+    width: "100%",
+    textAlign: "left",
+    padding: "8px 10px",
+    border: "none",
+    borderRadius: "7px",
+    background: "transparent",
+    color: accent,
+    fontSize: "12px",
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
-  skillBackdrop: { position: "fixed", inset: 0, zIndex: 40 },
+  skillPickerWrap: { position: "relative" },
+  skillBackdrop: { position: "fixed", inset: 0, zIndex: 590 },
   skillMenu: {
     position: "absolute",
-    bottom: "48px",
+    bottom: "calc(100% + 8px)",
     left: 0,
     width: "320px",
-    maxHeight: "280px",
+    maxHeight: "300px",
     overflowY: "auto",
-    background: surface,
-    border: `1px solid ${border}`,
-    borderRadius: "12px",
+    background: "var(--surface-2)",
+    border: `1px solid ${borderStrong}`,
+    borderRadius: "10px",
     padding: "8px",
-    zIndex: 50,
-    boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
+    zIndex: 600,
+    boxShadow: "var(--shadow-2)",
   },
   skillMenuHeader: { fontSize: "12px", color: textSec, padding: "4px 6px 8px" },
   skillEmpty: { fontSize: "12px", color: textMut, padding: "8px 6px" },
@@ -976,7 +1106,7 @@ export const styles: Record<string, any> = {
     padding: "1px 6px",
     borderRadius: "8px",
     background: "rgba(56,189,248,0.15)",
-    color: "#0284c7",
+    color: "var(--scope-project)",
     border: "1px solid rgba(56,189,248,0.4)",
   },
   scopeGlobal: {
@@ -984,7 +1114,7 @@ export const styles: Record<string, any> = {
     padding: "1px 6px",
     borderRadius: "8px",
     background: "rgba(250,204,21,0.18)",
-    color: "#b45309",
+    color: "var(--scope-global)",
     border: "1px solid rgba(250,204,21,0.5)",
   },
   scopeBuiltin: {
@@ -992,7 +1122,7 @@ export const styles: Record<string, any> = {
     padding: "1px 6px",
     borderRadius: "8px",
     background: "rgba(167,139,250,0.15)",
-    color: "#7c3aed",
+    color: "var(--scope-user)",
     border: "1px solid rgba(167,139,250,0.4)",
   },
   skillMenuClose: {
@@ -1020,12 +1150,12 @@ export const styles: Record<string, any> = {
     width: "min(480px, 60vw)",
     maxHeight: "260px",
     overflowY: "auto",
-    background: surface,
-    border: `1px solid ${border}`,
-    borderRadius: "12px",
+    background: "var(--surface-2)",
+    border: `1px solid ${borderStrong}`,
+    borderRadius: "10px",
     padding: "6px",
-    zIndex: 60,
-    boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
+    zIndex: 600,
+    boxShadow: "var(--shadow-2)",
   },
   atMenuHeader: { fontSize: "11px", color: textSec, padding: "4px 8px" },
   atItem: {
@@ -1053,7 +1183,7 @@ export const styles: Record<string, any> = {
     flexShrink: 0,
     fontFamily: "ui-monospace, monospace",
     fontSize: "12px",
-    color: "#6d28d9",
+    color: "var(--primary)",
     fontWeight: 600,
     minWidth: "80px",
   },
@@ -1125,8 +1255,8 @@ export const styles: Record<string, any> = {
   wsNotice: {
     padding: "6px 12px",
     fontSize: "12px",
-    color: "#047857",
-    background: "rgba(16,185,129,0.08)",
+    color: "var(--green)",
+    background: "var(--green-soft)",
     borderBottom: `1px solid ${border}`,
   },
   treeRow: {
@@ -1179,6 +1309,138 @@ export const styles: Record<string, any> = {
   },
   previewImg: { maxWidth: "100%", borderRadius: "8px", display: "block", margin: "0 auto" },
   previewBinary: { color: textMut, padding: "24px 0", textAlign: "center" as const },
+  // PPTX slide-outline preview (rendered from markitdown extraction; the
+  // cards mimic a white 16:9 slide, so their text uses FIXED dark colors —
+  // theme vars would render light-on-white in dark mode).
+  pptxBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    paddingBottom: "10px",
+    fontSize: "12px",
+    color: textMut,
+  },
+  pptxSlides: { display: "flex", flexDirection: "column", gap: "14px" },
+  pptxSlide: {
+    position: "relative",
+    aspectRatio: "16 / 9",
+    background: "#ffffff",
+    border: `1px solid ${border}`,
+    borderRadius: "10px",
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  pptxSlideInner: {
+    height: "100%",
+    overflowY: "auto",
+    padding: "5%",
+  },
+  pptxSlideNum: {
+    position: "absolute",
+    right: "10px",
+    bottom: "8px",
+    fontSize: "11px",
+    color: "#9ca3af",
+    background: "rgba(0,0,0,0.06)",
+    borderRadius: "10px",
+    padding: "1px 8px",
+  },
+  pptxSlideTitle: {
+    fontSize: "16px",
+    fontWeight: 700,
+    color: "#111827",
+    borderBottom: "1px solid #e5e7eb",
+    paddingBottom: "6px",
+    marginBottom: "6px",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+  pptxSlideLine: {
+    fontSize: "13px",
+    color: "#374151",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+  pptxSlideTable: {
+    fontFamily: "ui-monospace, monospace",
+    fontSize: "11px",
+    color: "#4b5563",
+    whiteSpace: "pre",
+  },
+  pptxPreviewShell: {
+    height: "calc(100vh - 250px)",
+    minHeight: "400px",
+    display: "grid",
+    gridTemplateColumns: "116px minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr) auto",
+    gap: "10px",
+    background: subtle,
+    border: `1px solid ${border}`,
+    borderRadius: "8px",
+    overflow: "hidden",
+  },
+  pptxThumbRail: {
+    gridRow: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "10px 8px",
+    overflowY: "auto",
+    background: surface,
+    borderRight: `1px solid ${border}`,
+  },
+  pptxThumb: {
+    position: "relative",
+    width: "100%",
+    aspectRatio: "16 / 9",
+    padding: 0,
+    border: `1px solid ${border}`,
+    borderRadius: "5px",
+    overflow: "hidden",
+    background: "#fff",
+    cursor: "pointer",
+    flexShrink: 0,
+    color: "#6b7280",
+    fontSize: "10px",
+  },
+  pptxThumbActive: { border: `2px solid ${accent}`, boxShadow: `0 0 0 1px ${accentSoft}` },
+  pptxThumbViewer: { width: "100%", height: "100%", display: "block" },
+  pptxStage: {
+    minWidth: 0,
+    minHeight: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "12px",
+    overflow: "hidden",
+    background: "#111827",
+  },
+  pptxFooter: {
+    gridColumn: "1 / 3",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    flexWrap: "wrap",
+    gap: "8px",
+    minHeight: "44px",
+    padding: "6px 10px",
+    borderTop: `1px solid ${border}`,
+    background: surface,
+    color: textSec,
+    fontSize: "12px",
+  },
+  pptxRenderHint: { color: textMut, padding: "24px 0", textAlign: "center" as const },
+  pptxModeBtn: {
+    flexShrink: 0,
+    padding: "2px 10px",
+    fontSize: "12px",
+    cursor: "pointer",
+    background: subtle,
+    color: text,
+    border: `1px solid ${border}`,
+    borderRadius: "6px",
+  },
   mdTitle: { fontSize: "16px", fontWeight: 700, color: text, margin: "12px 0 6px" },
   mdH2: { fontSize: "14px", fontWeight: 700, color: text, margin: "10px 0 4px" },
   mdP: { margin: "6px 0" },
@@ -1186,55 +1448,72 @@ export const styles: Record<string, any> = {
   mdCode: {
     fontFamily: "ui-monospace, monospace",
     fontSize: "12px",
-    background: subtle,
+    background: "var(--code-bg)",
     padding: "1px 5px",
     borderRadius: "4px",
-    color: "#1d4ed8",
+    color: "var(--code-accent)",
   },
   mdCodeBlock: {
     fontFamily: "ui-monospace, monospace",
     fontSize: "12px",
-    background: subtle,
+    background: "var(--code-bg)",
+    border: "1px solid var(--code-border)",
     padding: "10px",
     borderRadius: "8px",
     overflowX: "auto",
     whiteSpace: "pre",
     margin: "8px 0",
-    color: text,
+    color: "var(--code-text)",
   },
   mdStrong: { color: text, fontWeight: 700 },
+  // 卡片内 textarea：无独立边框，聚焦描边由 .input-card:focus-within 提供
   textInput: {
     flex: 1,
-    padding: "12px 16px",
-    border: `1px solid ${border}`,
-    borderRadius: "10px",
-    background: page,
+    padding: "9px 10px",
+    border: "none",
+    borderRadius: "8px",
+    background: "transparent",
     color: text,
     fontSize: "14px",
     outline: "none",
     resize: "none",
     fontFamily: "inherit",
-    maxHeight: "160px",
+    lineHeight: 1.5,
+    maxHeight: "180px",
   },
+  // 发送 / 停止：34px 方形图标按钮（原型 .send-btn；交互态见 theme.css .send-btn）
   sendBtn: {
-    padding: "12px 24px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "34px",
+    height: "34px",
+    padding: 0,
     border: "none",
     borderRadius: "10px",
     background: accent,
     color: "#fff",
-    fontSize: "14px",
-    fontWeight: 600,
+    fontSize: "16px",
+    fontWeight: 700,
+    lineHeight: 1,
     cursor: "pointer",
+    flex: "none",
   },
   abortBtn: {
-    padding: "12px 24px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "34px",
+    height: "34px",
+    padding: 0,
     border: "none",
     borderRadius: "10px",
-    background: "#dc2626",
+    background: "var(--red-fill)",
     color: "#fff",
-    fontSize: "14px",
-    fontWeight: 600,
+    fontSize: "12px",
+    lineHeight: 1,
     cursor: "pointer",
+    flex: "none",
   },
   modal: {
     position: "fixed",
@@ -1293,7 +1572,7 @@ export const styles: Record<string, any> = {
     height: "20px",
     borderRadius: "10px",
     background: accentSoft,
-    border: "1px solid rgba(37,99,235,0.25)",
+    border: `1px solid var(--primary-border)`,
     color: accent,
     fontSize: "12px",
     lineHeight: "18px",
@@ -1362,11 +1641,11 @@ export const styles: Record<string, any> = {
     marginTop: "12px",
     padding: "28px 0",
     textAlign: "center",
-    color: "#b91c1c",
+    color: "var(--red)",
     fontSize: "13px",
-    border: "1px dashed #fecaca",
+    border: "1px dashed var(--red-border)",
     borderRadius: "8px",
-    background: "#fefafa",
+    background: "var(--red-soft)",
   },
   chunkLoading: {
     padding: "24px 0",
@@ -1377,9 +1656,9 @@ export const styles: Record<string, any> = {
   chunkError: {
     padding: "16px",
     textAlign: "center",
-    color: "#b91c1c",
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
+    color: "var(--red)",
+    background: "var(--red-soft)",
+    border: "1px solid var(--red-border)",
     borderRadius: "8px",
     fontSize: "13px",
   },

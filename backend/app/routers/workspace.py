@@ -378,6 +378,7 @@ MIME_BY_EXT = {
     ".gif": "image/gif",
     ".svg": "image/svg+xml",
     ".webp": "image/webp",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 
@@ -407,14 +408,29 @@ async def read_workspace_file_content(
     previews are for reading, not for hauling binaries.
     """
     await _require_container(user)
+
+    ext = "." + (path.rsplit(".", 1)[-1].lower() if "." in path.rsplit("/", 1)[-1] else "")
+    mime = MIME_BY_EXT.get(ext, "application/octet-stream")
+
+    # PPTX is a ZIP, so the generic path below would always land in the
+    # "binary" branch. Extract the slide text inside the container with the
+    # pptx skill's markitdown wrapper instead — the frontend renders it as a
+    # slide-outline preview. This needs no raw-bytes transfer, so the 2MB
+    # preview cap does not apply. Failure (container down, pre-pptx image,
+    # unparsable file) falls through to the generic binary preview.
+    if ext == ".pptx":
+        outline = await asyncio.to_thread(
+            container_manager.extract_pptx_text, user.id, path
+        )
+        if outline is not None:
+            return {"type": "pptx", "mime": mime, "content": outline}
+
     data = await asyncio.to_thread(container_manager.read_workspace_file, user.id, path)
     if data is None:
         raise HTTPException(status_code=404, detail="文件不存在或不可读")
     if len(data) > 2 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件过大（>2MB），无法预览")
 
-    ext = "." + (path.rsplit(".", 1)[-1].lower() if "." in path.rsplit("/", 1)[-1] else "")
-    mime = MIME_BY_EXT.get(ext, "application/octet-stream")
     if mime.startswith("image/"):
         import base64
         return {
@@ -430,6 +446,43 @@ async def read_workspace_file_content(
         "mime": mime,
         "content": data.decode("utf-8", errors="replace"),
     }
+
+
+# Raw pptx transfers feed the browser-side slide renderer (pptx-wasm), which
+# parses the deck in the client — no extraction happens server-side. The cap
+# is generous but bounded, like the download endpoint, so a runaway request
+# cannot buffer an unbounded file in the backend.
+MAX_PPTX_RAW = 25 * 1024 * 1024
+
+
+@router.get("/file-raw")
+async def read_workspace_file_raw(
+    path: str,
+    user: User = Depends(get_current_user),
+):
+    """Return one workspace file's raw bytes for client-side rendering.
+
+    Unlike /file-content this has no preview or text-extraction semantics —
+    the frontend hands the payload straight to a browser-side renderer.
+    Currently only .pptx is served (pptx-wasm slide rendering); other types
+    keep using /file-content or the download endpoint.
+    """
+    await _require_container(user)
+
+    ext = "." + (path.rsplit(".", 1)[-1].lower() if "." in path.rsplit("/", 1)[-1] else "")
+    if ext != ".pptx":
+        raise HTTPException(status_code=400, detail="仅支持获取 pptx 的原始文件")
+    mime = MIME_BY_EXT[ext]
+
+    data = await asyncio.to_thread(container_manager.read_workspace_file, user.id, path)
+    if data is None:
+        raise HTTPException(status_code=404, detail="文件不存在或不可读")
+    if len(data) > MAX_PPTX_RAW:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件过大（>{MAX_PPTX_RAW // 1024 // 1024}MB），无法在浏览器渲染",
+        )
+    return Response(content=data, media_type=mime)
 
 
 # ------------------------------------------------------------------

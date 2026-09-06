@@ -565,6 +565,16 @@ export const api = {
     });
   },
 
+  /**
+   * Session todo list (P1-1). Legacy surface, bare Todo[] — used to restore
+   * the card when a session is opened or the page refreshed; live updates
+   * arrive afterwards via `todo.updated` SSE events (not replayed on open).
+   */
+  async getSessionTodos(sessionId: string): Promise<unknown[]> {
+    const r = await apiCall<any[]>(`${OC}/session/${sessionId}/todo`);
+    return Array.isArray(r) ? r : [];
+  },
+
   /** Restore the changes of the last revert (P1-1, legacy surface). */
   async unrevertSession(sessionId: string): Promise<any> {
     return apiCall(`${OC}/session/${sessionId}/unrevert`, { method: "POST" });
@@ -953,13 +963,40 @@ export const api = {
   },
 
   async readWorkspaceFile(path: string): Promise<{
-    type: "text" | "image" | "binary";
+    type: "text" | "image" | "binary" | "pptx";
     mime: string;
     content?: string;
     base64?: string;
     size?: number;
   }> {
     return apiCall(`/workspace/file-content?path=${encodeURIComponent(path)}`);
+  },
+
+  /**
+   * 获取 pptx 的原始字节（浏览器端 pptx-wasm 高保真渲染用）。与
+   * downloadWorkspaceFiles 一样不能走 apiCall（它假定 JSON 响应体）；
+   * 401 处理保持一致。
+   */
+  async readWorkspaceFileRaw(path: string): Promise<ArrayBuffer> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(
+      `${API_BASE}/workspace/file-raw?path=${encodeURIComponent(path)}`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      }
+    );
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || err.message || `HTTP ${resp.status}`);
+    }
+    return resp.arrayBuffer();
   },
 
   /**

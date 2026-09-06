@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import type { PresentationViewerHandle } from "pptx-wasm/react";
 import {
   api,
   type AgentRuntime,
@@ -16,6 +17,7 @@ import { parseTodos, reduceEvent, toTurns, type Block, type FileDiff, type TodoI
 import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
 import { TextWithChunkRefs } from "./ChunkRef";
+import { ThemeToggle } from "../theme";
 
 /** "provider/model" <-> ModelRef, the format opencode uses in config.model. */
 function parseModel(value: string | null | undefined): ModelRef | undefined {
@@ -67,6 +69,81 @@ type SlashOption =
 type AtOption =
   | { kind: "file"; path: string }
   | { kind: "agent"; name: string; description?: string };
+
+// ---------------------------------------------------------------------------
+//  可拖拽侧栏（会话侧栏 / 工作区文件面板共用）
+// ---------------------------------------------------------------------------
+
+/** 侧栏宽度范围与默认值（px）。 */
+const SIDEBAR_WIDTH = { min: 200, max: 520, def: 300, key: "ui.sidebarW" };
+const FILES_WIDTH = { min: 240, max: 680, def: 320, key: "ui.filesW" };
+
+const clampWidth = (w: number, r: { min: number; max: number }) =>
+  Math.min(r.max, Math.max(r.min, Math.round(w)));
+
+/** 从 localStorage 恢复宽度，缺失 / 非法时回退默认。 */
+const loadWidth = (r: { min: number; max: number; def: number; key: string }) => {
+  const n = Number(localStorage.getItem(r.key));
+  return clampWidth(Number.isFinite(n) && n > 0 ? n : r.def, r);
+};
+
+/**
+ * 侧栏边缘拖拽调宽手柄：flex 行里的一条 6px 竖线。Pointer Events +
+ * setPointerCapture 让指针越出手柄（甚至越过 iframe）也持续跟手；拖动期间
+ * 全局禁用文本选择，避免把旁边内容选中。双击手柄恢复默认宽度。
+ */
+function PanelResizer({
+  onDelta, onReset, title,
+}: {
+  /** 本次指针水平位移（向右为正）；父组件决定加到还是减去宽度。 */
+  onDelta: (dx: number) => void;
+  onReset: () => void;
+  title?: string;
+}) {
+  const lastXRef = useRef(0);
+  // draggingRef 是逻辑开关（pointerdown 与首次 pointermove 之间 React 状态
+  // 可能尚未提交，用 ref 才不会漏掉第一段位移）；dragging 只管高亮样式。
+  const draggingRef = useRef(false);
+  const [dragging, setDragging] = useState(false);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    lastXRef.current = e.clientX;
+    draggingRef.current = true;
+    setDragging(true);
+    // 合成 PointerEvent（自动化测试等）没有活动指针 id，setPointerCapture
+    // 会抛 NotFoundError——捕获后拖拽逻辑继续可用（真实指针不受影响）。
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 无活动指针 */ }
+    document.body.style.userSelect = "none"; // 拖动期间禁选文本
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    onDelta(e.clientX - lastXRef.current);
+    lastXRef.current = e.clientX;
+  };
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    setDragging(false);
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* 已释放 */ }
+    document.body.style.userSelect = "";
+  };
+
+  return (
+    <div
+      className={`panel-resizer${dragging ? " dragging" : ""}`}
+      role="separator"
+      aria-orientation="vertical"
+      title={title}
+      style={styles.panelDragHandle}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDoubleClick={onReset}
+    />
+  );
+}
 
 export function Chat({
   username,
@@ -120,6 +197,9 @@ export function Chat({
   // Chat attach: skill picker + file uploads.
   const [allSkills, setAllSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  // composer 底栏的 Agent / 模型 chip 弹出菜单
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<{ filename: string; path: string; mime: string; isImage: boolean; size: number; dataUrl?: string }[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -142,6 +222,13 @@ export function Chat({
 
   // Workspace file browser panel.
   const [showFiles, setShowFiles] = useState(false);
+
+  // 可拖拽侧栏宽度（左：会话侧栏；右：工作区文件面板）。持久化到
+  // localStorage，刷新后保持；拖拽/双击手柄由 PanelResizer 触发。
+  const [sidebarW, setSidebarW] = useState(() => loadWidth(SIDEBAR_WIDTH));
+  const [filesW, setFilesW] = useState(() => loadWidth(FILES_WIDTH));
+  useEffect(() => { localStorage.setItem(SIDEBAR_WIDTH.key, String(sidebarW)); }, [sidebarW]);
+  useEffect(() => { localStorage.setItem(FILES_WIDTH.key, String(filesW)); }, [filesW]);
   const [wsFiles, setWsFiles] = useState<{ path: string; type: "file" | "dir"; size: number }[]>([]);
   const [preview, setPreview] = useState<{ path: string; type: string; mime: string; content?: string; base64?: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -668,6 +755,16 @@ export function Chat({
     } catch (e: any) {
       setError(e.message);
     }
+    // P1-1: `todo.updated` SSE events are not replayed when a session is
+    // opened (or after a page refresh), so fetch the current list once to
+    // restore the card. Race-guarded: a fast session switch must not let a
+    // stale response overwrite the new session's state.
+    api
+      .getSessionTodos(session.id)
+      .then((raw) => {
+        if (sessionIdRef.current === session.id) setTodos(parseTodos(raw));
+      })
+      .catch(() => {});
   }, [refreshPending]);
 
   // P1-4: after a page refresh, reopen the session the user had open (once
@@ -1524,7 +1621,7 @@ export function Chat({
   // ------------------------------------------------------------------
   return (
     <div style={styles.container}>
-      <div style={styles.sidebar}>
+      <div style={{ ...styles.sidebar, width: sidebarW }}>
         <div style={styles.sidebarHeader}>
           <div style={styles.brand}>
             <span style={styles.brandIcon}>🤖</span>
@@ -1548,12 +1645,12 @@ export function Chat({
               style={{
                 ...styles.statusDot,
                 background: isAgentRunning
-                  ? "#22c55e"
+                  ? "var(--green)"
                   : starting
-                  ? "#3b82f6"
+                  ? "var(--scope-project)"
                   : agentStatus?.status === "stopped"
-                  ? "#f59e0b"
-                  : "#52525b",
+                  ? "var(--amber)"
+                  : "var(--text-3)",
               }}
             />
             <span style={styles.statusText}>
@@ -1684,63 +1781,82 @@ export function Chat({
         </div>
       </div>
 
+      {/* 会话侧栏右缘调宽手柄：向右拖加宽，双击恢复 300px */}
+      <PanelResizer
+        title="拖动调整会话侧栏宽度（双击恢复默认）"
+        onDelta={(dx) => setSidebarW((w) => clampWidth(w + dx, SIDEBAR_WIDTH))}
+        onReset={() => setSidebarW(SIDEBAR_WIDTH.def)}
+      />
+
       <div style={styles.mainArea}>
-        {isAgentRunning && (
-          <div style={styles.modelBar}>
-            <span style={styles.modelLabel}>模型</span>
-            <select
-              style={styles.select}
-              value={modelKey(model)}
-              onChange={(e) => handleModelChange(e.target.value)}
-            >
-              <option value="">
-                {modelOptions.length ? "选择模型…" : "opencode 未配置任何 provider"}
-              </option>
-              {modelOptions.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            {activeBaseURL && <span style={styles.baseUrlTag}>{activeBaseURL}</span>}
-            {primaryAgents.length > 0 && (
+        {/* 顶栏常驻（原型 .modelbar）：左侧会话标题 + 右侧 SSE 状态 / 工具 / 主题切换。
+            模型与 Agent 选择已收纳到 composer 底栏的 chip 菜单。 */}
+        <div style={styles.modelBar}>
+          <div style={styles.mbLeft}>
+            <div style={styles.mbSess}>
+              <svg
+                style={styles.mbSessIcon}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              <span style={styles.chipText}>
+                {currentSession?.title ||
+                  (isAgentRunning ? "会话进行中" : "Agent 未运行")}
+              </span>
+            </div>
+          </div>
+          <div style={styles.mbRight}>
+            {isAgentRunning && (
+              <span style={styles.sseInd} title={sseDown ? "事件流断开，自动重连中" : "实时事件流已连接"}>
+                <span
+                  className={sseDown ? undefined : "dot-live"}
+                  style={{
+                    ...styles.dot,
+                    background: sseDown ? "var(--red)" : "var(--green)",
+                  }}
+                />
+                {sseDown ? "SSE 重连中" : "SSE 已连接"}
+              </span>
+            )}
+            {isAgentRunning && (
               <>
-                <span style={styles.modelLabel}>Agent</span>
-                <select
-                  style={styles.select}
-                  value={agentId}
-                  onChange={(e) => handleAgentChange(e.target.value)}
-                  title="切换当前会话的 Agent 模式（新会话同样生效）"
+                <button
+                  className="icon-btn"
+                  style={styles.iconBtn}
+                  onClick={handleSummarize}
+                  disabled={!!busy || !!busyLabel || !model}
+                  title="让模型总结当前会话（生成摘要消息）"
                 >
-                  {primaryAgents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.id}
-                      {a.description ? ` · ${a.description}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  {busyLabel === "生成摘要中…" ? "…" : "✨"}
+                </button>
+                <button
+                  className="icon-btn"
+                  style={styles.iconBtn}
+                  onClick={handleReloadConfig}
+                  disabled={!!busy}
+                  title="重载容器内 opencode 配置（来源：opencode /config）"
+                >
+                  ⟳
+                </button>
+                <button
+                  className="icon-btn"
+                  style={styles.iconBtn}
+                  onClick={() => setShowFiles((v) => !v)}
+                  title={showFiles ? "隐藏工作区文件面板" : "显示工作区文件面板"}
+                >
+                  📁
+                </button>
               </>
             )}
-            <span style={styles.modelLabel}>
-              来源：容器内 opencode /config
-              {providers?.source?.mounted ? "（宿主 opencode.json）" : ""}
-            </span>
-            <button
-              style={styles.reloadBtn}
-              onClick={handleSummarize}
-              disabled={!!busy || !!busyLabel || !model}
-              title="让模型总结当前会话（生成摘要消息）"
-            >
-              {busyLabel === "生成摘要中…" ? busyLabel : "✨ 摘要"}
-            </button>
-            <button style={styles.reloadBtn} onClick={handleReloadConfig} disabled={!!busy}>
-              重载配置
-            </button>
-            <button style={styles.reloadBtn} onClick={() => setShowFiles((v) => !v)}>
-              {showFiles ? "隐藏文件" : "📁 文件"}
-            </button>
+            <ThemeToggle />
           </div>
-        )}
+        </div>
 
         {error && (
           <div style={styles.errorBanner}>
@@ -1864,165 +1980,47 @@ export function Chat({
             </div>
 
             <div style={styles.inputArea}>
-              <div style={styles.attachBar}>
-                {primaryAgents.length > 0 && (
-                  <>
-                    <select
-                      aria-label="本条消息 Agent"
-                      style={{ ...styles.select, maxWidth: "180px" }}
-                      value={promptAgent ?? ""}
-                      onChange={(e) => setPromptAgent(e.target.value || undefined)}
-                    >
-                      <option value="">本条 Agent（会话默认）</option>
-                      {primaryAgents.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.id}
-                        </option>
-                      ))}
-                    </select>
-                    {promptAgent && (
-                      <button
-                        style={styles.chipRemove}
-                        onClick={() => setPromptAgent(undefined)}
-                        title="清除本条消息 Agent 选择"
-                        aria-label="清除本条消息 Agent 选择"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </>
-                )}
-                <select
-                  aria-label="本条消息模型"
-                  style={{ ...styles.select, maxWidth: "220px" }}
-                  value={modelKey(promptModel)}
-                  onChange={(e) =>
-                    setPromptModel(modelOptions.find((option) => option.key === e.target.value)?.ref)
-                  }
-                >
-                  <option value="">本条模型（会话默认）</option>
-                  {modelOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {promptModel && (
-                  <button
-                    style={styles.chipRemove}
-                    onClick={() => setPromptModel(undefined)}
-                    title="清除本条消息模型选择"
-                    aria-label="清除本条消息模型选择"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+              <div style={styles.composer}>
+                <div className="input-card" style={styles.inputRowCard}>
 
-              {/* Attachment chips + selected skills, shown above the textarea */}
-              {(attachments.length > 0 || selectedSkills.length > 0) && (
-                <div style={styles.attachBar}>
-                  {selectedSkills.map((s) => (
-                    <span key={s} style={styles.skillChip} title="本条消息显式指定的 skill">
-                      🧩 {s}
-                      <button
-                        style={styles.chipRemove}
-                        onClick={() => toggleSkill(s)}
-                        title="移除"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  {attachments.map((a) => (
-                    <span
-                      key={a.dataUrl ?? a.path}
-                      style={styles.attachChip}
-                      title={`${a.path || a.filename} (${Math.ceil(a.size / 1024)}KB)${a.dataUrl ? " · base64 直传" : ""}`}
-                    >
-                      {a.isImage ? "🖼️" : "📎"} {a.filename}
-                      <button
-                        style={styles.chipRemove}
-                        onClick={() =>
-                          setAttachments((prev) =>
-                            prev.filter((x) => (x.dataUrl ?? x.path) !== (a.dataUrl ?? a.path))
-                          )
-                        }
-                        title="移除"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div style={styles.inputRow}>
-                {/* Skill picker dropdown */}
-                <div style={styles.skillPickerWrap}>
-                  <button
-                    style={styles.skillBtn}
-                    onClick={() => setSkillMenuOpen((v) => !v)}
-                    title="为这条消息显式指定 skill"
-                    disabled={allSkills.length === 0}
-                  >
-                    🧩 {selectedSkills.length > 0 ? `×${selectedSkills.length}` : "Skill"}
-                  </button>
-                  {skillMenuOpen && (
-                    <>
-                      <div style={styles.skillBackdrop} onClick={() => setSkillMenuOpen(false)} />
-                      <div style={styles.skillMenu}>
-                        <div style={styles.skillMenuHeader}>选择要显式使用的 skill</div>
-                        {allSkills.length === 0 && (
-                          <div style={styles.skillEmpty}>暂无可用 skill（可在配置面板添加）</div>
-                        )}
-                        {allSkills.map((s) => (
-                          <label key={`${s.scope}-${s.name}`} style={styles.skillItem}>
-                            <input
-                              type="checkbox"
-                              checked={selectedSkills.includes(s.name)}
-                              onChange={() => toggleSkill(s.name)}
-                            />
-                            <span style={styles.skillItemName}>{s.name}</span>
-                            <span
-                              style={
-                                s.scope === "project"
-                                  ? styles.scopeProject
-                                  : s.scope === "builtin"
-                                    ? styles.scopeBuiltin
-                                    : styles.scopeGlobal
-                              }
-                            >
-                              {s.scope === "project" ? "项目" : s.scope === "builtin" ? "内置" : "全局"}
-                            </span>
-                          </label>
-                        ))}
-                        {allSkills.length > 0 && (
-                          <button style={styles.skillMenuClose} onClick={() => setSkillMenuOpen(false)}>
-                            完成{selectedSkills.length > 0 ? `（已选 ${selectedSkills.length}）` : ""}
+                  {/* 本条消息上下文 chips：显式 skill 与附件 */}
+                  {(attachments.length > 0 || selectedSkills.length > 0) && (
+                    <div style={styles.promptChips}>
+                      {selectedSkills.map((s) => (
+                        <span key={s} style={styles.skillChip} title="本条消息显式指定的 skill">
+                          🧩 <span style={styles.chipText}>{s}</span>
+                          <button
+                            style={styles.chipRemove}
+                            onClick={() => toggleSkill(s)}
+                            title="移除"
+                          >
+                            ×
                           </button>
-                        )}
-                      </div>
-                    </>
+                        </span>
+                      ))}
+                      {attachments.map((a) => (
+                        <span
+                          key={a.dataUrl ?? a.path}
+                          style={styles.attachChip}
+                          title={`${a.path || a.filename} (${Math.ceil(a.size / 1024)}KB)${a.dataUrl ? " · base64 直传" : ""}`}
+                        >
+                          {a.isImage ? "🖼️" : "📎"}{" "}
+                          <span style={styles.chipText}>{a.filename}</span>
+                          <button
+                            style={styles.chipRemove}
+                            onClick={() =>
+                              setAttachments((prev) =>
+                                prev.filter((x) => (x.dataUrl ?? x.path) !== (a.dataUrl ?? a.path))
+                              )
+                            }
+                            title="移除"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   )}
-                </div>
-
-                {/* File upload button */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => handleFilesPicked(e.target.files)}
-                />
-                <button
-                  style={styles.skillBtn}
-                  onClick={() => fileInputRef.current?.click()}
-                  title="附加图片（base64 直传）或上传文件到工作空间"
-                  disabled={uploading}
-                >
-                  {uploading ? "⏳" : "📎"}
-                </button>
 
                 <div style={styles.atMenuWrap}>
                   <textarea
@@ -2104,39 +2102,275 @@ export function Chat({
                     </div>
                   )}
                 </div>
-                {isGenerating ? (
-                  <button style={styles.abortBtn} onClick={handleInterrupt}>停止</button>
-                ) : (
-                  <button
-                    style={styles.sendBtn}
-                    onClick={handleSend}
-                    disabled={!input.trim() && attachments.length === 0}
-                  >
-                    发送
-                  </button>
-                )}
+
+                {/* 底部工具条（原型 .input-bar）：附件 / Skill / 本条 Agent / 本条模型 / 发送 */}
+                <div style={styles.inputBar}>
+                  {(agentMenuOpen || modelMenuOpen) && (
+                    <div
+                      style={styles.skillBackdrop}
+                      onClick={() => {
+                        setAgentMenuOpen(false);
+                        setModelMenuOpen(false);
+                      }}
+                    />
+                  )}
+                  <div style={styles.inputTools}>
+                    <div style={styles.skillPickerWrap}>
+                      <button
+                        className="icon-btn"
+                        style={styles.iconBtn}
+                        onClick={() => {
+                          setSkillMenuOpen((v) => !v);
+                          setAgentMenuOpen(false);
+                          setModelMenuOpen(false);
+                        }}
+                        title="为这条消息显式指定 skill"
+                        disabled={allSkills.length === 0}
+                      >
+                        {selectedSkills.length > 0 ? `🧩×${selectedSkills.length}` : "🧩"}
+                      </button>
+                      {skillMenuOpen && (
+                        <>
+                          <div style={styles.skillBackdrop} onClick={() => setSkillMenuOpen(false)} />
+                          <div style={styles.skillMenu}>
+                            <div style={styles.skillMenuHeader}>选择要显式使用的 skill</div>
+                            {allSkills.length === 0 && (
+                              <div style={styles.skillEmpty}>暂无可用 skill（可在配置面板添加）</div>
+                            )}
+                            {allSkills.map((s) => (
+                              <label key={`${s.scope}-${s.name}`} style={styles.skillItem}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSkills.includes(s.name)}
+                                  onChange={() => toggleSkill(s.name)}
+                                />
+                                <span style={styles.skillItemName}>{s.name}</span>
+                                <span
+                                  style={
+                                    s.scope === "project"
+                                      ? styles.scopeProject
+                                      : s.scope === "builtin"
+                                        ? styles.scopeBuiltin
+                                        : styles.scopeGlobal
+                                  }
+                                >
+                                  {s.scope === "project" ? "项目" : s.scope === "builtin" ? "内置" : "全局"}
+                                </span>
+                              </label>
+                            ))}
+                            {allSkills.length > 0 && (
+                              <button style={styles.skillMenuClose} onClick={() => setSkillMenuOpen(false)}>
+                                完成{selectedSkills.length > 0 ? `（已选 ${selectedSkills.length}）` : ""}
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      hidden
+                      onChange={(e) => handleFilesPicked(e.target.files)}
+                    />
+                    <button
+                      className="icon-btn"
+                      style={styles.iconBtn}
+                      onClick={() => fileInputRef.current?.click()}
+                      title="附加图片（base64 直传）或上传文件到工作空间"
+                      disabled={uploading}
+                    >
+                      {uploading ? "⏳" : "📎"}
+                    </button>
+                  </div>
+
+                  {/* 本条消息 Agent（未选则随会话默认） */}
+                  <div style={styles.skillPickerWrap}>
+                    <button
+                      className="ctx-chip"
+                      style={{ ...styles.ctxChip, ...(promptAgent ? styles.ctxChipActive : {}) }}
+                      onClick={() => {
+                        setAgentMenuOpen((v) => !v);
+                        setModelMenuOpen(false);
+                        setSkillMenuOpen(false);
+                      }}
+                      title="选择本条消息使用的 Agent（未选则用会话默认）"
+                    >
+                      <span style={styles.chipText}>🤖 {promptAgent ?? agentId}</span>
+                      <span style={styles.ctxChipArrow}>▾</span>
+                    </button>
+                    {agentMenuOpen && (
+                      <div className="ps-menu" style={styles.psMenu}>
+                        <div style={styles.psMenuTitle}>本条消息 Agent · 会话默认：{agentId}</div>
+                        <div
+                          className="ps-menu-item"
+                          style={{ ...styles.psMenuItem, ...(promptAgent ? {} : styles.psMenuItemActive) }}
+                          onClick={() => setPromptAgent(undefined)}
+                        >
+                          会话默认（{agentId}）
+                        </div>
+                        {primaryAgents.map((a) => (
+                          <div
+                            key={a.id}
+                            className="ps-menu-item"
+                            style={{
+                              ...styles.psMenuItem,
+                              ...(promptAgent === a.id ? styles.psMenuItemActive : {}),
+                            }}
+                            onClick={() => {
+                              setPromptAgent(a.id);
+                              setAgentMenuOpen(false);
+                            }}
+                          >
+                            <span style={styles.chipText}>{a.id}</span>
+                          </div>
+                        ))}
+                        {promptAgent && promptAgent !== agentId && (
+                          <>
+                            <div style={styles.psMenuDivider} />
+                            <button
+                              className="ps-menu-item"
+                              style={styles.psMenuAction}
+                              onClick={() => {
+                                handleAgentChange(promptAgent);
+                                setPromptAgent(undefined);
+                                setAgentMenuOpen(false);
+                              }}
+                            >
+                              将「{promptAgent}」设为会话默认 Agent
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 本条消息模型（未选则随会话默认） */}
+                  <div style={styles.skillPickerWrap}>
+                    <button
+                      className="ctx-chip"
+                      style={{ ...styles.ctxChip, ...(promptModel ? styles.ctxChipActive : {}) }}
+                      onClick={() => {
+                        setModelMenuOpen((v) => !v);
+                        setAgentMenuOpen(false);
+                        setSkillMenuOpen(false);
+                      }}
+                      title="选择本条消息使用的模型（未选则用会话默认）"
+                    >
+                      <span style={styles.chipText}>
+                        {modelOptions.find((o) => o.key === modelKey(promptModel ?? model))?.label ??
+                          "默认模型"}
+                      </span>
+                      <span style={styles.ctxChipArrow}>▾</span>
+                    </button>
+                    {modelMenuOpen && (
+                      <div className="ps-menu" style={styles.psMenu}>
+                        <div style={styles.psMenuTitle}>本条消息模型</div>
+                        <div
+                          className="ps-menu-item"
+                          style={{ ...styles.psMenuItem, ...(promptModel ? {} : styles.psMenuItemActive) }}
+                          onClick={() => setPromptModel(undefined)}
+                        >
+                          会话默认（
+                          {modelOptions.find((o) => o.key === modelKey(model))?.label ?? "默认"}）
+                        </div>
+                        {modelOptions.map((o) => (
+                          <div
+                            key={o.key}
+                            className="ps-menu-item"
+                            style={{
+                              ...styles.psMenuItem,
+                              ...(modelKey(promptModel) === o.key ? styles.psMenuItemActive : {}),
+                            }}
+                            onClick={() => {
+                              setPromptModel(o.ref);
+                              setModelMenuOpen(false);
+                            }}
+                          >
+                            <span style={styles.chipText}>{o.label}</span>
+                          </div>
+                        ))}
+                        {promptModel && modelKey(promptModel) !== modelKey(model) && (
+                          <>
+                            <div style={styles.psMenuDivider} />
+                            <button
+                              className="ps-menu-item"
+                              style={styles.psMenuAction}
+                              onClick={() => {
+                                handleModelChange(modelKey(promptModel));
+                                setPromptModel(undefined);
+                                setModelMenuOpen(false);
+                              }}
+                            >
+                              设为会话默认模型
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={styles.ibSpacer} />
+                  {isGenerating ? (
+                    <button
+                      className="send-btn"
+                      style={styles.abortBtn}
+                      onClick={handleInterrupt}
+                      title="停止生成"
+                    >
+                      ■
+                    </button>
+                  ) : (
+                    <button
+                      className="send-btn"
+                      style={styles.sendBtn}
+                      onClick={handleSend}
+                      disabled={!input.trim() && attachments.length === 0}
+                      title="发送（Enter）"
+                    >
+                      ➤
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div style={styles.inputHints}>
+                <span>Enter 发送 · Shift+Enter 换行</span>
+                <span>/ 执行命令 · @ 引用文件</span>
               </div>
             </div>
+          </div>
           </>
         )}
         </div>
 
         {showFiles && isAgentRunning && (
-          <FilesPanel
-            files={wsFiles}
-            preview={preview}
-            previewLoading={previewLoading}
-            onOpen={openPreview}
-            onRefresh={loadWsFiles}
-            onInsert={insertAtReference}
-            onBack={() => setPreview(null)}
-            onClose={() => setShowFiles(false)}
-            onUpload={handleWsFilesPicked}
-            uploading={wsUploading}
-            onDownload={handleWsDownload}
-            downloading={wsDownloading}
-            notice={wsNotice}
-          />
+          <>
+            {/* 文件面板左缘调宽手柄：向左拖加宽，双击恢复 320px */}
+            <PanelResizer
+              title="拖动调整文件面板宽度（双击恢复默认）"
+              onDelta={(dx) => setFilesW((w) => clampWidth(w - dx, FILES_WIDTH))}
+              onReset={() => setFilesW(FILES_WIDTH.def)}
+            />
+            <FilesPanel
+              width={filesW}
+              files={wsFiles}
+              preview={preview}
+              previewLoading={previewLoading}
+              onOpen={openPreview}
+              onRefresh={loadWsFiles}
+              onInsert={insertAtReference}
+              onBack={() => setPreview(null)}
+              onClose={() => setShowFiles(false)}
+              onUpload={handleWsFilesPicked}
+              uploading={wsUploading}
+              onDownload={handleWsDownload}
+              downloading={wsDownloading}
+              notice={wsNotice}
+            />
+          </>
         )}
         </div>
       </div>
@@ -2297,7 +2531,7 @@ function TreeView({
               onChange: (c) => onToggleSelect(n.path, c),
             }}
           >
-            {activePath === n.path && <span style={{ fontSize: "10px", color: "#2563eb" }}>预览中</span>}
+            {activePath === n.path && <span style={{ fontSize: "10px", color: "var(--scope-project)" }}>预览中</span>}
             <span style={styles.treeFileSize}>{fmtSize(n.size)}</span>
             <button
               style={styles.previewBack}
@@ -2381,9 +2615,188 @@ function MiniMarkdown({ src }: { src: string }) {
   return <>{out}</>;
 }
 
+/**
+ * Split markitdown's PPTX extraction into slides. markitdown separates decks
+ * with "<!-- Slide number: N -->" comments; within a slide the first
+ * non-empty line is the title (markitdown may or may not prefix it with "#"),
+ * the rest is body text. Tolerant by design — the exact per-shape output
+ * varies between markitdown versions.
+ */
+function parsePptxSlides(src: string): { title: string; body: string }[] {
+  const slides: { title: string; body: string }[] = [];
+  const parts = src.split(/<!--\s*Slide number:\s*\d+\s*-->/);
+  for (const raw of parts) {
+    const lines = raw.split("\n");
+    let i = 0;
+    while (i < lines.length && !lines[i].trim()) i++;
+    if (i >= lines.length) continue;
+    const title = lines[i].replace(/^#+\s*/, "").trim() || "(无标题)";
+    const body = lines.slice(i + 1).join("\n").trim();
+    slides.push({ title, body });
+  }
+  return slides;
+}
+
+/**
+ * pptx-wasm 的 React 渲染组件按需加载（JS + wasm 模块约 330KB gzip），只有
+ * 用户真的打开 pptx 预览时才拉取这个 chunk，不影响主包体积。
+ */
+const PresentationViewer = lazy(() =>
+  import("pptx-wasm/react").then((m) => ({ default: m.PresentationViewer }))
+);
+
+/**
+ * PPTX preview: high-fidelity client-side rendering with pptx-wasm. The
+ * backend serves the deck's raw bytes (api.readWorkspaceFileRaw →
+ * GET /workspace/file-raw) and pptx-wasm parses and paints the deck on a
+ * canvas in the browser — shapes, tables, images and CJK text render as
+ * authored. The markitdown slide outline (type:"pptx" content) stays as the
+ * fallback view (raw fetch or renderer failure) and as a deliberate toggle
+ * for quick text skimming.
+ */
+function PptxSlidePreview({
+  path, content, onDownload, downloading, onInsert,
+}: {
+  path: string;
+  content: string;
+  onDownload: (paths: string[]) => void;
+  downloading: boolean;
+  onInsert: (path: string) => void;
+}) {
+  const slides = useMemo(() => parsePptxSlides(content), [content]);
+
+  // Raw deck bytes for the renderer (null until fetched); rawError explains a
+  // failed fetch or a failed parse, in which case the outline takes over.
+  const [raw, setRaw] = useState<ArrayBuffer | null>(null);
+  const [rawError, setRawError] = useState("");
+  const [page, setPage] = useState({ count: 0, current: 0 });
+  const [zoom, setZoom] = useState(1);
+  const viewer = useRef<PresentationViewerHandle>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setRaw(null);
+    setRawError("");
+    api.readWorkspaceFileRaw(path)
+      .then((buf) => { if (alive) setRaw(buf); })
+      .catch((e) => { if (alive) setRawError(e.message || String(e)); });
+    return () => { alive = false; };
+  }, [path]);
+
+  const canRender = raw !== null && !rawError;
+  const total = page.count || slides.length;
+
+  const outlineView = slides.length === 0 ? (
+    // Extraction produced nothing slide-shaped — show the raw text.
+    <MiniMarkdown src={content} />
+  ) : (
+    <div style={styles.pptxSlides}>
+      {slides.map((s, i) => (
+        <div key={i} style={styles.pptxSlide}>
+          <div style={styles.pptxSlideNum}>{i + 1}</div>
+          <div style={styles.pptxSlideInner}>
+            <div style={styles.pptxSlideTitle}>{s.title}</div>
+            {s.body.split("\n").map((line, j) => {
+              const t = line.trim();
+              if (!t) return <div key={j} style={{ height: 6 }} />;
+              // Markdown table rows (markitdown renders pptx tables as
+              // pipe tables) pass through monospaced.
+              if (t.startsWith("|")) {
+                return <div key={j} style={styles.pptxSlideTable}>{line}</div>;
+              }
+              // Strip stray "#" prefixes (e.g. markitdown's "### Notes:").
+              const stripped = t.replace(/^#{1,6}\s+/, "");
+              const bullet = stripped.match(/^([-*•]|\d+[.)])\s+(.*)$/);
+              if (bullet) {
+                return (
+                  <div key={j} style={styles.pptxSlideLine}>• {bullet[2]}</div>
+                );
+              }
+              return <div key={j} style={styles.pptxSlideLine}>{stripped}</div>;
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <>
+      {canRender ? (
+        <Suspense fallback={<div style={styles.pptxRenderHint}>渲染引擎加载中…</div>}>
+        <div style={styles.pptxPreviewShell}>
+          <aside style={styles.pptxThumbRail} aria-label="幻灯片缩略图导航">
+            {Array.from({ length: total }, (_, i) => (
+              <button
+                key={i}
+                type="button"
+                style={{ ...styles.pptxThumb, ...(i === page.current ? styles.pptxThumbActive : {}) }}
+                onClick={() => {
+                  setPage((p) => ({ ...p, current: i }));
+                  viewer.current?.goTo(i);
+                }}
+                aria-label={`第 ${i + 1} 页`}
+                aria-current={i === page.current ? "page" : undefined}
+              >
+                <PresentationViewer
+                  src={raw}
+                  slide={i}
+                  fit="contain"
+                  keyboard={false}
+                  height="100%"
+                  style={styles.pptxThumbViewer}
+                />
+                <span>{i + 1}</span>
+              </button>
+            ))}
+          </aside>
+          <main style={styles.pptxStage}>
+            <PresentationViewer
+              ref={viewer}
+              src={raw}
+              slide={page.current}
+              height="100%"
+              fit="contain"
+              zoom={zoom}
+              keyboard={false}
+              style={styles.pptxThumbViewer}
+              onLoad={(info) => setPage({ count: info.slideCount, current: 0 })}
+              onSlideChange={(i) => setPage((p) => ({ ...p, current: i }))}
+              onError={(e) => {
+                // Renderer could not parse the deck — fall back to outline.
+                setRawError(`渲染失败：${e.message}`);
+              }}
+            />
+          </main>
+          <footer style={styles.pptxFooter}>
+            <span>{page.current + 1}/{total}</span>
+            <button style={styles.pptxModeBtn} onClick={() => setZoom((z) => Math.max(0.6, z - 0.1))} aria-label="缩小">−</button>
+            <span>{Math.round(zoom * 100)}%</span>
+            <button style={styles.pptxModeBtn} onClick={() => setZoom((z) => Math.min(1.8, z + 0.1))} aria-label="放大">＋</button>
+            <button style={styles.pptxModeBtn} onClick={() => onInsert(`${path} 第${page.current + 1}页`)}>引用当前页</button>
+            <button style={styles.pptxModeBtn} onClick={() => onDownload([path])} disabled={downloading}>
+              {downloading ? "打包中…" : "⬇ 下载"}
+            </button>
+          </footer>
+        </div>
+        </Suspense>
+      ) : raw === null && !rawError ? (
+        <div style={styles.pptxRenderHint}>正在获取演示文稿…</div>
+      ) : (
+        <>
+          <div style={styles.pptxBar}>
+            <span>📊 共 {total} 张幻灯片 · 文本大纲预览{rawError ? `（${rawError}）` : ""}</span>
+          </div>
+          {outlineView}
+        </>
+      )}
+    </>
+  );
+}
+
 function FilesPanel({
   files, preview, previewLoading, onOpen, onRefresh, onInsert, onBack, onClose,
-  onUpload, uploading, notice, onDownload, downloading,
+  onUpload, uploading, notice, onDownload, downloading, width,
 }: {
   files: WsFile[];
   preview: PreviewState | null;
@@ -2398,6 +2811,8 @@ function FilesPanel({
   notice?: string;
   onDownload: (paths: string[]) => void;
   downloading: boolean;
+  /** 面板宽度（px）——由父组件的拖拽手柄控制，默认用样式表里的 320px。 */
+  width?: number;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -2445,7 +2860,7 @@ function FilesPanel({
   const baseName = (p: string) => p.split("/").pop() || p;
 
   return (
-    <div style={styles.filesPanel}>
+    <div style={width != null ? { ...styles.filesPanel, width } : styles.filesPanel}>
       {/* Hidden picker feeding the workspace upload endpoint. */}
       <input
         ref={uploadInputRef}
@@ -2539,6 +2954,15 @@ function FilesPanel({
                 alt={preview.path}
               />
             )}
+            {preview.type === "pptx" && (
+              <PptxSlidePreview
+                path={preview.path}
+                content={preview.content || ""}
+                onDownload={onDownload}
+                downloading={downloading}
+                onInsert={onInsert}
+              />
+            )}
             {preview.type === "binary" && (
               <div style={styles.previewBinary}>
                 二进制文件（{preview.mime}），无法在此预览。
@@ -2551,7 +2975,7 @@ function FilesPanel({
       ) : (
         <div style={styles.filesPanelBody}>
           {files.length === 0 ? (
-            <div style={{ padding: "16px 12px", fontSize: "12px", color: "#5b6472" }}>
+            <div style={{ padding: "16px 12px", fontSize: "12px", color: "var(--text-3)" }}>
               工作区为空（或读取失败，请刷新重试）
             </div>
           ) : (

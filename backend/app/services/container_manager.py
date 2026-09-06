@@ -935,6 +935,46 @@ class ContainerManager:
             logger.warning("Workspace read %s failed: %s", rel_path, exc)
             return None
 
+    def extract_pptx_text(
+        self, user_id: str, rel_path: str, limit: int = 256 * 1024
+    ) -> str | None:
+        """Extract slide text from a workspace .pptx file.
+
+        Runs the pptx-generator skill's `pptx-markitdown` wrapper inside the
+        agent container (markitdown from the skill's dedicated venv) and
+        returns its markdown output (slides separated by "<!-- Slide number:
+        N -->" comments) for the preview pane. Returns None whenever
+        extraction is impossible — container not running, wrapper missing
+        (pre-pptx image), unreadable/corrupt file — so the caller can fall
+        back to the generic binary preview. Unlike read_workspace_file this
+        never hauls the raw bytes out of Docker; the output is capped at
+        `limit` so a pathological deck cannot flood the response.
+        """
+        container = self.get_container(user_id)
+        if container is None or container.status != "running":
+            return None
+        try:
+            abs_path = self._workspace_path(rel_path)
+        except ValueError:
+            return None
+        try:
+            result = container.exec_run(
+                ["pptx-markitdown", abs_path], user="1000:1000"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("PPTX text extract exec failed (%s): %s", rel_path, exc)
+            return None
+        if result.exit_code != 0:
+            # Exit 127 = wrapper not on PATH (image predates the pptx skill);
+            # anything else = markitdown could not parse the file. Both mean
+            # "no preview", not "no file" — let the caller degrade gracefully.
+            logger.info(
+                "PPTX text extract for %s exited %d", rel_path, result.exit_code
+            )
+            return None
+        output = result.output.decode("utf-8", "replace") if result.output else ""
+        return output[:limit] or None
+
     def read_workspace_tree(self, user_id: str, rel_dir: str) -> dict[str, bytes] | None:
         """Read every file under a workspace directory.
 
