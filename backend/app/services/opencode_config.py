@@ -360,6 +360,29 @@ def _discover_builtin_plugins() -> list[str]:
     return result
 
 
+def _discover_builtin_skill_names() -> set[str]:
+    """Names of the skills pre-baked into the agent image.
+
+    Each subdirectory of :attr:`settings.builtin_skills_dir` holding a
+    SKILL.md is seeded by the image entrypoint into the container's global
+    skills dir (``$XDG_CONFIG_HOME/opencode/skills/<name>``) on first boot.
+    Unlike plugins these skills have no manifest — the directory name IS the
+    skill name — so enumeration is a plain directory listing. The backend
+    needs the list to recognise them among the container's registered
+    skills: their ``location`` points at the XDG skills dir, not at any
+    plugin path, so the plugin-prefix match in visibility.list_builtin_skills
+    alone cannot find them.
+    """
+    skills_dir = Path(settings.builtin_skills_dir)
+    if not skills_dir.is_dir():
+        return set()
+    return {
+        p.parent.name
+        for p in skills_dir.glob("*/SKILL.md")
+        if p.parent.name not in ("", ".", "..")
+    }
+
+
 # ------------------------------------------------------------------
 #  Dynamic visibility — skills / MCP via permission rules
 # ------------------------------------------------------------------

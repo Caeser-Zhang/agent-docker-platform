@@ -1,0 +1,10 @@
+#!/bin/sh
+# Isolated Node runtime for the pptx-generator skill (builtin-skills/pptx-generator).
+#
+# The runtime image deliberately ships no Node — this wrapper is the only
+# supported entry point. The real binary lives under /opt/agent/skill-envs/pptx/bin
+# (copied from the fetch stage; same glibc, needs only libstdc++6) and
+# pptxgenjs@4.0.1 is pre-baked under /opt/agent/skill-envs/pptx/node_modules.
+# NODE_PATH makes a bare `require("pptxgenjs")` resolve from any cwd.
+export NODE_PATH="/opt/agent/skill-envs/pptx/node_modules${NODE_PATH:+:${NODE_PATH}}"
+exec /opt/agent/skill-envs/pptx/bin/node "$@"

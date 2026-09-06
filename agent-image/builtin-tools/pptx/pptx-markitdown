@@ -1,0 +1,6 @@
+#!/bin/sh
+# markitdown[pptx] from the pptx-generator skill's dedicated venv.
+# Built at image-build time (python3 -m venv /opt/agent/skill-envs/pptx/venv)
+# because the container rootfs is read-only and a PIP_USER install into the
+# tmpfs HOME would not survive a reboot.
+exec /opt/agent/skill-envs/pptx/venv/bin/python -m markitdown "$@"

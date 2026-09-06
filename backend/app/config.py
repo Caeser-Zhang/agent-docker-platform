@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # live in the read-only image, so users cannot remove them.
     builtin_plugins_dir: str = "/builtin-plugins"
 
+    # Directory containing the built-in skills baked into the agent image
+    # (agent-image/builtin-skills/<name>/SKILL.md). The image entrypoint
+    # seeds them into every container's global skills dir on first boot; the
+    # backend only needs the names to recognise them among the skills the
+    # container's opencode reports (see visibility.list_builtin_skills).
+    builtin_skills_dir: str = "/builtin-skills"
+
     # --- Lifecycle ---
     health_check_interval: int = 10  # seconds
     startup_timeout: int = 120  # seconds — cold start (SDK copy + init)

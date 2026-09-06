@@ -5,6 +5,8 @@
 # python3-pip / python3-venv 让 Agent 能在容器内安装/管理 Python 包
 # （rootfs 只读，pip 以 --user 模式装进 /home/agent/.local，见 Dockerfile ENV）。
 # zip/unzip/xz-utils 解压打包，wget 下载，tree 查看目录结构，file 识别文件类型。
+# libstdc++6 供 /opt/agent/skill-envs/pptx/bin/node（pptx-generator skill 的
+# 隔离 Node 运行时，从 fetch 阶段复制而来）动态链接使用。
 jq
 python3-pip
 python3-venv
@@ -14,3 +16,4 @@ xz-utils
 wget
 tree
 file
+libstdc++6

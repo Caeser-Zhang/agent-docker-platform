@@ -57,6 +57,28 @@ for default_cfg in /opt/agent/builtin-plugins/*/plugin.default.json; do
     fi
 done
 
+# Built-in skills ship under /opt/agent/builtin-skills/<name>/ in the
+# read-only image. Seed each one into the user's global skills dir
+# (${XDG_CONFIG_HOME}/opencode/skills — where opencode discovers global
+# skills) on first boot only: per-skill "not exists" check, so user-side
+# edits survive reboots and newer images can add new skills. The backend's
+# host-skills injection (put_archive, add-only) targets the same directory
+# and never deletes, so the two sources coexist without fighting.
+SKILLS_SRC="/opt/agent/builtin-skills"
+SKILLS_DIR="${XDG_CONFIG_HOME}/opencode/skills"
+if [ -d "${SKILLS_SRC}" ]; then
+    for skill_src in "${SKILLS_SRC}"/*/; do
+        [ -f "${skill_src}SKILL.md" ] || continue
+        skill_name="$(basename "${skill_src}")"
+        target="${SKILLS_DIR}/${skill_name}"
+        if [ ! -s "${target}/SKILL.md" ]; then
+            echo "[entrypoint] seeding skill: ${target}" >&2
+            mkdir -p "${target}"
+            cp -a "${skill_src}/." "${target}/"
+        fi
+    done
+fi
+
 # NOTE: oh-my-opencode-slim's plugin.default.json pins agents.*.model to the
 # platform gateway model. At runtime the plugin merges
 # config.agents = deepMerge(preset, config.agents) — the static agents keys in

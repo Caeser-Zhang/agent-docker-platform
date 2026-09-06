@@ -62,6 +62,11 @@ services:
       # Mount the built-in plugin manifest directory (read-only) so the backend
       # can discover pre-baked plugins and inject them into user containers.
       - ./agent-image/builtin-plugins:/builtin-plugins:ro
+      # Mount the built-in skills directory (read-only) so the backend can
+      # recognise image-seeded skills (e.g. pptx-generator) among the skills
+      # a running container's opencode reports — their location points at the
+      # container's XDG skills dir, so only the name can identify them.
+      - ./agent-image/builtin-skills:/builtin-skills:ro
     # The LLM proxy (backend /llm-proxy/{provider}) resolves loopback provider
     # base URLs to host.docker.internal when forwarding upstream — the same
     # alias the per-user agent containers get from container_manager. Required

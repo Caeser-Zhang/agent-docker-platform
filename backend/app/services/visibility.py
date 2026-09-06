@@ -38,6 +38,7 @@ from .container_manager import container_manager
 from .opencode_config import (
     PLUGIN_CONFIG_FILENAME,
     _discover_builtin_plugins,
+    _discover_builtin_skill_names,
     _sanitize_mcp_permission_key,
     apply_plugin_visibility,
     hidden_builtin_skills,
@@ -54,20 +55,31 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 async def list_builtin_skills(user_id: str) -> list[dict]:
-    """List plugin-registered skills from the running container's opencode.
+    """List built-in skills from the running container's opencode.
 
-    Built-in plugin skills live inside the plugin's pre-baked node_modules
-    tree in the read-only agent image, so the backend cannot see them on the
-    host — only the opencode server inside the container knows them. Query
-    its native GET /skill through the relay and keep the entries whose
-    ``location`` falls under a built-in plugin path. Returns [] whenever the
-    container is not running or the call fails.
+    Built-in skills come from two image-side sources, and neither is visible
+    on the host, so enumeration asks the opencode server inside a running
+    container (GET /skill through the relay) and keeps the entries that match
+    either:
+
+    * plugin-registered skills — ``location`` falls under a built-in plugin
+      path (``/opt/agent/builtin-plugins/...``). Current plugin versions
+      instead copy their skills into the container's global skills dir, so
+      this branch mostly future-proofs the original design;
+    * image-seeded skills — the name is one of agent-image/builtin-skills/
+      <name>/SKILL.md (seeded by the entrypoint into
+      $XDG_CONFIG_HOME/opencode/skills on first boot), e.g. pptx-generator.
+      Their location points at the XDG skills dir, which also holds plugin
+      and host-injected skills, so only the name can identify them.
+
+    Returns [] whenever the container is not running or the call fails.
     """
     running, password = await agent_controller.get_agent_gate(user_id)
     if not running or not password:
         return []
     plugin_prefixes = [p.rstrip("/") + "/" for p in _discover_builtin_plugins()]
-    if not plugin_prefixes:
+    seeded_names = _discover_builtin_skill_names()
+    if not plugin_prefixes and not seeded_names:
         return []
     try:
         resp = await tunnel_relay.http_request(
@@ -81,7 +93,8 @@ async def list_builtin_skills(user_id: str) -> list[dict]:
     skills: list[dict] = []
     for s in resp["body"]:
         location = s.get("location") or ""
-        if not any(location.startswith(p) for p in plugin_prefixes):
+        in_plugin = any(location.startswith(p) for p in plugin_prefixes)
+        if not in_plugin and s.get("name") not in seeded_names:
             continue
         if s.get("name"):
             skills.append({

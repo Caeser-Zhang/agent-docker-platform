@@ -74,6 +74,21 @@ RUN mkdir -p /fetch/builtin-plugins/oh-my-opencode-slim/node_modules \
     && test -f node_modules/oh-my-opencode-slim/dist/index.js \
     && ls node_modules/@ast-grep/ | grep -q '^cli-linux'
 
+# Pre-bake the pptx-generator skill's Node dependency: pptxgenjs@4.0.1.
+# Pure JS (jszip & friends, no native addons), so the tree built here on
+# node:20-slim runs fine on the runtime stage's glibc — same trick as the
+# provider-deps above. The runtime stage has no npm; the tree is copied to
+# /opt/agent/skill-envs/pptx/ and consumed through the pptx-node wrapper
+# (see builtin-tools/pptx/ and builtin-skills/pptx-generator/).
+RUN mkdir -p /fetch/skill-envs/pptx/node_modules \
+    && cd /fetch/skill-envs/pptx \
+    && printf '{"name":"pptx-skill-env","private":true}\n' > package.json \
+    && npm config set registry https://registry.npmmirror.com \
+    && npm install --no-audit --no-fund --omit=dev "pptxgenjs@4.0.1" \
+    # Fail the build early if the install produced something unusable.
+    && node -e "const P=require('pptxgenjs');const p=new P();if(typeof p.addSlide!=='function')throw new Error('pptxgenjs smoke test failed')" \
+    && test -f node_modules/pptxgenjs/package.json
+
 # -------------------------------------------------------------- runtime stage
 FROM ${RUNTIME_IMAGE}
 
@@ -92,7 +107,10 @@ RUN sed -i 's|http://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/
 # ripgrep / git / fd are what opencode's built-in grep, glob and vcs tools shell
 # out to. curl is used by the container HEALTHCHECK.
 # Additional CLI tools are declared in builtin-tools/packages.list (one apt
-# package per line, # for comments) and appended here at build time.
+# package per line, # for comments) and appended here at build time. `tr -d '\r'`
+# guards against Windows checkouts flipping the file to CRLF — with \r still in
+# the lines, the anchored grep below matches NOTHING and every listed package
+# is silently skipped (that's exactly how python3-venv went missing once).
 COPY builtin-tools/packages.list /tmp/builtin-packages.list
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -103,7 +121,7 @@ RUN apt-get update \
         less \
         python3 \
         ripgrep \
-        $(grep -E '^[a-z0-9][a-z0-9+.-]*$' /tmp/builtin-packages.list | tr '\n' ' ') \
+        $(tr -d '\r' < /tmp/builtin-packages.list | grep -E '^[a-z0-9][a-z0-9+.-]*$' | tr '\n' ' ') \
     && rm -rf /var/lib/apt/lists/* /tmp/builtin-packages.list \
     && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     # Some bookworm-derived bases (node:*-slim) already ship a uid/gid 1000
@@ -132,11 +150,38 @@ COPY builtin-mcp/ /opt/agent/builtin-mcp/
 # on first boot (see entrypoint.sh).
 COPY --from=fetch /fetch/builtin-plugins /opt/agent/builtin-plugins
 COPY builtin-plugins/ /opt/agent/builtin-plugins/
+# Isolated Node runtime + pre-baked pptxgenjs@4.0.1 for the pptx-generator
+# skill (builtin-skills/pptx-generator/). Node deliberately stays OFF the
+# global PATH — the runtime image must not grow a general Node stack; the
+# pptx-node wrapper is the only supported entry point. node:20-slim and
+# bookworm-slim share glibc, so the fetch-stage binary runs here with just
+# libstdc++6 (added to builtin-tools/packages.list).
+COPY --from=fetch /usr/local/bin/node /opt/agent/skill-envs/pptx/bin/node
+COPY --from=fetch /fetch/skill-envs/pptx/node_modules /opt/agent/skill-envs/pptx/node_modules
+COPY --from=fetch /fetch/skill-envs/pptx/package.json /opt/agent/skill-envs/pptx/package.json
+# markitdown[pptx] (PPTX text extraction) in a dedicated venv. The venv is
+# created HERE, not on the fetch stage: venv bin/ scripts hard-code the
+# absolute interpreter path, so a venv built around the node image's
+# /usr/local/bin/python would be dead on arrival. PIP_USER /
+# PIP_BREAK_SYSTEM_PACKAGES (ENV below) do not affect this RUN — an ENV
+# directive only takes effect for later instructions — so pip installs
+# straight into the venv as intended.
+RUN python3 -m venv /opt/agent/skill-envs/pptx/venv \
+    && /opt/agent/skill-envs/pptx/venv/bin/pip install --no-cache-dir \
+        --index-url https://pypi.tuna.tsinghua.edu.cn/simple "markitdown[pptx]" \
+    && /opt/agent/skill-envs/pptx/venv/bin/python -c "import markitdown, pptx" \
+    && /opt/agent/skill-envs/pptx/bin/node --version
+# pptx-node / pptx-markitdown — the skill's supported entry points (the
+# commands baked into builtin-skills/pptx-generator/SKILL.md).
+COPY builtin-tools/pptx/pptx-node builtin-tools/pptx/pptx-markitdown /usr/local/bin/
+# Built-in skills, seeded into the user's XDG skills dir on first boot by
+# entrypoint.sh (same first-boot-only semantics as plugin.default.json).
+COPY builtin-skills/ /opt/agent/builtin-skills/
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # fastk CLI — stdlib-only client for the FastDB knowledge-base REST API,
 # the tool the bundled fastk-search / fastk-analyze skills instruct on.
 COPY builtin-tools/fastk-cli/fastk /usr/local/bin/fastk
-RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk /usr/local/bin/pptx-node /usr/local/bin/pptx-markitdown
 
 # WORKAROUND（oven-sh/bun#32178）：Bun 1.3.14 的 parallel-GC 存在确定性竞态，
 # bash 工具 spawn 子进程后 drain microtask 会 segment fault（Bun 1.3.15 已修复）。
