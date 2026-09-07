@@ -25,7 +25,9 @@ rsync -a --delete \
   "$SRC"/ "$DST"/
 
 # CRLF from the Windows editor breaks shebangs and `set -e` inside containers.
-find "$DST" -type f \( -name '*.sh' -o -name 'Dockerfile' -o -name 'entrypoint.sh' \) \
+# The pptx dir holds extension-less executable wrappers (pptx-node,
+# pptx-markitdown) — same shebang hazard, so they need the same strip.
+find "$DST" -type f \( -name '*.sh' -o -name 'Dockerfile' -o -name 'entrypoint.sh' -o -path '*/builtin-tools/pptx/*' \) \
   -exec sed -i 's/\r$//' {} +
 chmod +x "$DST"/scripts/*.sh "$DST"/agent-image/entrypoint.sh 2>/dev/null || true
 

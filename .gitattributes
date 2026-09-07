@@ -2,3 +2,5 @@
 *.sh    text eol=lf
 Dockerfile text eol=lf
 *.vbs   text eol=crlf
+# Extension-less executable wrappers shipped into images — same shebang hazard
+agent-image/builtin-tools/pptx/* text eol=lf
