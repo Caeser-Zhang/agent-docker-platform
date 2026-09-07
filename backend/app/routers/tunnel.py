@@ -34,6 +34,7 @@ from ..services import user_config
 from ..services.agent_controller import agent_controller
 from ..services.container_manager import container_manager
 from ..services.opencode_config import describe_source
+from ..services.request_log import record_request
 from ..services.sse_pump import sse_pump_manager
 from ..services.tunnel_relay import tunnel_relay
 
@@ -165,6 +166,7 @@ async def proxy_opencode(oc_path: str, req: Request, user: User = Depends(get_cu
     # kept on the same budget; everything else stays quick.
     timeout = 300.0 if normalized.endswith(LONG_RUN_SUFFIXES) else 60.0
 
+    start = time.perf_counter()
     result = await tunnel_relay.http_request(
         user_id=user.id,
         method=method,
@@ -174,6 +176,16 @@ async def proxy_opencode(oc_path: str, req: Request, user: User = Depends(get_cu
         password=password,
         timeout=timeout,
         headers=fwd_headers,
+    )
+    # Platform-side access log (opencode itself emits none): one row per
+    # proxied call with method/path/status/duration. Never breaks proxying.
+    await record_request(
+        user_id=user.id,
+        method=method,
+        # Query string included — opencode list endpoints page via ?limit=…
+        path=f"/{normalized}" + (f"?{req.query_params}" if str(req.query_params) else ""),
+        status_code=result.get("status", 502),
+        duration_ms=int((time.perf_counter() - start) * 1000),
     )
 
     # Any interaction keeps the container out of the idle reclaimer.

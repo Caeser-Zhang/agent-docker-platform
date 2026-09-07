@@ -16,16 +16,24 @@
  *   - optional 5s auto-refresh
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type AdminContainer, type AdminOverview } from "../api";
+import { api, type AdminContainer, type AdminOverview, type AdminRequestLogEntry } from "../api";
 import { adminStyles as s, adminCss } from "./adminStyles";
+
+type LogsTab = "container" | "requests";
 
 interface LogsModalState {
   userId: string;
   username: string | null;
   containerName: string;
+  tab: LogsTab;
   tail: number;
   logs: string;
   loading: boolean;
+  /** Tunnel request log rows (null until the requests tab is first opened). */
+  requests: AdminRequestLogEntry[] | null;
+  reqLimit: number;
+  /** Set when the requests fetch itself failed (rendered instead of a table). */
+  reqError: string | null;
 }
 
 interface DestroyModalState {
@@ -57,6 +65,7 @@ interface BatchBusyState {
 }
 
 const TAIL_OPTIONS = [100, 200, 500, 1000, 2000];
+const REQ_LIMIT_OPTIONS = [50, 100, 200, 500];
 const BATCH_OP_LABEL: Record<BatchOp, string> = {
   restart: "重启",
   stop: "停止",
@@ -76,6 +85,27 @@ function fmtTime(iso: string | null): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
   return new Date(iso).toLocaleString("zh-CN", { hour12: false });
+}
+
+/** Request-log status color: 2xx green, 3xx blue, 4xx amber, 5xx red. */
+function statusColor(code: number): string {
+  if (code >= 500) return "#dc2626";
+  if (code >= 400) return "#b45309";
+  if (code >= 300) return "#2563eb";
+  return "#16a34a";
+}
+
+/** Request-log timestamp: HH:MM:SS plus relative day when not today. */
+function fmtLogTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const hm = d.toLocaleTimeString("zh-CN", { hour12: false });
+  return sameDay ? hm : `${d.toLocaleDateString("zh-CN")} ${hm}`;
 }
 
 function Badge({ text, variant }: { text: string; variant: "green" | "yellow" | "red" | "gray" | "blue" }) {
@@ -377,9 +407,13 @@ export function AdminPanel({
       userId: c.user_id,
       username: c.username,
       containerName: c.container_name,
+      tab: "container",
       tail: 200,
       logs: "",
       loading: true,
+      requests: null,
+      reqLimit: 200,
+      reqError: null,
     });
     try {
       const r = await api.getAdminContainerLogs(c.user_id, 200);
@@ -393,13 +427,54 @@ export function AdminPanel({
 
   const reloadLogs = async (tail: number) => {
     if (!logsModal) return;
-    setLogsModal({ ...logsModal, tail, loading: true });
+    const { userId } = logsModal;
+    // Functional updates only: a non-functional update here would resurrect
+    // stale closure state (e.g. revert the tab set by switchLogsTab).
+    setLogsModal((m) => (m ? { ...m, tail, loading: true } : m));
     try {
-      const r = await api.getAdminContainerLogs(logsModal.userId, tail);
-      setLogsModal((m) => (m ? { ...m, logs: r.logs, loading: false } : m));
+      const r = await api.getAdminContainerLogs(userId, tail);
+      setLogsModal((m) => (m && m.userId === userId ? { ...m, logs: r.logs, loading: false } : m));
     } catch (e: any) {
-      setLogsModal((m) => (m ? { ...m, logs: `加载日志失败: ${e.message}`, loading: false } : m));
+      setLogsModal((m) =>
+        m && m.userId === userId ? { ...m, logs: `加载日志失败: ${e.message}`, loading: false } : m
+      );
     }
+  };
+
+  /** Fetch tunnel request logs for the requests tab. */
+  const fetchRequestLogs = async (userId: string, limit: number) => {
+    try {
+      const r = await api.getAdminRequestLogs(userId, limit);
+      setLogsModal((m) =>
+        m && m.userId === userId ? { ...m, requests: r.logs, reqLimit: limit, reqError: null, loading: false } : m
+      );
+    } catch (e: any) {
+      setLogsModal((m) =>
+        m && m.userId === userId ? { ...m, reqError: `加载请求日志失败: ${e.message}`, loading: false } : m
+      );
+    }
+  };
+
+  const switchLogsTab = async (tab: LogsTab) => {
+    if (!logsModal || logsModal.tab === tab) return;
+    setLogsModal((m) => (m ? { ...m, tab, loading: true } : m));
+    if (tab === "requests") {
+      await fetchRequestLogs(logsModal.userId, logsModal.reqLimit);
+      return;
+    }
+    await reloadLogs(logsModal.tail);
+  };
+
+  const changeCount = (n: number) => {
+    if (!logsModal) return;
+    if (logsModal.tab === "requests") fetchRequestLogs(logsModal.userId, n);
+    else reloadLogs(n);
+  };
+
+  const refreshLogs = () => {
+    if (!logsModal) return;
+    if (logsModal.tab === "requests") fetchRequestLogs(logsModal.userId, logsModal.reqLimit);
+    else reloadLogs(logsModal.tail);
   };
 
   const confirmDestroy = async () => {
@@ -885,7 +960,7 @@ export function AdminPanel({
           <div style={s.modal} onClick={(e) => e.stopPropagation()}>
             <div style={s.modalHeader}>
               <div style={s.modalTitle}>
-                容器日志 — {logsModal.username || logsModal.userId}
+                日志 — {logsModal.username || logsModal.userId}
                 <span style={{ ...s.mono, ...s.muted, marginLeft: "8px" }}>
                   {logsModal.containerName}
                 </span>
@@ -894,21 +969,94 @@ export function AdminPanel({
                 关闭
               </button>
             </div>
+            <div style={s.logsTabBar}>
+              <button
+                className={`adm-tab${logsModal.tab === "container" ? " adm-tab-active" : ""}`}
+                style={{ ...s.logsTab, ...(logsModal.tab === "container" ? s.logsTabActive : {}) }}
+                onClick={() => switchLogsTab("container")}
+              >
+                容器日志
+              </button>
+              <button
+                className={`adm-tab${logsModal.tab === "requests" ? " adm-tab-active" : ""}`}
+                style={{ ...s.logsTab, ...(logsModal.tab === "requests" ? s.logsTabActive : {}) }}
+                onClick={() => switchLogsTab("requests")}
+              >
+                请求日志（tunnel）
+              </button>
+            </div>
             <div style={s.modalBody}>
-              <pre ref={logBoxRef} style={s.logBox}>
-                {logsModal.loading ? "加载中…" : logsModal.logs || "（无日志）"}
-              </pre>
+              {logsModal.tab === "requests" ? (
+                logsModal.reqError ? (
+                  <div style={s.errorBanner}>{logsModal.reqError}</div>
+                ) : logsModal.loading && logsModal.requests === null ? (
+                  <div style={s.empty}>加载中…</div>
+                ) : (logsModal.requests ?? []).length === 0 ? (
+                  <div style={s.empty}>（暂无请求日志）</div>
+                ) : (
+                  <table style={s.reqTable}>
+                    <thead>
+                      <tr>
+                        <th style={s.reqTh}>时间</th>
+                        <th style={s.reqTh}>方法</th>
+                        <th style={s.reqTh}>状态</th>
+                        <th style={s.reqTh}>耗时</th>
+                        <th style={s.reqTh}>路径</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(logsModal.requests ?? []).map((r) => (
+                        <tr key={r.id}>
+                          <td style={{ ...s.reqTd, ...s.mono, color: "#5b6472" }}>
+                            {fmtLogTime(r.created_at)}
+                          </td>
+                          <td style={{ ...s.reqTd, ...s.mono }}>{r.method}</td>
+                          <td
+                            style={{
+                              ...s.reqTd,
+                              ...s.mono,
+                              color: statusColor(r.status_code),
+                              fontWeight: 600,
+                            }}
+                          >
+                            {r.status_code}
+                          </td>
+                          <td style={{ ...s.reqTd, ...s.mono, color: "#5b6472" }}>
+                            {r.duration_ms} ms
+                          </td>
+                          <td
+                            style={{
+                              ...s.reqTd,
+                              ...s.mono,
+                              maxWidth: "340px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={r.path}
+                          >
+                            {r.path}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              ) : (
+                <pre ref={logBoxRef} style={s.logBox}>
+                  {logsModal.loading ? "加载中…" : logsModal.logs || "（无日志）"}
+                </pre>
+              )}
             </div>
             <div style={s.modalFooter}>
               <label style={s.checkboxLabel}>
-                行数
+                条数
                 <select
                   className="adm-select"
                   style={s.select}
-                  value={logsModal.tail}
-                  onChange={(e) => reloadLogs(Number(e.target.value))}
+                  value={logsModal.tab === "requests" ? logsModal.reqLimit : logsModal.tail}
+                  onChange={(e) => changeCount(Number(e.target.value))}
                 >
-                  {TAIL_OPTIONS.map((n) => (
+                  {(logsModal.tab === "requests" ? REQ_LIMIT_OPTIONS : TAIL_OPTIONS).map((n) => (
                     <option key={n} value={n}>
                       {n}
                     </option>
@@ -919,9 +1067,9 @@ export function AdminPanel({
                 className="adm-btn"
                 style={{ ...s.btnSmall, ...(logsModal.loading ? s.btnDisabled : {}) }}
                 disabled={logsModal.loading}
-                onClick={() => reloadLogs(logsModal.tail)}
+                onClick={refreshLogs}
               >
-                刷新日志
+                刷新
               </button>
             </div>
           </div>

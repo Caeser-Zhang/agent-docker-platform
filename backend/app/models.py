@@ -158,3 +158,33 @@ class AuditEvent(Base):
     detail: Mapped[str] = mapped_column(Text, default="")  # JSON
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+
+class RequestLog(Base):
+    """Platform-side access log for tunnel-proxied requests — one row per call.
+
+    opencode 1.x emits no HTTP request logs of its own (its server disables
+    the HTTP logger), so the tunnel proxy is the only vantage point from
+    which the platform can observe request/response traffic between the
+    browser and each user's container. Bodies are deliberately NOT stored:
+    prompts and LLM responses can be huge; method/path/status/duration is
+    what an access log needs.
+
+    ``user_id`` is a plain indexed string with no FK, mirroring AuditEvent:
+    log rows must survive the referenced user's deletion.
+    """
+
+    __tablename__ = "request_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    method: Mapped[str] = mapped_column(String(10), nullable=False)
+    # opencode path incl. query string, e.g. "/api/session?limit=20".
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_request_logs_user_time", "user_id", "created_at"),
+    )

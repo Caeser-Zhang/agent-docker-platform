@@ -9,7 +9,11 @@ Endpoints:
   GET  /api/admin/containers                     — all users' containers
                                                     (DB records merged with
                                                     live Docker state + stats)
-  GET  /api/admin/containers/{user_id}/logs      — container logs
+  GET  /api/admin/containers/{user_id}/logs          — container logs
+  GET  /api/admin/containers/{user_id}/request-logs  — tunnel request logs
+                                                      (method/path/status/
+                                                      duration per proxied
+                                                      call, newest first)
   POST /api/admin/containers/{user_id}/restart   — restart in place
   POST /api/admin/containers/{user_id}/stop      — graceful stop (keeps volumes)
   POST /api/admin/containers/{user_id}/recreate  — rebuild from current image
@@ -30,6 +34,7 @@ from ..models import AgentContainer, User
 from ..services.agent_controller import agent_controller
 from ..services.audit import list_audit
 from ..services.container_manager import container_manager
+from ..services.request_log import list_request_logs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -168,10 +173,21 @@ async def admin_container_logs(user_id: str, tail: int = Query(200, ge=1, le=200
     return {"user_id": user_id, "tail": tail, "logs": logs}
 
 
+@router.get("/containers/{user_id}/request-logs")
+async def admin_request_logs(user_id: str, limit: int = Query(200, ge=1, le=500)):
+    """Recent tunnel request logs for a user, newest first.
+
+    Rows are recorded by the tunnel proxy (opencode itself emits no HTTP
+    request logs). Deliberately NOT gated on a live container: the history
+    stays viewable after stop/destroy, like the audit trail.
+    """
+    return {"user_id": user_id, "logs": await list_request_logs(user_id, limit)}
+
+
 @router.post("/containers/{user_id}/restart")
 async def admin_restart_container(user_id: str):
     """Restart the container in place and re-attach its SSE pump."""
-    _require_record(user_id)
+    await _require_record(user_id)
     result = await agent_controller.restart_for_user(user_id)
     if not result.get("ok"):
         raise HTTPException(status_code=409, detail=result.get("message", "Restart failed"))

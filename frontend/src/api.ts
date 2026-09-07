@@ -327,6 +327,22 @@ export interface AdminContainerLogs {
   logs: string;
 }
 
+/** One tunnel-proxied request recorded platform-side (opencode has no access log of its own). */
+export interface AdminRequestLogEntry {
+  id: number;
+  method: string;
+  /** opencode path incl. query string, e.g. "/api/session?limit=20". */
+  path: string;
+  status_code: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface AdminRequestLogs {
+  user_id: string;
+  logs: AdminRequestLogEntry[];
+}
+
 export interface AdminOverview {
   users: { total: number; admins: number };
   containers: {
@@ -426,6 +442,11 @@ export const api = {
 
   async getAdminContainerLogs(userId: string, tail = 200): Promise<AdminContainerLogs> {
     return apiCall(`/admin/containers/${userId}/logs?tail=${tail}`);
+  },
+
+  /** Recent tunnel request logs for a user (method/path/status/duration), newest first. */
+  async getAdminRequestLogs(userId: string, limit = 200): Promise<AdminRequestLogs> {
+    return apiCall(`/admin/containers/${userId}/request-logs?limit=${limit}`);
   },
 
   async adminRestartContainer(userId: string): Promise<{ ok: boolean; message: string }> {

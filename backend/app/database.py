@@ -45,6 +45,7 @@ async def init_db():
         UserMcpServer,
         UserLLMProvider,
         AuditEvent,
+        RequestLog,
     )
 
     async with engine.begin() as conn:

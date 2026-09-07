@@ -431,6 +431,52 @@ export const adminStyles: Record<string, React.CSSProperties> = {
     padding: "12px 18px",
     borderTop: "1px solid var(--border)",
   },
+  /** Tab bar inside the logs modal (container logs vs opencode app logs). */
+  logsTabBar: {
+    display: "flex",
+    gap: "8px",
+    padding: "12px 18px 0",
+  },
+  logsTab: {
+    padding: "5px 14px",
+    border: "1px solid #e6e8ee",
+    background: "#ffffff",
+    color: "#5b6472",
+    borderRadius: "999px",
+    cursor: "pointer",
+    fontSize: "12.5px",
+    whiteSpace: "nowrap",
+    lineHeight: "18px",
+  },
+  logsTabActive: {
+    background: "#16181d",
+    borderColor: "#16181d",
+    color: "#ffffff",
+    fontWeight: 600,
+  },
+  /** Request-log table inside the logs modal (tunnel access log). */
+  reqTable: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: "12px",
+  },
+  reqTh: {
+    textAlign: "left",
+    padding: "6px 8px",
+    color: "#5b6472",
+    fontWeight: 600,
+    borderBottom: "1px solid #e6e8ee",
+    position: "sticky",
+    top: 0,
+    background: "#ffffff",
+    whiteSpace: "nowrap",
+  },
+  reqTd: {
+    padding: "5px 8px",
+    borderBottom: "1px solid #f1f3f5",
+    whiteSpace: "nowrap",
+    verticalAlign: "top",
+  },
   input: {
     padding: "8px 12px",
     border: "1px solid var(--border-strong)",
