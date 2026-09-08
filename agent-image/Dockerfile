@@ -74,6 +74,27 @@ RUN mkdir -p /fetch/builtin-plugins/oh-my-opencode-slim/node_modules \
     && test -f node_modules/oh-my-opencode-slim/dist/index.js \
     && ls node_modules/@ast-grep/ | grep -q '^cli-linux'
 
+# Pre-bake the present-file plugin's single runtime dependency: zod.
+# The plugin source itself (index.js + package.json + manifest.json) lives in
+# the repo at builtin-plugins/present-file/ and is overlaid onto this tree by
+# the runtime stage's `COPY builtin-plugins/`, so node_modules ends up as a
+# sibling of index.js and bare `import { z } from "zod"` resolves in place.
+#
+# zod MUST be v4. opencode's tool registry (tool/registry.ts) recognises plugin
+# tool args with `"_zod" in value` — a v4-only internal (v3 schemas carry
+# `_def`). A v3 shape is silently treated as non-zod and falls through to
+# legacyJsonSchema(), which passes the schema objects straight through as if
+# they were JSON Schema, handing the LLM a broken tool signature that it can
+# never call successfully. The smoke test asserts both the v4 marker and the
+# exact conversion the registry performs (z.object(args) + toJSONSchema), so a
+# future downgrade or a zod major bump fails the build rather than the runtime.
+RUN mkdir -p /fetch/builtin-plugins/present-file/node_modules \
+    && cd /fetch/builtin-plugins/present-file \
+    && npm config set registry https://registry.npmmirror.com \
+    && npm install --no-audit --no-fund --omit=dev "zod@^4.1.0" \
+    && test -f node_modules/zod/package.json \
+    && node -e "const{z}=require('zod');const s=z.string().describe('x');if(!s||typeof s!=='object'||!('_zod' in s))throw new Error('zod is not v4: plugin tool args need the _zod marker');const js=z.toJSONSchema(z.object({path:s}),{io:'input'});if(js.type!=='object'||js.properties.path.type!=='string')throw new Error('zod v4 JSON Schema conversion unusable');console.log('[build] zod '+require('zod/package.json').version+' v4 smoke test OK')"
+
 # Pre-bake the pptx-generator skill's Node dependency: pptxgenjs@4.0.1.
 # Pure JS (jszip & friends, no native addons), so the tree built here on
 # node:20-slim runs fine on the runtime stage's glibc — same trick as the
@@ -138,6 +159,21 @@ COPY --from=fetch /opencode /usr/local/bin/opencode
 # Pre-baked provider SDK packages so opencode doesn't need npm at runtime.
 COPY --from=fetch /fetch/provider-deps /opt/agent/provider-deps
 COPY opencode.default.json /opt/agent/opencode.default.json
+# Platform-level global instructions (the present_file delivery rules). The
+# entrypoint seeds this to ${XDG_CONFIG_HOME}/opencode/AGENTS.md on first boot;
+# opencode's Instruction service reads that path as its *global* instruction
+# file and appends it to every system prompt, additive with any project-level
+# AGENTS.md under /workspace (both are injected, each prefixed with
+# "Instructions from: <path>").
+#
+# The repo-side file is deliberately NOT named AGENTS.md: opencode discovers
+# instruction files by name (AGENTS.md / CLAUDE.md / CONTEXT.md) walking up from
+# the working directory, so an AGENTS.md sitting in this repo would be loaded as
+# project instructions by every agent working *on* agent-docker-demo itself —
+# telling it to call a present_file tool that does not exist outside a user
+# container. Renaming the source isolates the two; the name inside the image is
+# what matters.
+COPY platform-instructions.md /opt/agent/AGENTS.md
 # Built-in MCP servers — each subdirectory of builtin-mcp/ declares one server
 # via a manifest.json (mcp config) plus its executable(s). The backend discovers
 # the manifests and injects the servers into every user container. The scripts
@@ -182,6 +218,23 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # the tool the bundled fastk-search / fastk-analyze skills instruct on.
 COPY builtin-tools/fastk-cli/fastk /usr/local/bin/fastk
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk /usr/local/bin/pptx-node /usr/local/bin/pptx-markitdown
+
+# Build gate for the present-file plugin. Two things can break silently here:
+#   1. the runtime `COPY builtin-plugins/` overlay clobbering (or failing to
+#      land beside) the pre-baked zod tree fetched in the build stage;
+#   2. a plugin shape that opencode's loader/registry rejects at boot — which
+#      surfaces only as a missing tool, long after the image shipped.
+# The check replays both sides of the contract: PluginLoader's readV1Plugin
+# (default export with `id` + `server()`) and tool/registry.ts's fromPlugin
+# (z.object(args) -> toJSONSchema). Runs on the pptx skill's Node, the only
+# Node in the runtime image and deliberately kept off PATH.
+RUN cd /opt/agent/builtin-plugins/present-file \
+    && test -f index.js \
+    && test -f package.json \
+    && test -f manifest.json \
+    && test -f node_modules/zod/package.json \
+    && grep -q '/opt/agent/builtin-plugins/present-file' manifest.json \
+    && /opt/agent/skill-envs/pptx/bin/node -e "Promise.all([import('./index.js'),import('zod')]).then(async([m,{z}])=>{const p=m.default;if(!p||p.id!=='present-file'||typeof p.server!=='function')throw new Error('bad plugin shape: need default export {id,server}');const h=await p.server({worktree:'/tmp',directory:'/tmp'});const d=h.tool&&h.tool.present_file;if(!d||typeof d.execute!=='function'||!d.description)throw new Error('present_file tool missing from hooks.tool');for(const[k,v]of Object.entries(d.args)){if(!v||typeof v!=='object'||!('_zod' in v))throw new Error('arg '+k+' is not a zod v4 schema (registry requires the _zod marker)')}const js=z.toJSONSchema(z.object(d.args),{io:'input'});if(js.type!=='object'||js.properties.path.type!=='string')throw new Error('JSON Schema conversion produced an unusable tool signature');if(!js.required.includes('path'))throw new Error('path must be the only required arg');console.log('[build] present-file plugin OK, args: '+Object.keys(js.properties).join(','))}).catch(e=>{console.error('[build] present-file smoke test failed:',(e&&e.message)||e);process.exit(1)})"
 
 # WORKAROUND（oven-sh/bun#32178）：Bun 1.3.14 的 parallel-GC 存在确定性竞态，
 # bash 工具 spawn 子进程后 drain microtask 会 segment fault（Bun 1.3.15 已修复）。

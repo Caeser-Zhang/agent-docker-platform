@@ -114,6 +114,19 @@ if [ -d "${OMO_PROMPTS_SRC}" ]; then
     done
 fi
 
+# Platform-level global instructions (present_file delivery rules, etc).
+# opencode's Instruction service treats ${XDG_CONFIG_HOME}/opencode/AGENTS.md as
+# a *global* instruction file and appends it to every session's system prompt.
+# It is additive with the project-level AGENTS.md under /workspace — both get
+# injected, each prefixed with "Instructions from: <path>" — so this never
+# replaces opencode's built-in prompt nor fights a user's own project rules.
+# First boot only: users may tune or delete it without it coming back.
+GLOBAL_AGENTS="${XDG_CONFIG_HOME}/opencode/AGENTS.md"
+if [ ! -s "${GLOBAL_AGENTS}" ] && [ -s /opt/agent/AGENTS.md ]; then
+    echo "[entrypoint] seeding global AGENTS.md: ${GLOBAL_AGENTS}" >&2
+    cp /opt/agent/AGENTS.md "${GLOBAL_AGENTS}"
+fi
+
 # oh-my-opencode-slim's official installer generates a config that maps every
 # subagent (orchestrator, oracle, ...) to a model via preset/presets. Without
 # that mapping the plugin's agents come up with model=null and every tool call

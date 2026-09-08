@@ -14,7 +14,8 @@
     "todowrite": "allow",
     "external_directory": "allow",
     "skill": "allow",
-    "web_search*": "allow"
+    "web_search*": "allow",
+    "present_file": "allow"
   },
   "mcp": {
     "web_search": {

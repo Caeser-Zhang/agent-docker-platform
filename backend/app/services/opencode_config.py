@@ -79,6 +79,12 @@ CONTAINER_DEFAULTS: dict[str, Any] = {
         "external_directory": "allow",
         "skill": "allow",
         "web_search*": "allow",
+        # The built-in present-file plugin's delivery-signaling tool. opencode's
+        # registry does not permission-gate custom plugin tools, but the explicit
+        # allow keeps it out of any future deny-by-default ruleset and documents
+        # the dependency next to web_search* — same precedent that arbitrary
+        # tool-name keys are accepted here.
+        "present_file": "allow",
     },
 }
 

@@ -53,6 +53,85 @@ const mimeForPath = (p: string): string => {
   return IMAGE_MIME_BY_EXT[ext] ?? "text/plain";
 };
 
+// ---------------------------------------------------------------------------
+//  present_file 交付预览信令
+//
+//  Agent 侧 present_file 工具（容器内置插件）执行成功后，其 tool result 的
+//  output 是一段 JSON payload，随 message.part.updated 经 SSE 到达这里。我们
+//  不新建事件通道、也不重复造渲染器 —— 直接把 payload.path 交给已有的文件
+//  预览管线（openPreview → FilesPanel），它已覆盖 html/markdown/图片/文本，
+//  且 pptx 走 pptx-wasm 高保真渲染（PptxSlidePreview）。这一层只负责：
+//  去重（同 path 原位刷新）、关闭记忆（dismissed 后不再自动弹）、自动弹出
+//  开关（autoPresent）、多标签切换。
+// ---------------------------------------------------------------------------
+
+/** 交付预览的一个标签（id 即 workspace 相对 path，天然去重）。 */
+type PresentTab = {
+  path: string;
+  title: string;
+  kind: string;
+  note: string | null;
+  /** 同 path 重复展示时自增，用作渲染器 key 强制刷新。 */
+  version: number;
+};
+
+/** present_file tool result output 解析后的载荷（只取前端需要的字段）。 */
+type PresentPayload = {
+  path: string;
+  title: string;
+  kind: string;
+  note: string | null;
+  focus: boolean;
+  mode: string;
+};
+
+/** 标签上限，超出按 LRU（数组头部最旧）淘汰。 */
+const PRESENT_TAB_MAX = 8;
+const AUTO_PRESENT_KEY = "ui.autoPresent";
+const DISMISSED_PRESENT_KEY = "ui.dismissedPresent";
+
+/**
+ * 安全解析 present_file 的 output JSON。只认 ok===true 且带 path 的成功信令；
+ * 失败返回（ok:false / 限流 / 非法 JSON）一律 null，不打扰用户。
+ */
+function parsePresentOutput(output: unknown): PresentPayload | null {
+  if (typeof output !== "string" || !output) return null;
+  let p: any;
+  try {
+    p = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  if (!p || p.ok !== true || typeof p.path !== "string" || !p.path) return null;
+  const base = p.path.split("/").pop() || p.path;
+  return {
+    path: p.path,
+    title: typeof p.title === "string" && p.title.trim() ? p.title : base,
+    kind: typeof p.kind === "string" ? p.kind : "unknown",
+    note: typeof p.note === "string" ? p.note : null,
+    focus: p.focus !== false,
+    mode: typeof p.mode === "string" ? p.mode : "auto",
+  };
+}
+
+/**
+ * 从历史 turns 里回收所有成功的 present_file 信令（会话恢复用）。按出现顺序
+ * 去重，保留最后一次出现的 title/kind/note。不自动弹面板，仅重建标签列表。
+ */
+function extractPresentFromTurns(turns: Turn[]): PresentTab[] {
+  const byPath = new Map<string, PresentTab>();
+  for (const t of turns) {
+    for (const b of t.blocks) {
+      if (b.kind !== "tool" || b.name !== "present_file" || b.status !== "completed") continue;
+      const p = parsePresentOutput(b.output);
+      if (!p) continue;
+      byPath.set(p.path, { path: p.path, title: p.title, kind: p.kind, note: p.note, version: 1 });
+    }
+  }
+  return [...byPath.values()].slice(-PRESENT_TAB_MAX);
+}
+
+
 /**
  * Slash menu entry kinds: real opencode commands, the client-side "/agents"
  * pseudo command, and the agent entries it expands into.
@@ -232,6 +311,35 @@ export function Chat({
   const [wsFiles, setWsFiles] = useState<{ path: string; type: "file" | "dir"; size: number }[]>([]);
   const [preview, setPreview] = useState<{ path: string; type: string; mime: string; content?: string; base64?: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  // present_file 交付预览调度状态（见文件顶部注释）。tabs 按 path 去重、
+  // version 驱动刷新；autoPresent / dismissed 持久化到 localStorage。
+  const [presentTabs, setPresentTabs] = useState<PresentTab[]>([]);
+  const [activePresent, setActivePresent] = useState<string | null>(null);
+  const [autoPresent, setAutoPresent] = useState<boolean>(() => {
+    const v = localStorage.getItem(AUTO_PRESENT_KEY);
+    return v === null ? true : v === "1";
+  });
+  const [dismissedPresent, setDismissedPresent] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(DISMISSED_PRESENT_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => { localStorage.setItem(AUTO_PRESENT_KEY, autoPresent ? "1" : "0"); }, [autoPresent]);
+  useEffect(() => {
+    localStorage.setItem(DISMISSED_PRESENT_KEY, JSON.stringify(dismissedPresent));
+  }, [dismissedPresent]);
+  // SSE / 加载器闭包读取最新的 autoPresent / dismissed，避免因依赖变化反复重挂事件。
+  const autoPresentRef = useRef(autoPresent);
+  const dismissedPresentRef = useRef(dismissedPresent);
+  useEffect(() => { autoPresentRef.current = autoPresent; }, [autoPresent]);
+  useEffect(() => { dismissedPresentRef.current = dismissedPresent; }, [dismissedPresent]);
+  // present 处理器通过 ref 暴露给只注册一次的 SSE 回调，规避 useCallback 自引用环。
+  const presentHandlerRef = useRef<(p: PresentPayload, auto: boolean) => void>(() => {});
+
 
   // Workspace panel uploads: files land in the container workspace (tmp/) and
   // the tree is refreshed afterwards. `wsNotice` is a short-lived success hint.
@@ -499,6 +607,21 @@ export function Chat({
       const sid = data.sessionID;
       if (sid && sid !== sessionIdRef.current) return;
 
+      // present_file signaling: the tool's completed result carries the
+      // delivery payload. Capture it as it streams in and hand it to the
+      // present scheduler (dedupe / dismiss memory / auto-pop).
+      if (type === "message.part.updated") {
+        const part = data.part;
+        if (
+          part?.type === "tool" &&
+          part.tool === "present_file" &&
+          part.state?.status === "completed"
+        ) {
+          const payload = parsePresentOutput(part.state.output);
+          if (payload) presentHandlerRef.current(payload, true);
+        }
+      }
+
       // P1-1: the agent's task list updates — session-scoped, but not a
       // message turn, so it bypasses the turn reducer entirely.
       if (type === "todo.updated") {
@@ -747,11 +870,17 @@ export function Chat({
     // P1-1: revert state + task list belong to the session, not the page.
     setRevertedId(null);
     setTodos([]);
+    // present_file delivery tabs belong to the session too — reset, then
+    // rebuild from restored turns below (no auto-pop on restore).
+    setPresentTabs([]);
+    setActivePresent(null);
     if (session.model) setModel(session.model);
     if (session.agent) setAgentId(session.agent);
     refreshPending();
     try {
-      setTurns(toTurns(await api.getMessages(session.id), agentStartedAtRef.current));
+      const next = toTurns(await api.getMessages(session.id), agentStartedAtRef.current);
+      setTurns(next);
+      setPresentTabs(extractPresentFromTurns(next));
     } catch (e: any) {
       setError(e.message);
     }
@@ -1359,6 +1488,74 @@ export function Chat({
       setPreviewLoading(false);
     }
   };
+
+  /**
+   * 处理一条 present_file 成功信令。auto=true 来自实时 SSE（受 autoPresent 与
+   * dismissed 关闭记忆约束）；auto=false 是用户主动点开（总是打开）。渲染本身
+   * 完全复用已有的 openPreview → FilesPanel 管线（pptx 走 pptx-wasm）。
+   */
+  const handlePresent = (p: PresentPayload, auto: boolean) => {
+    // 弹出条件：手动点开必弹；自动信令需 autoPresent 开启，且该 path 未被用户
+    // 关闭过（focus 信令例外 —— Agent 认为它最重要，值得突破关闭记忆）。
+    const dismissed = !!dismissedPresentRef.current[p.path];
+    const shouldPop = !auto || (autoPresentRef.current && !(dismissed && !p.focus));
+
+    // focus 信令清除该 path 的关闭记忆（Agent 主动重新交付）。
+    if (p.focus && dismissed) {
+      setDismissedPresent((d) => {
+        if (!(p.path in d)) return d;
+        const rest = { ...d };
+        delete rest[p.path];
+        return rest;
+      });
+    }
+
+    // 去重 + version 自增（驱动渲染器刷新）+ LRU 上限。函数式更新，SSE 连发
+    // 尚未重渲染时也不会互相覆盖。
+    setPresentTabs((tabs) => {
+      const idx = tabs.findIndex((t) => t.path === p.path);
+      const tab: PresentTab = {
+        path: p.path,
+        title: p.title,
+        kind: p.kind,
+        note: p.note,
+        version: idx >= 0 ? tabs[idx].version + 1 : 1,
+      };
+      return idx >= 0
+        ? tabs.map((t, i) => (i === idx ? tab : t))
+        : [...tabs, tab].slice(-PRESENT_TAB_MAX);
+    });
+    setActivePresent(p.path);
+
+    if (shouldPop) {
+      setShowFiles(true);
+      void openPreview(p.path);
+    }
+  };
+
+  /** 用户点标签：切到该文件并加载预览（不受 autoPresent/dismissed 约束）。 */
+  const selectPresent = (path: string) => {
+    setActivePresent(path);
+    setShowFiles(true);
+    void openPreview(path);
+  };
+
+  /** 用户关标签：移除 + 写入关闭记忆（此后同 path 不再自动弹），并退出该预览。 */
+  const closePresent = (path: string) => {
+    setPresentTabs((tabs) => tabs.filter((t) => t.path !== path));
+    setActivePresent((cur) => {
+      if (cur !== path) return cur;
+      const rest = presentTabs.filter((t) => t.path !== path);
+      return rest.length ? rest[rest.length - 1].path : null;
+    });
+    setDismissedPresent((d) => ({ ...d, [path]: Date.now() }));
+    setPreview((pv) => (pv && pv.path === path ? null : pv));
+  };
+
+  // 让只注册一次的 SSE 回调始终调到最新的 handlePresent（读最新 state/refs）。
+  useEffect(() => {
+    presentHandlerRef.current = handlePresent;
+  });
 
   /** Batch-download the selected workspace paths as one zip (backend packs it). */
   const handleWsDownload = async (paths: string[]) => {
@@ -2369,6 +2566,12 @@ export function Chat({
               onDownload={handleWsDownload}
               downloading={wsDownloading}
               notice={wsNotice}
+              presentTabs={presentTabs}
+              activePresent={activePresent}
+              onSelectPresent={selectPresent}
+              onClosePresent={closePresent}
+              autoPresent={autoPresent}
+              onToggleAutoPresent={() => setAutoPresent((v) => !v)}
             />
           </>
         )}
@@ -2797,6 +3000,8 @@ function PptxSlidePreview({
 function FilesPanel({
   files, preview, previewLoading, onOpen, onRefresh, onInsert, onBack, onClose,
   onUpload, uploading, notice, onDownload, downloading, width,
+  presentTabs, activePresent, onSelectPresent, onClosePresent,
+  autoPresent, onToggleAutoPresent,
 }: {
   files: WsFile[];
   preview: PreviewState | null;
@@ -2813,6 +3018,14 @@ function FilesPanel({
   downloading: boolean;
   /** 面板宽度（px）——由父组件的拖拽手柄控制，默认用样式表里的 320px。 */
   width?: number;
+  /** present_file 交付的多标签（去重后的产物文件）。 */
+  presentTabs: PresentTab[];
+  activePresent: string | null;
+  onSelectPresent: (path: string) => void;
+  onClosePresent: (path: string) => void;
+  /** 是否允许 Agent 交付时自动弹出预览。 */
+  autoPresent: boolean;
+  onToggleAutoPresent: () => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -2918,6 +3131,42 @@ function FilesPanel({
           </>
         )}
       </div>
+
+      {presentTabs.length > 0 && (
+        <div style={styles.presentStrip}>
+          {presentTabs.map((t) => (
+            <div
+              key={t.path}
+              style={
+                t.path === activePresent
+                  ? { ...styles.presentTab, ...styles.presentTabActive }
+                  : styles.presentTab
+              }
+              onClick={() => onSelectPresent(t.path)}
+              title={`${t.path}${t.note ? ` · ${t.note}` : ""}`}
+            >
+              <span style={styles.presentTabLabel}>{t.title}</span>
+              <button
+                style={styles.presentTabClose}
+                title="关闭此交付标签（后续不再自动弹出该文件）"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClosePresent(t.path);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            style={styles.presentAutoBtn}
+            onClick={onToggleAutoPresent}
+            title={autoPresent ? "点击关闭：Agent 交付时不再自动弹出预览" : "点击开启：Agent 交付时自动弹出预览"}
+          >
+            {autoPresent ? "自动弹出：开" : "自动弹出：关"}
+          </button>
+        </div>
+      )}
 
       {!preview && notice && <div style={styles.wsNotice}>✓ {notice}</div>}
 

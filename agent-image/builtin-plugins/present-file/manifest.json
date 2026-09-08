@@ -1,0 +1,5 @@
+{
+  "name": "present-file",
+  "path": "/opt/agent/builtin-plugins/present-file",
+  "enabled": true
+}
