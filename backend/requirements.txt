@@ -12,5 +12,10 @@ pydantic-settings==2.5.2
 cryptography==50.0.0
 py7zr==0.22.0
 rarfile==4.2
+# PPTX template library ingest pipeline: Pillow downsamples/quantizes/JPEG-
+# re-encodes embedded media so each generated deck stays small; defusedxml
+# parses untrusted template XML without XXE / entity-expansion exposure.
+Pillow==11.0.0
+defusedxml==0.7.1
 pytest==8.3.4
 pytest-asyncio==0.24.0

@@ -4,6 +4,7 @@ import {
   api,
   type AgentRuntime,
   type AgentStatus,
+  type LibraryTemplateCard,
   type ModelRef,
   type OcAgent,
   type OcCommand,
@@ -18,6 +19,13 @@ import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
 import { TextWithChunkRefs } from "./ChunkRef";
 import { ThemeToggle } from "../theme";
+import {
+  buildLibraryPrompt,
+  templateLabel,
+  useLibraryCatalog,
+  StylePickerMenu,
+  TemplatePickerMenu,
+} from "./PptxLibrary";
 
 /** "provider/model" <-> ModelRef, the format opencode uses in config.model. */
 function parseModel(value: string | null | undefined): ModelRef | undefined {
@@ -228,11 +236,13 @@ export function Chat({
   username,
   role,
   onOpenAdmin,
+  onOpenLibrary,
   onLogout,
 }: {
   username: string;
   role?: string;
   onOpenAdmin?: () => void;
+  onOpenLibrary?: () => void;
   onLogout: () => void;
 }) {
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
@@ -283,6 +293,16 @@ export function Chat({
   const [attachments, setAttachments] = useState<{ filename: string; path: string; mime: string; isImage: boolean; size: number; dataUrl?: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // PPTX 模板库：目录走平台侧只读 API（不需要容器在跑），选中项跨消息保持，
+  // 直到用户显式取消——因为一份 deck 往往要分好几轮消息迭代。
+  const libCatalog = useLibraryCatalog();
+  const [libMenu, setLibMenu] = useState<"template" | "style" | null>(null);
+  const [selTemplate, setSelTemplate] = useState<LibraryTemplateCard | null>(null);
+  const [selPaletteId, setSelPaletteId] = useState<string | null>(null);
+  const [selRecipeId, setSelRecipeId] = useState<string | null>(null);
+  const selPalette = libCatalog.styles?.palettes.find((p) => p.id === selPaletteId) ?? null;
+  const selRecipe = libCatalog.recipes.find((r) => r.id === selRecipeId) ?? null;
 
   // @-mention autocomplete: activated while typing "@query" in the textarea.
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1200,9 +1220,23 @@ export function Chat({
 
     // Skills: opencode has no dedicated prompt field for them, so request them
     // explicitly in the text (the skill tool picks them up by name).
-    const finalText = selectedSkills.length > 0
-      ? `请使用 skill: ${selectedSkills.join(", ")}\n\n${text}`
-      : text;
+    // 模板与预定义风格同理——没有结构化字段，只能把容器内的只读挂载路径和风格
+    // 约束拼进文本前缀，agent 据此直接读共享卷，不会把字节复制进工作区。
+    const prefixes: string[] = [];
+    if (selectedSkills.length > 0) prefixes.push(`请使用 skill: ${selectedSkills.join(", ")}`);
+    const libPrompt = buildLibraryPrompt(
+      { template: selTemplate, paletteId: selPaletteId, recipeId: selRecipeId },
+      libCatalog.styles
+    );
+    if (libPrompt) prefixes.push(libPrompt);
+    const finalText = prefixes.length ? `${prefixes.join("\n\n")}\n\n${text}` : text;
+    // 气泡只显示短标记，完整约束属于发给 agent 的文本。
+    const bubbleMarks = [
+      ...(selectedSkills.length ? [`🧩 ${selectedSkills.join(", ")}`] : []),
+      ...(selTemplate ? [`🎞 ${templateLabel(selTemplate)}`] : []),
+      ...(selPalette ? [`🎨 ${selPalette.name_zh || selPalette.name}`] : []),
+      ...(selRecipe ? [`🧊 ${selRecipe.name_zh || selRecipe.name}`] : []),
+    ];
 
     setInput("");
     setAttachments([]);
@@ -1219,7 +1253,7 @@ export function Chat({
           ? files.map((f) => (f.url.startsWith("data:") ? f.filename ?? "image" : f.url))
           : undefined,
         blocks: [
-          { kind: "text", id: "pending-user:text", text: selectedSkills.length ? `🧩 ${selectedSkills.join(", ")}\n${text}` : text },
+          { kind: "text", id: "pending-user:text", text: bubbleMarks.length ? `${bubbleMarks.join("  ")}\n${text}` : text },
           ...(attachments.map((a, i) => ({
             kind: "text" as const,
             id: `pending-user:file-${i}`,
@@ -1826,7 +1860,13 @@ export function Chat({
           </div>
           <div style={styles.userInfo}>
             <span style={styles.userAvatar}>{username[0]?.toUpperCase()}</span>
-            <span style={styles.userName}>{username}</span>
+            {/* minWidth:0 才允许用户名在按钮变多（管理 / 模板库 / 退出）时收缩省略。 */}
+            <span style={{ ...styles.userName, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{username}</span>
+            {role === "admin" && onOpenLibrary && (
+              <button style={styles.logoutBtn} onClick={onOpenLibrary} title="PPTX 模板库管理（仅管理员）">
+                模板库
+              </button>
+            )}
             {role === "admin" && onOpenAdmin && (
               <button style={styles.logoutBtn} onClick={onOpenAdmin} title="Docker 容器管理（仅管理员）">
                 管理
@@ -2180,9 +2220,41 @@ export function Chat({
               <div style={styles.composer}>
                 <div className="input-card" style={styles.inputRowCard}>
 
-                  {/* 本条消息上下文 chips：显式 skill 与附件 */}
-                  {(attachments.length > 0 || selectedSkills.length > 0) && (
+                  {/* 本条消息上下文 chips：模板/风格选择（跨消息保持）、显式 skill 与附件 */}
+                  {(attachments.length > 0 || selectedSkills.length > 0 || selTemplate || selPalette || selRecipe) && (
                     <div style={styles.promptChips}>
+                      {selTemplate && (
+                        <span
+                          style={styles.libChip}
+                          title={`共享卷只读挂载：${selTemplate.path}（${selTemplate.slides} 页 · 不会复制进工作区）`}
+                        >
+                          🎞 <span style={styles.chipText}>{templateLabel(selTemplate)}</span>
+                          <button style={styles.chipRemove} onClick={() => setSelTemplate(null)} title="移除模板">
+                            ×
+                          </button>
+                        </span>
+                      )}
+                      {selPalette && (
+                        <span style={styles.libChip} title={selPalette.tips || selPalette.use_cases.join(" / ")}>
+                          🎨 <span style={styles.chipText}>{selPalette.name_zh || selPalette.name}</span>
+                          <span style={{ display: "inline-flex", gap: "2px" }}>
+                            {selPalette.colors.slice(0, 5).map((c) => (
+                              <i key={c} style={{ ...styles.libChipSwatch, background: c }} />
+                            ))}
+                          </span>
+                          <button style={styles.chipRemove} onClick={() => setSelPaletteId(null)} title="移除调色板">
+                            ×
+                          </button>
+                        </span>
+                      )}
+                      {selRecipe && (
+                        <span style={styles.libChip} title={`${selRecipe.character} · 适合：${selRecipe.best_for}`}>
+                          🧊 <span style={styles.chipText}>{selRecipe.name_zh || selRecipe.name}</span>
+                          <button style={styles.chipRemove} onClick={() => setSelRecipeId(null)} title="移除风格配方">
+                            ×
+                          </button>
+                        </span>
+                      )}
                       {selectedSkills.map((s) => (
                         <span key={s} style={styles.skillChip} title="本条消息显式指定的 skill">
                           🧩 <span style={styles.chipText}>{s}</span>
@@ -2320,6 +2392,7 @@ export function Chat({
                           setSkillMenuOpen((v) => !v);
                           setAgentMenuOpen(false);
                           setModelMenuOpen(false);
+                          setLibMenu(null);
                         }}
                         title="为这条消息显式指定 skill"
                         disabled={allSkills.length === 0}
@@ -2361,6 +2434,64 @@ export function Chat({
                               </button>
                             )}
                           </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* PPTX 模板 / 预定义风格：文件在共享卷里单副本只读挂载，
+                        选中项只作为 prompt 前缀注入，不下载也不进工作区。 */}
+                    <div style={styles.libPickerWrap}>
+                      <button
+                        className="icon-btn"
+                        style={styles.iconBtn}
+                        onClick={() => {
+                          setLibMenu((v) => (v === "template" ? null : "template"));
+                          setSkillMenuOpen(false);
+                          setAgentMenuOpen(false);
+                          setModelMenuOpen(false);
+                        }}
+                        title="选择 PPT 模板（共享库只读挂载，不占用工作区空间）"
+                      >
+                        {selTemplate ? "🎞✓" : "🎞"}
+                      </button>
+                      {libMenu === "template" && (
+                        <>
+                          <div style={styles.skillBackdrop} onClick={() => setLibMenu(null)} />
+                          <TemplatePickerMenu
+                            catalog={libCatalog}
+                            selectedId={selTemplate?.id ?? null}
+                            onPick={setSelTemplate}
+                            onClose={() => setLibMenu(null)}
+                          />
+                        </>
+                      )}
+                    </div>
+
+                    <div style={styles.libPickerWrap}>
+                      <button
+                        className="icon-btn"
+                        style={styles.iconBtn}
+                        onClick={() => {
+                          setLibMenu((v) => (v === "style" ? null : "style"));
+                          setSkillMenuOpen(false);
+                          setAgentMenuOpen(false);
+                          setModelMenuOpen(false);
+                        }}
+                        title="选择预定义风格（调色板 / 组件配方）"
+                      >
+                        {selPalette || selRecipe ? "🎨✓" : "🎨"}
+                      </button>
+                      {libMenu === "style" && (
+                        <>
+                          <div style={styles.skillBackdrop} onClick={() => setLibMenu(null)} />
+                          <StylePickerMenu
+                            catalog={libCatalog}
+                            paletteId={selPaletteId}
+                            recipeId={selRecipeId}
+                            onPickPalette={setSelPaletteId}
+                            onPickRecipe={setSelRecipeId}
+                            onClose={() => setLibMenu(null)}
+                          />
                         </>
                       )}
                     </div>

@@ -7,7 +7,7 @@
 #
 # Prerequisites:
 #   - Docker Engine installed and running
-#   - The agent image must be built first: docker build -t agent-demo:1.3.0 ./agent-image
+#   - The agent image must be built first: docker build -t agent-demo:1.4.0 ./agent-image
 #
 # Usage:
 #   docker-compose up -d
@@ -67,6 +67,12 @@ services:
       # a running container's opencode reports — their location points at the
       # container's XDG skills dir, so only the name can identify them.
       - ./agent-image/builtin-skills:/builtin-skills:ro
+      # Shared PPTX template library (single physical copy). The backend is the
+      # only writer; every user container mounts the same volume read-only via
+      # container_manager, so N users cost O(1) bytes instead of O(N).
+      - pptx-lib:/library/pptx:rw
+      # Repo-seeded templates, ingested add-only at backend startup.
+      - ./library/pptx-templates:/library-seed:ro
     # The LLM proxy (backend /llm-proxy/{provider}) resolves loopback provider
     # base URLs to host.docker.internal when forwarding upstream — the same
     # alias the per-user agent containers get from container_manager. Required
@@ -160,3 +166,8 @@ volumes:
   backend-data:
   # PostgreSQL data directory
   postgres-data:
+  # Shared PPTX template library — one physical copy for the whole platform.
+  # Fixed name so container_manager can mount the exact same volume read-only
+  # into every per-user container regardless of the compose project name.
+  pptx-lib:
+    name: agent-pptx-lib

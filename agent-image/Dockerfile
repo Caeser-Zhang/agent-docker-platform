@@ -5,7 +5,7 @@
 # the session store. The platform never re-implements any of that; it just
 # manages this container's lifecycle and reverse-proxies HTTP into it.
 #
-#   docker build -t agent-demo:1.3.0 ./agent-image
+#   docker build -t agent-demo:1.4.0 ./agent-image
 #
 # Layout inside the container:
 #   /workspace          project root opencode operates on   (volume, rw)

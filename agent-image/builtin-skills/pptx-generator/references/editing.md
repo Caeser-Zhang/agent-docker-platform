@@ -2,14 +2,28 @@
 
 ## Template-Based Workflow
 
-When using an existing presentation as a template:
+The source deck is either one the user supplied, or one from the shared platform
+library (`$PPTX_LIBRARY_DIR`, read-only). Both flows below are identical — the
+only difference is where `template.pptx` is copied from, and that library decks
+are already normalized. See [template-library.md](template-library.md) for
+catalogue fields and how to choose.
 
 1. **Copy and analyze**:
    ```bash
+   # user-supplied deck
    cp /path/to/user-provided.pptx template.pptx
+
+   # platform library deck (read-only mount — copy out, never edit in place)
+   cp "$PPTX_LIBRARY_DIR/files/<id>.pptx" template.pptx
+
    pptx-markitdown template.pptx > template.md
    ```
    Review `template.md` to see placeholder text and slide structure.
+
+   For a library deck, also read its `index.json` record: `page_types` is your
+   slide map (`index` already matches the normalized deck), `content_layout` is
+   the layout to use for new slides, and `must_replace` is the list of
+   placeholder strings you must clear.
 
 2. **Plan slide mapping**: For each content section, choose a template slide.
 
@@ -37,7 +51,24 @@ When using an existing presentation as a template:
 5. **Edit content**: Update text in each `slide{N}.xml`.
    **Use subagents here if available** — slides are separate XML files, so subagents can edit in parallel.
 
+   For a library deck, clear every `must_replace` entry from the catalogue record
+   (`residual_texts` tells you which part each one lives in). Then verify:
+
+   ```bash
+   grep -rnE "单击此处|点击此处|在此处键入|请输入|Click to (add|edit)|Type to add|Lorem ipsum|20\s*XX|\bXXX+\b" unpacked/ppt/
+   ```
+
+   Empty output is the pass condition.
+
 6. **Clean**: Remove orphaned files — slides not in `<p:sldIdLst>`, unreferenced media, orphaned rels.
+
+   **Skip this step for library decks.** Ingest already stripped promo slides,
+   orphaned media/rels/tag parts and vendor branding, and slimmed the images.
+   Re-running a cleanup pass only risks breaking references that are already
+   consistent. Do not rename files under `ppt/media/` (a `.jpg` may have been a
+   PNG originally — its rels and content types were updated together), and do not
+   re-compress images. You still must remove orphans created by *your own* slide
+   deletions in step 4.
 
 7. **Pack**: Repack the XML tree into a PPTX file. Validate, repair, condense XML, re-encode smart quotes.
 
@@ -45,15 +76,20 @@ When using an existing presentation as a template:
 
 ## Output Structure
 
-Copy the user-provided file to `template.pptx` in cwd. This preserves the original and gives a predictable name for all downstream operations.
+Copy the source deck to `template.pptx` in cwd — whether it came from the user or
+from `$PPTX_LIBRARY_DIR/files/<id>.pptx`. This preserves the original and gives a
+predictable name for all downstream operations. The library mount is read-only and
+shared by every user: nothing is ever written, unpacked or repacked inside it.
 
 ```bash
 cp /path/to/user-provided.pptx template.pptx
+# or
+cp "$PPTX_LIBRARY_DIR/files/<id>.pptx" template.pptx
 ```
 
 ```text
 ./
-├── template.pptx               # Copy of user-provided file (never modified)
+├── template.pptx               # Copy of the source deck (never modified)
 ├── template.md                 # markitdown extraction
 ├── unpacked/                   # Editable XML tree
 └── edited.pptx                 # Final repacked deck

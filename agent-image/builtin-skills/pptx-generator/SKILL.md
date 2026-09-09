@@ -1,6 +1,6 @@
 ---
 name: pptx-generator
-description: "Generate, edit, and read PowerPoint presentations. Create from scratch with PptxGenJS (cover, TOC, content, section divider, summary slides), edit existing PPTX via XML workflows, or extract text with markitdown. Triggers: PPT, PPTX, PowerPoint, presentation, slide, deck, slides."
+description: "Generate, edit, and read PowerPoint presentations. Prefer a ready-made template from the shared platform library ($PPTX_LIBRARY_DIR), create from scratch with PptxGenJS (cover, TOC, content, section divider, summary slides), edit existing PPTX via XML workflows, or extract text with markitdown. Triggers: PPT, PPTX, PowerPoint, presentation, slide, deck, slides."
 license: MIT
 metadata:
   version: "1.0"
@@ -16,13 +16,23 @@ metadata:
 
 This skill handles all PowerPoint tasks: reading/analyzing existing presentations, editing template-based decks via XML manipulation, and creating presentations from scratch using PptxGenJS. It includes a complete design system (color palettes, fonts, style recipes) and detailed guidance for every slide type.
 
+**Source selection order** — use the first one that applies:
+
+1. A presentation the user supplied (path, upload, or attachment).
+2. A template from the **shared platform library** on the read-only mount
+   `$PPTX_LIBRARY_DIR` (default `/library/pptx`) — see
+   [Template Library](references/template-library.md).
+3. From scratch with PptxGenJS — only when neither of the above fits.
+
 ## Quick Reference
 
 | Task | Approach |
 |------|----------|
 | Read/analyze content | `pptx-markitdown presentation.pptx` |
+| Use a platform template | Read `$PPTX_LIBRARY_DIR/index.json`, copy the deck, then edit — see [Template Library](references/template-library.md) |
 | Edit or create from template | See [Editing Presentations](references/editing.md) |
 | Create from scratch | See [Creating from Scratch](#creating-from-scratch-workflow) below |
+| Color palette / style recipe presets | `$PPTX_STYLES_DIR/*.json` — machine-readable mirror of [design-system.md](references/design-system.md) |
 
 | Item | Value |
 |------|-------|
@@ -41,6 +51,7 @@ This skill handles all PowerPoint tasks: reading/analyzing existing presentation
 |------|----------|
 | [slide-types.md](references/slide-types.md) | 5 slide page types (Cover, TOC, Section Divider, Content, Summary) + additional layout patterns |
 | [design-system.md](references/design-system.md) | Color palettes, font reference, style recipes (Sharp/Soft/Rounded/Pill), typography & spacing |
+| [template-library.md](references/template-library.md) | Shared read-only template library (`$PPTX_LIBRARY_DIR`): catalogue fields, copy-then-edit flow, what normalization already did, `must_replace`, style preset JSON |
 | [editing.md](references/editing.md) | Template-based editing workflow, XML manipulation, formatting rules, common pitfalls |
 | [pitfalls.md](references/pitfalls.md) | QA process, common mistakes, critical PptxGenJS pitfalls |
 | [pptxgenjs.md](references/pptxgenjs.md) | Complete PptxGenJS API reference |
@@ -56,9 +67,38 @@ pptx-markitdown presentation.pptx
 
 ---
 
+## Template Library
+
+A curated, admin-managed template library is mounted **read-only** into every
+container. One physical copy serves all users — never copy it into the workspace
+except for the single deck you are editing, and never write back to it.
+
+| Env var | Default | Contents |
+|---------|---------|----------|
+| `PPTX_LIBRARY_DIR` | `/library/pptx` | `index.json` catalogue, `files/{id}.pptx`, `thumbs/{id}.png` |
+| `PPTX_STYLES_DIR` | `/library/pptx/styles` | `styles.json`, `palettes.json`, `recipes.json`, `typography.json` |
+
+```bash
+cat "$PPTX_LIBRARY_DIR/index.json"          # pick a template
+cp "$PPTX_LIBRARY_DIR/files/<id>.pptx" template.pptx
+pptx-markitdown template.pptx > template.md
+```
+
+Then follow [editing.md](references/editing.md). Library decks are **already
+normalized** (promo slides removed, orphaned media cleaned, images slimmed,
+vendor branding scrubbed, structure validated), so skip the cleanup pass and go
+straight to slide mapping and content edits. `index.json` also gives you
+`must_replace` — the placeholder strings you are required to clear.
+
+If `index.json` is missing or empty, degrade gracefully to the from-scratch
+workflow. Full details in [template-library.md](references/template-library.md).
+
+---
+
 ## Creating from Scratch — Workflow
 
-**Use when no template or reference presentation is available.**
+**Use when the user supplied no presentation AND the platform library has no
+template that fits (see [Template Library](#template-library)).**
 
 ### Step 1: Research & Requirements
 
@@ -66,7 +106,7 @@ Search to understand user requirements — topic, audience, purpose, tone, conte
 
 ### Step 2: Select Color Palette & Fonts
 
-Use the [Color Palette Reference](references/design-system.md#color-palette-reference) to select a palette matching the topic and audience. Use the [Font Reference](references/design-system.md#font-reference) to choose a font pairing.
+Use the [Color Palette Reference](references/design-system.md#color-palette-reference) to select a palette matching the topic and audience. Use the [Font Reference](references/design-system.md#font-reference) to choose a font pairing. When the mount is available, `$PPTX_STYLES_DIR/palettes.json` and `typography.json` carry the same values as JSON — read them instead of transcribing tables (strip the leading `#` from hex colors).
 
 ### Step 3: Select Design Style
 
@@ -248,4 +288,5 @@ All dependencies are pre-baked into the agent image. The container rootfs is REA
 
 - **Text extraction**: `pptx-markitdown <file>.pptx` — markitdown[pptx] from the skill's dedicated venv
 - **Create from scratch**: `pptx-node compile.js` — isolated Node runtime with pptxgenjs@4.0.1 pre-installed (`NODE_PATH` is pre-set, so bare `require("pptxgenjs")` resolves from any working directory)
+- **Template library**: `$PPTX_LIBRARY_DIR` / `$PPTX_STYLES_DIR` — read-only shared mount, may be absent or empty. Always guard with a graceful fallback; never write to it.
 - **NOT installed**: react-icons / react / react-dom / sharp — do not plan icon pipelines that depend on them; use PptxGenJS shapes, text glyphs, or SVG instead

@@ -396,6 +396,15 @@ class ContainerManager:
             "volumes": {
                 ws_volume: {"bind": settings.agent_workdir, "mode": "rw"},
                 data_volume: {"bind": "/data", "mode": "rw"},
+                # Shared PPTX template library — ONE physical copy mounted
+                # read-only into every user container. Read-only matters: the
+                # backend is the sole writer, users cannot tamper with or
+                # delete platform assets, and no per-user seeding/copy happens,
+                # so library cost stays O(1) instead of O(N).
+                settings.pptx_library_volume: {
+                    "bind": settings.pptx_library_dir,
+                    "mode": "ro",
+                },
             },
             # --- Resource limits (cgroup) ---
             "cpu_quota": int(settings.container_cpu_limit * 100000),
@@ -429,6 +438,11 @@ class ContainerManager:
                 # platform fastk REST server on the host.
                 "FASTDB_BASE_URL": settings.fastk_server_url,
                 "FASTK_DEFAULT_DB": "global",
+                # Read-only shared PPTX template library (one physical copy for
+                # all users). The pptx-generator skill reads templates and
+                # style presets from here and must never write into it.
+                "PPTX_LIBRARY_DIR": settings.pptx_library_dir,
+                "PPTX_STYLES_DIR": f"{settings.pptx_library_dir}/styles",
             },
             # --- Restart policy ---
             "restart_policy": {"Name": "unless-stopped"},
@@ -448,6 +462,7 @@ class ContainerManager:
                 "managed-by": "agent-platform",
                 "user-id": user_id,
                 "runtime": "opencode-serve",
+                "mount-fingerprint": self._mount_fingerprint(),
             },
             "detach": True,
         }
@@ -464,6 +479,40 @@ class ContainerManager:
             return container.attrs["Image"] != wanted
         except Exception:
             return False
+
+    def _mount_fingerprint(self) -> str:
+        """Stable hash of the shared mount/tmpfs layout baked into every container.
+
+        Docker cannot add a mount to an already-created container, so when the
+        platform changes the shared layout (here: the read-only PPTX library
+        volume at /library/pptx) existing containers would never pick it up.
+        The fingerprint is stored as a label at create time and compared on the
+        next start, which migrates each legacy container exactly once.
+
+        Per-user workspace/data volumes are deliberately excluded — their names
+        vary per user and their shape never changes.
+        """
+        spec = {
+            "shared_volumes": {
+                settings.pptx_library_volume: {
+                    "bind": settings.pptx_library_dir,
+                    "mode": "ro",
+                },
+            },
+            "tmpfs": {"/tmp": "size=256m", "/home/agent": "size=512m,uid=1000,gid=1000"},
+            "read_only": True,
+        }
+        return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:16]
+
+    def _needs_recreate(self, client, container) -> tuple[bool, str]:
+        """Why a stopped container must be rebuilt from scratch (empty = no reason)."""
+        if self._image_stale(client, container):
+            return True, f"stale image (want {settings.agent_image})"
+        labels = (container.attrs.get("Config") or {}).get("Labels") or {}
+        if labels.get("mount-fingerprint") != self._mount_fingerprint():
+            # Missing label == container predates the shared-library mount.
+            return True, "stale mount layout (shared library volume missing/changed)"
+        return False, ""
 
     async def ensure_container(
         self, user_id: str, config_json: str | None = None
@@ -505,6 +554,11 @@ class ContainerManager:
         # Ensure volumes exist
         ws_volume = self._ensure_volume(ws_volume_name)
         data_volume = self._ensure_volume(data_volume_name)
+        # Shared library volume: normally created by docker-compose (name is
+        # pinned there), but create-on-demand keeps a non-compose backend run
+        # from failing to start user containers. It is NEVER removed by
+        # destroy_container — it is platform-owned, not per-user.
+        self._ensure_volume(settings.pptx_library_volume)
 
         # Try to find existing container
         container = None
@@ -523,16 +577,19 @@ class ContainerManager:
             # Image upgrade: start/restart reuse the image the container was
             # CREATED with — after an agent image rebuild (new plugins, new
             # opencode version) stale containers would keep the old rootfs
-            # forever. Recreate from the current image; the named workspace/
-            # data volumes are re-attached, so user data survives.
-            if self._image_stale(client, container):
+            # forever. Same for the shared mount layout: Docker cannot add a
+            # volume to an existing container, so the read-only PPTX library
+            # mount only reaches legacy containers via a recreate. Named
+            # workspace/data volumes are re-attached, so user data survives.
+            stale, reason = self._needs_recreate(client, container)
+            if stale:
                 # Read the image name from attrs — `container.image` issues an
                 # extra API call that 404s when the old image was pruned by a
                 # rebuild (same guard as the status endpoint below).
                 old = (container.attrs.get("Config") or {}).get("Image") or container.image_id
                 logger.info(
-                    "Container %s runs stale image %s — recreating on %s",
-                    container_name, old, settings.agent_image,
+                    "Container %s is stale (%s; was image %s) — recreating",
+                    container_name, reason, old,
                 )
                 container.remove(force=True)
             else:
@@ -722,7 +779,10 @@ class ContainerManager:
         # irreversible, so this is the last chance to save user data.
         backup_meta = self._backup_workspace_sync(user_id)
 
-        # Remove volumes
+        # Remove volumes. ONLY the per-user ones: the shared PPTX library
+        # volume (settings.pptx_library_volume) is platform-owned and mounted
+        # read-only into every container, so destroying one user must never
+        # touch it.
         for vol_name in [self._workspace_volume_name(user_id), self._data_volume_name(user_id)]:
             try:
                 vol = client.volumes.get(vol_name)

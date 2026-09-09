@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     admin_usernames: str = ""
 
     # --- Docker ---
-    agent_image: str = "agent-demo:1.3.0"
+    agent_image: str = "agent-demo:1.4.0"
     agent_network: str = "agent-net"
     agent_port: int = 4096
     container_cpu_limit: float = 2.0
@@ -92,6 +92,26 @@ class Settings(BaseSettings):
     idle_threshold: int = 30 * 60  # 30 minutes in seconds
     idle_reclaim_interval: int = 5 * 60  # 5 minutes
     max_restart_per_hour: int = 5
+
+    # --- PPTX template library ---
+    # Shared, single-copy asset store. The backend mounts the named volume
+    # rw and is the only writer; every user container gets the same volume
+    # read-only, so N users cost O(1) bytes (no per-user seeding/copying).
+    # Named volume (not a bind mount) so it survives host path differences
+    # and gets no project-name prefix (compose `name:` pins it).
+    pptx_library_volume: str = "agent-pptx-lib"
+    # Mount point of that volume in BOTH the backend and user containers.
+    pptx_library_dir: str = "/library/pptx"
+    # Read-only repo seed directory in the backend (./library/pptx-templates).
+    # Ingested add-only at startup, de-duplicated by content sha12.
+    pptx_library_seed_dir: str = "/library-seed"
+    # Style presets (palettes/recipes JSON) live inside the library volume so
+    # they are served from the same single copy.
+    # samples/ under the seed dir holds development-period material with no
+    # redistribution licence (third-party decks). It is ingested as
+    # source="sample" and hidden from normal users unless the operator opts in
+    # here — see library/pptx-templates/README.md.
+    pptx_library_allow_samples: bool = False
 
     # --- Workspace ---
     workspace_base: str = "/tmp/agent-workspaces"

@@ -46,3 +46,16 @@ docker-compose.override.yml
 # Local test scratch area (mounted test config/workspace, diagnostic scripts).
 # Contains a copy of config/opencode.json with a real apiKey — never commit.
 .tmp/
+
+# PPTX template library source material.
+# docs/*.pptx — reference templates under analysis (large binaries).
+# library/pptx-templates/samples/ — third-party (e.g. iSlide) material used
+# as a development-period sample only; redistribution is not licensed, so it
+# must never be committed. Gate it with AGENT_PPTX_LIBRARY_ALLOW_SAMPLES.
+docs/*.pptx
+library/pptx-templates/samples/
+samples/pptx/
+
+# Ad-hoc diagnostic probes at the repo root: they hardcode a live container id
+# and poke internal opencode endpoints, so they are one-off debugging scratch.
+probe_*.sh

@@ -360,6 +360,218 @@ export interface AdminOverview {
   };
 }
 
+// --- PPTX 模板库（named volume 单副本共享，容器侧只读挂载） ----------------
+// 模板字节不进用户工作区：后端把它们放在 agent-pptx-lib 卷上，用户容器以 ro
+// 方式挂载同一路径，所以 N 个用户只占 1 份空间。API 返回的 path 是容器内路径，
+// 前端把它注入 prompt，agent 直接从自己的挂载点读取。
+
+/** 画廊卡片：GET /api/library/templates 的条目，字段对齐后端 _card()。 */
+export interface LibraryTemplateCard {
+  id: string;
+  name: string | null;
+  name_zh: string | null;
+  description: string | null;
+  tags: string[];
+  enabled: boolean;
+  license: string | null;
+  /** seed（仓库种子）/ sample（开发期样例，默认不对普通用户可见）/ upload。 */
+  source: string | null;
+  slides: number;
+  aspect: string;
+  layouts: number;
+  /** 新增内容页应沿用的版式名（入库时按多数派版式推导）。 */
+  content_layout: string | null;
+  page_type_summary: Record<string, number> | null;
+  /** 管理员绑定的调色板 id（对应 LibraryStyles.palettes）；未绑定为 null。 */
+  palette: string | null;
+  /** 入库时统计的实际用色 top5（#RRGGBB）—— 没有缩略图时充当占位色块。 */
+  palette_hint: string[];
+  /** 管理员绑定的风格配方 id（sharp/soft/rounded/pill）。 */
+  recipe: string | null;
+  fonts: { theme: Record<string, string | null>; used: string[] } | null;
+  has_chart_part: boolean;
+  animated_slides: number;
+  size_bytes: number;
+  /** false = 尚无缩略图，画廊走调色板占位（两段式流程）。 */
+  has_thumb: boolean;
+  /** 套用模板时必须替换掉的占位文案清单。 */
+  must_replace: string[];
+  created_at: string;
+  /** 用户容器内的绝对路径 —— 注入 prompt 的就是这个值。 */
+  path: string;
+  thumbUrl: string;
+}
+
+export interface LibraryPageType {
+  index: number;
+  part: string;
+  layout: string | null;
+  type: string;
+  title: string;
+  text_chars: number;
+  images: number;
+}
+
+export interface LibraryResidualText {
+  part: string;
+  pattern: string;
+  text: string;
+}
+
+export interface LibraryNormalizeSummary {
+  slides_in: number;
+  slides_out: number;
+  input_bytes: number;
+  output_bytes: number;
+  saved_bytes: number;
+  dropped_slides: number;
+  orphan_media_removed: number;
+  images_slimmed: number;
+}
+
+/** 完整目录记录（含残留文本、校验告警），管理员检查用。 */
+export interface LibraryTemplateDetail extends LibraryTemplateCard {
+  source_sha256: string;
+  slide_size_inches: number[] | null;
+  page_types: LibraryPageType[];
+  content_layout_note: string | null;
+  embedded_fonts: string[];
+  media_count: number;
+  residual_texts: LibraryResidualText[];
+  warnings: string[];
+  normalize: LibraryNormalizeSummary;
+}
+
+export interface LibraryPalette {
+  id: string;
+  name: string;
+  name_zh: string;
+  /** 5 个 #RRGGBB，顺序即文档原始顺序。 */
+  colors: string[];
+  style: string;
+  use_cases: string[];
+  tips: string;
+  dark_mode_required: boolean;
+}
+
+export interface LibraryRecipe {
+  id: string;
+  name: string;
+  name_zh: string;
+  character: string;
+  best_for: string;
+  corner_radius: Record<string, number>;
+  spacing: Record<string, number | number[]>;
+  components: Record<string, number>;
+  radius_by_height: Record<string, number | string>;
+  pill_tip?: string;
+}
+
+/** GET /api/library/styles —— 与卷内 styles/*.json 同一份数据。 */
+export interface LibraryStyles {
+  version: number;
+  source: string;
+  units: string;
+  palettes: LibraryPalette[];
+  recipes: LibraryRecipe[];
+  recipe_selection_guide: { type: string; recipes: string[]; reason: string }[];
+  typography: Record<string, unknown>;
+  rules: Record<string, string[]>;
+  /** 容器内 styles 目录（agent 可本地读取，无需 HTTP 往返）。 */
+  dir: string;
+}
+
+export interface LibraryStats {
+  root: string;
+  templates: number;
+  enabled: number;
+  with_thumb: number;
+  total_bytes: number;
+  raw_input_bytes: number;
+  saved_bytes: number;
+  by_source: Record<string, number>;
+  /** 恒为 1：一份物理副本被所有容器共享（O(1)，不随用户数增长）。 */
+  copies: number;
+}
+
+export interface LibraryIngestInput {
+  file: File;
+  name?: string;
+  nameZh?: string;
+  description?: string;
+  tags?: string[];
+  palette?: string;
+  recipe?: string;
+  license?: string;
+  source?: string;
+  enabled?: boolean;
+  optimizeImages?: boolean;
+  dropPromo?: boolean;
+  mustReplace?: string[];
+}
+
+export interface LibraryIngestReport {
+  input_bytes: number;
+  output_bytes: number;
+  saved_bytes: number;
+  saved_percent: number;
+  slides_in: number;
+  slides_out: number;
+  dropped_slides: {
+    index: number;
+    part: string;
+    matched_strong: string[];
+    matched_weak: string[];
+  }[];
+  orphan_media_removed: string[];
+  images_slimmed: {
+    part: string;
+    new_part: string;
+    action: string;
+    before_bytes: number;
+    after_bytes: number;
+    saved_bytes: number;
+  }[];
+  vendor_tags_removed: string[];
+  branding_scrubbed: string[];
+  residual_texts: LibraryResidualText[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface LibraryIngestResult {
+  status: string;
+  /** false = 相同源字节已入库，本次是 no-op（按内容哈希幂等）。 */
+  created: boolean;
+  template: LibraryTemplateCard;
+  detail: LibraryTemplateDetail;
+  report: LibraryIngestReport;
+}
+
+/** 仅 EDITABLE_FIELDS 生效；后端 exclude_none，所以传 null 等于没传。 */
+export interface LibraryTemplatePatch {
+  name?: string;
+  name_zh?: string;
+  description?: string;
+  tags?: string[];
+  palette?: string;
+  recipe?: string;
+  must_replace?: string[];
+  license?: string;
+  source?: string;
+  enabled?: boolean;
+  content_layout_note?: string;
+}
+
+export interface LibrarySeedResult {
+  status: string;
+  scanned: number;
+  ingested: number;
+  skipped_existing: number;
+  failed: { file: string; error: string }[];
+  samples_skipped: number;
+}
+
 async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("token");
   const resp = await fetch(`${API_BASE}${path}`, {
@@ -1115,5 +1327,184 @@ export const api = {
       ticket
     )}&lastEventId=${lastEventId}`;
     return new EventSource(url);
+  },
+
+  // --- PPTX 模板库（用户侧只读） ----------------------------------------
+  /** 已上架、非 sample 的模板列表 —— 选择器展示的就是这些。 */
+  async listLibraryTemplates(): Promise<{
+    templates: LibraryTemplateCard[];
+    count: number;
+  }> {
+    return apiCall("/library/templates");
+  },
+
+  /** 预定义调色板 / 风格配方 / 排版规则。 */
+  async getLibraryStyles(): Promise<LibraryStyles> {
+    return apiCall("/library/styles");
+  },
+
+  async getLibraryTemplate(id: string): Promise<LibraryTemplateDetail> {
+    return apiCall(`/library/templates/${encodeURIComponent(id)}`);
+  },
+
+  /**
+   * 首页缩略图。<img> 无法携带 Authorization 头，所以带鉴权取回 Blob 再由调用方
+   * 转 objectURL（同 fetchFastkChunkImage）。has_thumb=false 时后端返回 404，
+   * 这里吞成 null，画廊据此退化为调色板占位。401 处理与 apiCall 一致。
+   */
+  async fetchLibraryThumb(id: string): Promise<Blob | null> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(
+      `${API_BASE}/library/templates/${encodeURIComponent(id)}/thumb`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    return resp.blob();
+  },
+
+  /**
+   * 模板原始字节（管理员）：在浏览器端用 pptx-wasm 渲染首页并生成缩略图。
+   * 走 admin 路由——用户侧 /file 对 source="sample" 的素材一律 404。
+   */
+  async adminFetchLibraryFile(id: string): Promise<ArrayBuffer> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(
+      `${API_BASE}/admin/library/templates/${encodeURIComponent(id)}/file`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    return resp.arrayBuffer();
+  },
+
+  /** 管理员侧缩略图：与 fetchLibraryThumb 同语义，但能看到 sample 模板。 */
+  async adminFetchLibraryThumb(id: string): Promise<Blob | null> {
+    const token = localStorage.getItem("token");
+    const resp = await fetch(
+      `${API_BASE}/admin/library/templates/${encodeURIComponent(id)}/thumb`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    if (resp.status === 401 && token) {
+      for (const key of ["token", "username", "userId", "role"]) {
+        localStorage.removeItem(key);
+      }
+      window.location.reload();
+      throw new Error("登录已过期，请重新登录");
+    }
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    return resp.blob();
+  },
+
+  // --- PPTX 模板库（管理员） --------------------------------------------
+  async adminLibraryStats(): Promise<LibraryStats> {
+    return apiCall("/admin/library/stats");
+  },
+
+  /** enabled 省略 = 全部（含已下架）；true = 仅上架；false = 仅下架。 */
+  async adminListLibraryTemplates(enabled?: boolean): Promise<{
+    templates: LibraryTemplateCard[];
+    count: number;
+  }> {
+    const qs = enabled === undefined ? "" : `?enabled=${enabled}`;
+    return apiCall(`/admin/library/templates${qs}`);
+  },
+
+  async adminGetLibraryTemplate(id: string): Promise<LibraryTemplateDetail> {
+    return apiCall(`/admin/library/templates/${encodeURIComponent(id)}`);
+  },
+
+  /**
+   * 入库一个模板：后端跑规范化流水线（剥推广页 / 清孤儿 media / 图片瘦身 /
+   * 品牌清洗 / 残留文本扫描 / 校验）后落盘，返回规范化报告供人工复核。
+   * 表单字段承载不了数组，tags 与 must_replace 以逗号或换行分隔。
+   */
+  async adminIngestLibraryTemplate(
+    input: LibraryIngestInput
+  ): Promise<LibraryIngestResult> {
+    const form = new FormData();
+    form.append("file", input.file, input.file.name);
+    const text: Record<string, string | undefined> = {
+      name: input.name,
+      name_zh: input.nameZh,
+      description: input.description,
+      palette: input.palette,
+      recipe: input.recipe,
+      license: input.license,
+      source: input.source,
+      tags: input.tags?.length ? input.tags.join(",") : undefined,
+      must_replace: input.mustReplace?.length
+        ? input.mustReplace.join("\n")
+        : undefined,
+    };
+    for (const [key, value] of Object.entries(text)) {
+      if (value !== undefined && value !== "") form.append(key, value);
+    }
+    form.append("enabled", String(input.enabled ?? true));
+    form.append("optimize_images", String(input.optimizeImages ?? true));
+    form.append("drop_promo", String(input.dropPromo ?? true));
+    return apiCall("/admin/library/templates", { method: "POST", body: form });
+  },
+
+  async adminUpdateLibraryTemplate(
+    id: string,
+    patch: LibraryTemplatePatch
+  ): Promise<{ status: string; template: LibraryTemplateCard }> {
+    return apiCall(`/admin/library/templates/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  },
+
+  /** 上传首页预览图（浏览器渲染出的 PNG）；后端用 Pillow 重编码并限尺寸。 */
+  async adminUploadLibraryThumb(
+    id: string,
+    image: Blob
+  ): Promise<{ status: string; has_thumb: boolean; thumbUrl: string }> {
+    const form = new FormData();
+    form.append("file", image, `${id}.png`);
+    return apiCall(`/admin/library/templates/${encodeURIComponent(id)}/thumb`, {
+      method: "PUT",
+      body: form,
+    });
+  },
+
+  async adminDeleteLibraryTemplate(
+    id: string
+  ): Promise<{ status: string; deleted: string }> {
+    return apiCall(`/admin/library/templates/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  },
+
+  /** 重跑仓库种子目录的增量入库（按源 sha 去重，可反复调用）。 */
+  async adminSeedLibrary(allowSamples = false): Promise<LibrarySeedResult> {
+    return apiCall("/admin/library/seed", {
+      method: "POST",
+      body: JSON.stringify({ allow_samples: allowSamples }),
+    });
   },
 };

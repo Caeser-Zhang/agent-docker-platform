@@ -3,8 +3,9 @@
 Wires together all routers and services. On startup:
   1. Initialize the database
   2. Ensure the agent-net Docker network exists
-  3. Start the idle reclaim background task
-  4. Recover any running containers from a previous platform instance
+  3. Prepare the shared PPTX template library and ingest the repo seed
+  4. Start the idle reclaim background task
+  5. Recover any running containers from a previous platform instance
 
 Architecture (design section 2.1):
   Browser → [this FastAPI app] → Docker containers → Shared services
@@ -23,9 +24,10 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db, promote_admins, backfill_uids
-from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy, user_config, fastk
+from .routers import auth, agent, tunnel, config, workspace, admin, llm_proxy, user_config, fastk, library
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
+from .services.pptx_library import shared_library as pptx_library
 from .services.sse_pump import sse_pump_manager
 
 logging.basicConfig(
@@ -61,6 +63,31 @@ async def lifespan(app: FastAPI):
         logger.info("Docker network ready: %s", settings.agent_network)
     except Exception as e:
         logger.warning("Docker network setup failed (Docker may not be available): %s", e)
+
+    # 2b. Shared PPTX template library — create the volume layout, refresh the
+    # style presets, then ingest the repo seed directory (add-only, deduped by
+    # source sha). Every user container mounts this same volume read-only, so
+    # it must exist before containers are recovered below.
+    try:
+        await asyncio.to_thread(pptx_library.ensure_layout)
+        seed = await asyncio.to_thread(
+            pptx_library.seed_from_dir,
+            settings.pptx_library_seed_dir,
+            allow_samples=settings.pptx_library_allow_samples,
+        )
+        logger.info(
+            "PPTX library ready at %s — seed: %d scanned, %d ingested, "
+            "%d already present, %d sample(s) skipped",
+            settings.pptx_library_dir, seed["scanned"], seed["ingested"],
+            seed["skipped_existing"], seed.get("samples_skipped", 0),
+        )
+        for failure in seed.get("failed", []):
+            logger.warning("Seed ingest failed for %s: %s",
+                           failure["file"], failure["error"])
+    except Exception as e:
+        # Non-fatal: the API degrades to an empty catalogue and the containers
+        # simply get no templates. Most likely the volume is not mounted (dev).
+        logger.warning("PPTX library init failed (volume may not be mounted): %s", e)
 
     # 3. Recover running containers from DB
     try:
@@ -113,6 +140,8 @@ app.include_router(admin.router)
 app.include_router(llm_proxy.router)
 app.include_router(user_config.router)
 app.include_router(fastk.router)
+app.include_router(library.router)
+app.include_router(library.admin_router)
 
 
 @app.exception_handler(RequestValidationError)

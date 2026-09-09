@@ -19,11 +19,11 @@ export const adminCss = `
   .adm-btn-primary:hover:not(:disabled) { background: var(--scope-project); border-color: var(--scope-project); box-shadow: 0 4px 14px var(--scope-project-soft); }
   .adm-btn-warn:hover:not(:disabled) { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
   .adm-btn-danger:hover:not(:disabled) { background: var(--red-soft); border-color: var(--red); color: var(--red); }
-  .adm-btn:focus-visible, .adm-btn-primary:focus-visible, .adm-select:focus-visible, .adm-input:focus-visible, .adm-search:focus-visible {
+  .adm-btn:focus-visible, .adm-btn-primary:focus-visible, .adm-select:focus-visible, .adm-input:focus-visible, .adm-search:focus-visible, .adm-textarea:focus-visible {
     outline: 2px solid var(--scope-project); outline-offset: 1px;
   }
-  .adm-select:hover, .adm-search:hover, .adm-input:hover { border-color: var(--border-strong); }
-  .adm-select, .adm-search, .adm-input { transition: border-color .15s ease, box-shadow .15s ease; }
+  .adm-select:hover, .adm-search:hover, .adm-input:hover, .adm-textarea:hover { border-color: var(--border-strong); }
+  .adm-select, .adm-search, .adm-input, .adm-textarea { transition: border-color .15s ease, box-shadow .15s ease; }
 
   .adm-card { transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease; }
   .adm-card:hover { border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--shadow-1); }
@@ -42,6 +42,11 @@ export const adminCss = `
   .adm-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
   .adm-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
   .adm-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  .adm-lib-card { transition: border-color .2s ease, box-shadow .2s ease; }
+  .adm-lib-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
+  .adm-drop { transition: border-color .15s ease, background-color .15s ease; }
+  .adm-drop:hover, .adm-drop-over { border-color: var(--scope-project); background: var(--scope-project-soft); }
 
   .adm-toast { animation: adm-toast-in .22s ease-out; }
   @keyframes adm-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -550,5 +555,154 @@ export const adminStyles: Record<string, React.CSSProperties> = {
     color: "var(--text-2)",
     cursor: "pointer",
     userSelect: "none",
+  },
+
+  // --- PPTX 模板库管理页 ---------------------------------------------------
+  // 模板落在共享 named volume 上（后端 rw、用户容器 ro），所以这里管理的是
+  // "一份物理副本"，统计卡里的 copies 恒为 1。
+  libGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(238px, 1fr))",
+    gap: "14px",
+    padding: "2px 0 10px",
+  },
+  libCard: {
+    display: "flex",
+    flexDirection: "column",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "12px",
+    overflow: "hidden",
+  },
+  libThumbBox: {
+    position: "relative",
+    aspectRatio: "16 / 9",
+    background: "var(--bg)",
+    borderBottom: "1px solid var(--border)",
+    overflow: "hidden",
+  },
+  libThumbImg: { display: "block", width: "100%", height: "100%", objectFit: "cover" },
+  // 两段式缩略图：后端渲不了 pptx，管理员在浏览器里渲染首页后回传；
+  // 回传之前先用模板实际用色占位。
+  libThumbSwatches: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "5px",
+    padding: "0 18px",
+  },
+  libSwatch: { flex: 1, height: "38px", maxWidth: "38px", borderRadius: "5px" },
+  libThumbNote: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: "5px",
+    textAlign: "center",
+    fontSize: "11px",
+    color: "var(--text-3)",
+  },
+  libThumbBadge: {
+    position: "absolute",
+    top: "6px",
+    right: "6px",
+    fontSize: "10px",
+    padding: "1px 7px",
+    borderRadius: "8px",
+    background: "rgba(0,0,0,0.55)",
+    color: "#fff",
+  },
+  libCardBody: {
+    padding: "10px 12px 12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    flex: 1,
+  },
+  libCardName: { fontSize: "13.5px", fontWeight: 600, color: "var(--text)" },
+  libCardId: {
+    fontFamily: "var(--mono)",
+    fontSize: "11px",
+    color: "var(--text-3)",
+    wordBreak: "break-all",
+  },
+  libCardDesc: { fontSize: "12px", color: "var(--text-2)", lineHeight: 1.6 },
+  libCardMeta: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+    alignItems: "center",
+    fontSize: "11px",
+    color: "var(--text-3)",
+  },
+  libCardActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+    marginTop: "auto",
+    paddingTop: "6px",
+  },
+  libFormGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
+    gap: "12px",
+  },
+  libField: { display: "flex", flexDirection: "column", gap: "5px" },
+  libLabel: { fontSize: "12px", color: "var(--text-2)" },
+  libHint: { fontSize: "11px", color: "var(--text-3)", lineHeight: 1.5 },
+  textarea: {
+    padding: "8px 12px",
+    border: "1px solid var(--border-strong)",
+    borderRadius: "8px",
+    background: "var(--bg)",
+    color: "var(--text)",
+    fontSize: "13px",
+    outline: "none",
+    width: "100%",
+    minHeight: "64px",
+    resize: "vertical",
+    fontFamily: "var(--sans)",
+    lineHeight: 1.6,
+  },
+  /** 拖拽/点击上传区（hover 与拖入高亮见 adminCss .adm-drop）。 */
+  libDrop: {
+    border: "1px dashed var(--border-strong)",
+    borderRadius: "10px",
+    padding: "20px",
+    textAlign: "center",
+    fontSize: "12.5px",
+    color: "var(--text-2)",
+    cursor: "pointer",
+    background: "var(--bg)",
+    lineHeight: 1.7,
+  },
+  /** 浏览器端 pptx-wasm 渲染区（生成缩略图时可见地渲一帧）。 */
+  libPreview: {
+    border: "1px solid var(--border)",
+    borderRadius: "10px",
+    overflow: "hidden",
+    background: "var(--bg)",
+    height: "280px",
+    position: "relative",
+  },
+  libReportBox: {
+    border: "1px solid var(--border)",
+    background: "var(--bg)",
+    borderRadius: "8px",
+    padding: "10px 12px",
+    fontSize: "12px",
+    lineHeight: 1.85,
+    maxHeight: "280px",
+    overflowY: "auto",
+    color: "var(--text-2)",
+  },
+  libListRow: {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    fontSize: "11px",
+    color: "var(--text-3)",
+    fontFamily: "var(--mono)",
   },
 };
