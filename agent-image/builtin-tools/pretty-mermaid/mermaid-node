@@ -1,0 +1,16 @@
+#!/bin/sh
+# Isolated Node runtime for the pretty-mermaid skill (builtin-skills/pretty-mermaid).
+#
+# Same pattern as pptx-node: the runtime image ships no general Node stack.
+# The binary is SHARED with the pptx skill env (/opt/agent/skill-envs/pptx/bin/node)
+# to avoid a second ~110MB copy; only the dependency trees are per-skill.
+# beautiful-mermaid@1.1.3 + @resvg/resvg-js@2.6.2 (native, platform-specific
+# binary chosen at build time) are pre-baked under
+# /opt/agent/skill-envs/pretty-mermaid/node_modules.
+#
+# NOTE: NODE_PATH only helps CommonJS require(). The skill's scripts are ESM
+# (.mjs, bare `import 'beautiful-mermaid'`), which resolves via ancestor
+# node_modules lookup — entrypoint.sh symlinks the pre-baked tree into the
+# seeded skill dir at every boot to make that work.
+export NODE_PATH="/opt/agent/skill-envs/pretty-mermaid/node_modules${NODE_PATH:+:${NODE_PATH}}"
+exec /opt/agent/skill-envs/pptx/bin/node "$@"

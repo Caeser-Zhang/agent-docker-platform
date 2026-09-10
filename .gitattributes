@@ -4,3 +4,7 @@ Dockerfile text eol=lf
 *.vbs   text eol=crlf
 # Extension-less executable wrappers shipped into images — same shebang hazard
 agent-image/builtin-tools/pptx/* text eol=lf
+agent-image/builtin-tools/pretty-mermaid/* text eol=lf
+# Built-in skill scripts ship into the image and carry #!/usr/bin/env shebangs;
+# CRLF makes a direct ./scripts/foo.py invocation fail with "bad interpreter".
+agent-image/builtin-skills/**/scripts/* text eol=lf

@@ -110,6 +110,24 @@ RUN mkdir -p /fetch/skill-envs/pptx/node_modules \
     && node -e "const P=require('pptxgenjs');const p=new P();if(typeof p.addSlide!=='function')throw new Error('pptxgenjs smoke test failed')" \
     && test -f node_modules/pptxgenjs/package.json
 
+# Pre-bake the pretty-mermaid skill's Node dependencies:
+# beautiful-mermaid@1.1.3 (pure JS) + @resvg/resvg-js@2.6.2 (native addon —
+# npm pulls the linux binary matching THIS build platform via optionalDependencies,
+# e.g. resvg-js-linux-x64-gnu on amd64; NAPI so it is Node-version agnostic).
+# Versions match builtin-skills/pretty-mermaid/package-lock.json. Consumed
+# through the mermaid-node wrapper (see builtin-tools/pretty-mermaid/); the
+# node binary itself is shared with the pptx env to avoid a second ~110MB copy.
+RUN mkdir -p /fetch/skill-envs/pretty-mermaid \
+    && cd /fetch/skill-envs/pretty-mermaid \
+    && printf '{"name":"pretty-mermaid-skill-env","private":true}\n' > package.json \
+    && npm install --no-audit --no-fund --omit=dev "beautiful-mermaid@1.1.3" "@resvg/resvg-js@2.6.2" \
+    # Fail the build early if either package is unusable (ESM entry resolves,
+    # native resvg binding directory present).
+    && node -e "import('beautiful-mermaid').then(m=>{if(!m||typeof m!=='object')throw new Error('beautiful-mermaid smoke test failed');console.log('[build] beautiful-mermaid smoke test OK')}).catch(e=>{console.error(e);process.exit(1)})" \
+    && node -e "const{Resvg}=require('@resvg/resvg-js');const r=new Resvg('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"></svg>').render();if(r.asPng().length===0)throw new Error('resvg render smoke test failed');console.log('[build] @resvg/resvg-js native smoke test OK')" \
+    && test -d node_modules/@resvg/resvg-js \
+    && test -f node_modules/beautiful-mermaid/package.json
+
 # -------------------------------------------------------------- runtime stage
 FROM ${RUNTIME_IMAGE}
 
@@ -195,6 +213,12 @@ COPY builtin-plugins/ /opt/agent/builtin-plugins/
 COPY --from=fetch /usr/local/bin/node /opt/agent/skill-envs/pptx/bin/node
 COPY --from=fetch /fetch/skill-envs/pptx/node_modules /opt/agent/skill-envs/pptx/node_modules
 COPY --from=fetch /fetch/skill-envs/pptx/package.json /opt/agent/skill-envs/pptx/package.json
+# Pre-baked pretty-mermaid deps (beautiful-mermaid + native @resvg/resvg-js).
+# Reuses the pptx env's node binary — see builtin-tools/pretty-mermaid/mermaid-node.
+# entrypoint.sh symlinks this tree into the seeded skill dir at every boot so
+# the scripts' ESM bare imports resolve (NODE_PATH does not apply to ESM).
+COPY --from=fetch /fetch/skill-envs/pretty-mermaid/node_modules /opt/agent/skill-envs/pretty-mermaid/node_modules
+COPY --from=fetch /fetch/skill-envs/pretty-mermaid/package.json /opt/agent/skill-envs/pretty-mermaid/package.json
 # markitdown[pptx] (PPTX text extraction) in a dedicated venv. The venv is
 # created HERE, not on the fetch stage: venv bin/ scripts hard-code the
 # absolute interpreter path, so a venv built around the node image's
@@ -209,7 +233,9 @@ RUN python3 -m venv /opt/agent/skill-envs/pptx/venv \
     && /opt/agent/skill-envs/pptx/bin/node --version
 # pptx-node / pptx-markitdown — the skill's supported entry points (the
 # commands baked into builtin-skills/pptx-generator/SKILL.md).
+# mermaid-node — same role for builtin-skills/pretty-mermaid/SKILL.md.
 COPY builtin-tools/pptx/pptx-node builtin-tools/pptx/pptx-markitdown /usr/local/bin/
+COPY builtin-tools/pretty-mermaid/mermaid-node /usr/local/bin/
 # Built-in skills, seeded into the user's XDG skills dir on first boot by
 # entrypoint.sh (same first-boot-only semantics as plugin.default.json).
 COPY builtin-skills/ /opt/agent/builtin-skills/
@@ -217,7 +243,7 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # fastk CLI — stdlib-only client for the FastDB knowledge-base REST API,
 # the tool the bundled fastk-search / fastk-analyze skills instruct on.
 COPY builtin-tools/fastk-cli/fastk /usr/local/bin/fastk
-RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk /usr/local/bin/pptx-node /usr/local/bin/pptx-markitdown
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/opencode /usr/local/bin/fastk /usr/local/bin/pptx-node /usr/local/bin/pptx-markitdown /usr/local/bin/mermaid-node
 
 # Build gate for the present-file plugin. Two things can break silently here:
 #   1. the runtime `COPY builtin-plugins/` overlay clobbering (or failing to

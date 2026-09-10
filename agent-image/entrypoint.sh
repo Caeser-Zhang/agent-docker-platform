@@ -79,6 +79,18 @@ if [ -d "${SKILLS_SRC}" ]; then
     done
 fi
 
+# pretty-mermaid: its scripts are ESM with bare imports (`import
+# 'beautiful-mermaid'`), which NODE_PATH cannot satisfy — ESM resolves through
+# ancestor node_modules lookup. Symlink the pre-baked dependency tree into the
+# seeded skill dir on EVERY boot (idempotent, and the image ships no npm so
+# the scripts' own `npm install` fallback can never work here).
+PM_SKILL_DIR="${SKILLS_DIR}/pretty-mermaid"
+PM_ENV_MODULES="/opt/agent/skill-envs/pretty-mermaid/node_modules"
+if [ -d "${PM_SKILL_DIR}" ] && [ -d "${PM_ENV_MODULES}" ] && [ ! -e "${PM_SKILL_DIR}/node_modules" ]; then
+    ln -s "${PM_ENV_MODULES}" "${PM_SKILL_DIR}/node_modules" \
+        || echo "[entrypoint] WARN: could not link pretty-mermaid node_modules" >&2
+fi
+
 # NOTE: oh-my-opencode-slim's plugin.default.json pins agents.*.model to the
 # platform gateway model. At runtime the plugin merges
 # config.agents = deepMerge(preset, config.agents) — the static agents keys in
