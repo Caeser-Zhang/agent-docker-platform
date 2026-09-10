@@ -24,6 +24,7 @@ import json
 import logging
 import posixpath
 import secrets
+import shlex
 import tarfile
 import time
 from datetime import datetime, timezone
@@ -1123,6 +1124,53 @@ class ContainerManager:
         return self._run_on_workspace_volume(
             user_id, [f"rm -rf -- {target}"], purpose="workspace-cleanup"
         )
+
+    def workspace_dir_exists(self, user_id: str, rel_dir: str) -> bool:
+        """Check whether a workspace-relative directory exists.
+
+        Works whether the container is running (exec) or stopped (throwaway
+        container on the same volume, read-only). Used to validate the target
+        of a "bind existing folder" project before recording it.
+        """
+        container = self.get_container(user_id)
+        if container is None:
+            return False
+        try:
+            target = self._workspace_path(rel_dir)
+        except ValueError:
+            return False
+        # Always exits 0; prints "yes" only when the directory exists, so a
+        # missing dir is not confused with a Docker failure.
+        check = f"if [ -d {shlex.quote(target)} ]; then echo yes; fi"
+        if container.status == "running":
+            try:
+                result = container.exec_run(
+                    ["/bin/sh", "-c", check], user="1000:1000"
+                )
+                return result.exit_code == 0 and b"yes" in (result.output or b"")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Dir existence check via exec failed: %s", exc)
+                return False
+        client = self._get_client()
+        try:
+            raw = client.containers.run(
+                image=settings.agent_image,
+                entrypoint=["/bin/sh", "-c"],
+                command=[check],
+                volumes={
+                    self._workspace_volume_name(user_id): {
+                        "bind": settings.agent_workdir,
+                        "mode": "ro",
+                    }
+                },
+                user="1000:1000",
+                remove=True,
+                labels={"purpose": "project-dir-check", "temporary": "true"},
+            )
+            return b"yes" in (raw or b"")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Dir existence check via throwaway failed: %s", exc)
+            return False
 
     def _run_on_workspace_volume(self, user_id: str, command: list[str], purpose: str) -> bool:
         """Run a one-shot command against the user's workspace volume."""

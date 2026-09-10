@@ -139,6 +139,46 @@ class UserLLMProvider(Base):
     )
 
 
+class Project(Base):
+    """A user-created project space — a directory inside the workspace volume.
+
+    The platform stores only the project roster; session membership is NOT
+    recorded here. opencode derives each session's project from its
+    ``location.directory``, so the frontend groups sessions by matching
+    ``session.location.directory`` against ``Project.directory``.
+
+    ``origin`` records how the project came to be:
+      - "created": platform made a fresh directory under /workspace/projects/
+      - "bound":   user picked an existing workspace directory
+
+    Deleting a project removes this row and the sessions under its directory
+    (via opencode's API); the directory itself is never touched, so files
+    remain visible in the workspace browser.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Container-absolute path, e.g. /workspace/projects/官网改版 — its last
+    # segment always equals the project name, and it must match opencode's
+    # session.location.directory exactly for grouping to work.
+    directory: Mapped[str] = mapped_column(String(500), nullable=False)
+    origin: Mapped[str] = mapped_column(String(10), nullable=False, default="created")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        Index("idx_projects_user", "user_id"),
+        UniqueConstraint("user_id", "name", name="uq_projects_user_name"),
+        UniqueConstraint("user_id", "directory", name="uq_projects_user_dir"),
+    )
+
+
 class AuditEvent(Base):
     """P1-6: lifecycle audit trail — one row per significant platform action
     (start / stop / restart / destroy).

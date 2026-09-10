@@ -189,6 +189,17 @@ export interface OcLocation {
   project?: { id: string; directory: string };
 }
 
+/** Platform-side project record (POST/GET /api/projects). Sessions belong to
+ *  a project when session.location.directory === project.directory. */
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  directory: string;
+  origin: "created" | "bound";
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** Pagination envelope: GET /api/session, GET /api/session/{id}/message. */
 export interface OcPage<T> {
   data: T[];
@@ -696,12 +707,13 @@ export const api = {
 
   /**
    * opencode derives the project from `location.directory`; /workspace is the
-   * per-user volume mounted into the container.
+   * per-user volume mounted into the container. Project-scoped sessions pass
+   * the project's directory instead.
    */
-  async createSession(model?: ModelRef, agent = "coder"): Promise<OcSession> {
+  async createSession(model?: ModelRef, agent = "coder", directory = "/workspace"): Promise<OcSession> {
     const body: Record<string, any> = {
       agent,
-      location: { directory: "/workspace" },
+      location: { directory },
     };
     if (model) body.model = model;
     const r = await apiCall<{ data: OcSession }>(`${OC}/api/session`, {
@@ -1193,6 +1205,33 @@ export const api = {
   // --- Workspace file browser -------------------------------------------
   async listWorkspaceFiles(): Promise<{ files: { path: string; type: "file" | "dir"; size: number }[] }> {
     return apiCall("/workspace/files");
+  },
+
+  // --- Projects (project-scoped sessions) --------------------------------
+  // The platform stores only the roster; session membership is derived from
+  // session.location.directory === project.directory.
+  async listProjects(): Promise<{ projects: ProjectInfo[] }> {
+    return apiCall("/projects");
+  },
+
+  /**
+   * mode "create": fresh dir at /workspace/projects/{name}（目录名=项目名）;
+   * mode "bind": existing dir，项目名自动取目录最后一段（不传 name）。
+   */
+  async createProject(opts: {
+    name?: string;
+    mode: "create" | "bind";
+    directory?: string;
+  }): Promise<ProjectInfo> {
+    return apiCall("/projects", {
+      method: "POST",
+      body: JSON.stringify(opts),
+    });
+  },
+
+  /** Unbinds the project and deletes its sessions; the directory is kept. */
+  async deleteProject(id: string): Promise<{ deleted: boolean; sessionsDeleted: number }> {
+    return apiCall(`/projects/${id}`, { method: "DELETE" });
   },
 
   async readWorkspaceFile(path: string): Promise<{

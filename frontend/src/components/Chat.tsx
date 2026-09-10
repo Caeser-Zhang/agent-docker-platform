@@ -12,6 +12,7 @@ import {
   type OcPermissionRequest,
   type OcQuestionRequest,
   type OcSession,
+  type ProjectInfo,
   type ProvidersResponse,
 } from "../api";
 import { parseTodos, reduceEvent, toTurns, type Block, type FileDiff, type TodoItem, type Turn } from "../oc/messages";
@@ -252,6 +253,28 @@ export function Chat({
 
   const [sessions, setSessions] = useState<OcSession[]>([]);
   const [currentSession, setCurrentSession] = useState<OcSession | null>(null);
+
+  // 项目空间：workspace 子目录 = 会话工作目录。会话归属靠
+  // session.location.directory 目录推导（平台只存项目清单，无映射表），
+  // 因此分组在渲染时派生，SSE / 会话刷新逻辑不用感知项目。
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("oc.expandedProjects") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    window.localStorage.setItem("oc.expandedProjects", JSON.stringify(expandedProjects));
+  }, [expandedProjects]);
+  // 新建项目弹窗：名称 + 模式（新建目录 / 绑定 workspace 已有目录）
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [projName, setProjName] = useState("");
+  const [projMode, setProjMode] = useState<"create" | "bind">("create");
+  const [projDirs, setProjDirs] = useState<string[]>([]);
+  const [projDir, setProjDir] = useState("");
+  const [projBusy, setProjBusy] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [promptAgent, setPromptAgent] = useState<string | undefined>(undefined);
@@ -474,11 +497,12 @@ export function Chat({
   const loadContainerState = useCallback(async () => {
     // Everything below is served by opencode inside the container.
     loadSkills();
-    const [rt, prov, sess, ags] = await Promise.allSettled([
+    const [rt, prov, sess, ags, proj] = await Promise.allSettled([
       api.getAgentRuntime(),
       api.getProviders(),
       api.listSessions(),
       api.listAgents(),
+      api.listProjects(),
     ]);
     if (rt.status === "fulfilled") setRuntime(rt.value);
     if (prov.status === "fulfilled") {
@@ -491,6 +515,8 @@ export function Chat({
         sess.value.slice().sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))
       );
     }
+    // 项目清单来自平台 DB（容器停了也能读），失败时保留现有列表。
+    if (proj.status === "fulfilled") setProjects(proj.value.projects);
     if (ags.status === "fulfilled") {
       const list = ags.value;
       setAgents(list);
@@ -1064,10 +1090,11 @@ export function Chat({
     return () => window.clearInterval(timer);
   }, [isGenerating, refreshSessionMessages]);
 
-  const handleNewSession = async () => {
+  // directory 缺省 = 全局会话（/workspace）；项目内新建时传项目目录。
+  const handleNewSession = async (directory?: string) => {
     setError("");
     try {
-      const s = await api.createSession(model, agentId);
+      const s = await api.createSession(model, agentId, directory);
       setSessions((prev) => [s, ...prev.filter((x) => x.id !== s.id)]);
       await openSession(s);
     } catch (e: any) {
@@ -1106,6 +1133,146 @@ export function Chat({
       setError(err.message);
     }
   };
+
+  // ------------------------------------------------------------------
+  //  Projects — workspace 子目录即会话工作目录；分组在渲染时按
+  //  session.location.directory 推导，这里只维护项目清单本身。
+  // ------------------------------------------------------------------
+  const { globalSessions, sessionsByProject } = useMemo(() => {
+    const byProject: Record<string, OcSession[]> = {};
+    for (const p of projects) byProject[p.id] = [];
+    const dirToProject = new Map(projects.map((p) => [p.directory, p.id]));
+    const global: OcSession[] = [];
+    for (const s of sessions) {
+      const pid = s.location?.directory ? dirToProject.get(s.location.directory) : undefined;
+      // 未命中任何项目的一律归全局区（含 /workspace 与未知目录），保守不丢会话。
+      if (pid) byProject[pid].push(s);
+      else global.push(s);
+    }
+    return { globalSessions: global, sessionsByProject: byProject };
+  }, [sessions, projects]);
+
+  const toggleProject = (id: string) =>
+    setExpandedProjects((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const handleNewProjectSession = async (p: ProjectInfo, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isAgentRunning) return;
+    await handleNewSession(p.directory);
+    setExpandedProjects((prev) => ({ ...prev, [p.id]: true }));
+  };
+
+  const handleDeleteProject = async (p: ProjectInfo, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        `移除项目「${p.name}」？\n将删除该项目下的所有会话（不可恢复），目录文件保留在 workspace 中。`
+      )
+    )
+      return;
+    setBusy("移除项目中…");
+    setError("");
+    try {
+      await api.deleteProject(p.id);
+      setProjects((prev) => prev.filter((x) => x.id !== p.id));
+      // 后端已连带删除项目会话 —— 本地列表同步移除，避免幽灵条目。
+      setSessions((prev) => prev.filter((s) => s.location?.directory !== p.directory));
+      if (currentSession?.location?.directory === p.directory) {
+        setCurrentSession(null);
+        sessionIdRef.current = null;
+        setTurns([]);
+        setIsGenerating(false);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const openProjectModal = async () => {
+    setProjName("");
+    setProjMode("create");
+    setProjDir("");
+    setProjDirs([]);
+    setShowProjectModal(true);
+    try {
+      // 复用文件浏览接口：workspace 相对路径，type=dir 即候选绑定目录。
+      const res = await api.listWorkspaceFiles();
+      setProjDirs(
+        res.files
+          .filter((f) => f.type === "dir" && !f.path.split("/").some((seg) => seg.startsWith(".")))
+          .map((f) => f.path)
+      );
+    } catch {
+      /* 容器未启动等情况：picker 为空，仍可用"新建目录"模式 */
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (projBusy) return;
+    if (projMode === "create" && !projName.trim()) return;
+    if (projMode === "bind" && !projDir) return;
+    setProjBusy(true);
+    setError("");
+    try {
+      // create：目录名 = 项目名；bind：项目名由后端取目录最后一段。
+      const p = await api.createProject(
+        projMode === "create"
+          ? { name: projName.trim(), mode: "create" }
+          : { mode: "bind", directory: projDir }
+      );
+      setProjects((prev) => [p, ...prev]);
+      setExpandedProjects((prev) => ({ ...prev, [p.id]: true }));
+      setShowProjectModal(false);
+      // 绑定已有目录时，该目录下的历史会话会自动归入项目 —— 拉一次列表。
+      if (projMode === "bind" && isAgentRunning) {
+        try {
+          const list = await api.listSessions();
+          setSessions(
+            list.slice().sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))
+          );
+        } catch {
+          /* 下一轮轮询会补上 */
+        }
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setProjBusy(false);
+    }
+  };
+
+  /** 侧栏会话行（全局区与项目内共用；项目内加缩进）。 */
+  const renderSessionItem = (s: OcSession, nested = false) => (
+    <div
+      key={s.id}
+      style={{
+        ...(currentSession?.id === s.id ? styles.sessionItemActive : styles.sessionItem),
+        ...(nested ? styles.nestedSessionItem : null),
+      }}
+      onClick={() => openSession(s)}
+    >
+      <span style={styles.sessionIcon}>💬</span>
+      <span style={styles.sessionItemActiveTitle}>{s.title || s.id.slice(0, 12)}</span>
+      <div style={styles.sessionActions}>
+        <button
+          style={styles.sessionActionBtn}
+          title="重命名会话"
+          onClick={(e) => handleRenameSession(s, e)}
+        >
+          ✏️
+        </button>
+        <button
+          style={styles.sessionActionBtn}
+          title="删除会话"
+          onClick={(e) => handleDeleteSession(s, e)}
+        >
+          🗑️
+        </button>
+      </div>
+    </div>
+  );
 
   // ------------------------------------------------------------------
   //  Prompting
@@ -1958,46 +2125,75 @@ export function Chat({
             <span>会话列表</span>
             <button
               style={styles.newSessionBtn}
-              onClick={handleNewSession}
+              title="新建全局会话"
+              onClick={() => handleNewSession()}
               disabled={!isAgentRunning}
             >
               +
             </button>
           </div>
           <div style={styles.sessionsList}>
-            {sessions.length === 0 && (
+            {globalSessions.length === 0 && (
               <div style={styles.emptySessions}>
                 {isAgentRunning ? "点击 + 创建新会话" : "请先启动 Agent"}
               </div>
             )}
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                style={currentSession?.id === s.id ? styles.sessionItemActive : styles.sessionItem}
-                onClick={() => openSession(s)}
+            {globalSessions.map((s) => renderSessionItem(s))}
+
+            {/* 项目区：会话按 location.directory 归入项目，行点击展开/收起 */}
+            <div style={styles.projectsHeader}>
+              <span>项目</span>
+              <button
+                style={styles.newSessionBtn}
+                title="新建项目"
+                onClick={openProjectModal}
               >
-                <span style={styles.sessionIcon}>💬</span>
-                <span style={styles.sessionItemActiveTitle}>
-                  {s.title || s.id.slice(0, 12)}
-                </span>
-                <div style={styles.sessionActions}>
-                  <button
-                    style={styles.sessionActionBtn}
-                    title="重命名会话"
-                    onClick={(e) => handleRenameSession(s, e)}
+                +
+              </button>
+            </div>
+            {projects.length === 0 && (
+              <div style={styles.emptyProjects}>暂无项目，点击 + 新建或绑定 workspace 目录</div>
+            )}
+            {projects.map((p) => {
+              const expanded = !!expandedProjects[p.id];
+              const pSessions = sessionsByProject[p.id] ?? [];
+              return (
+                <div key={p.id}>
+                  <div
+                    style={styles.projectRow}
+                    title={p.directory}
+                    onClick={() => toggleProject(p.id)}
                   >
-                    ✏️
-                  </button>
-                  <button
-                    style={styles.sessionActionBtn}
-                    title="删除会话"
-                    onClick={(e) => handleDeleteSession(s, e)}
-                  >
-                    🗑️
-                  </button>
+                    <span style={styles.projectCaret}>{expanded ? "▾" : "▸"}</span>
+                    <span style={styles.sessionIcon}>📁</span>
+                    <span style={styles.projectName}>{p.name}</span>
+                    <span style={styles.projectCount}>{pSessions.length}</span>
+                    <div style={styles.sessionActions}>
+                      <button
+                        style={styles.sessionActionBtn}
+                        title="在项目中新建会话"
+                        disabled={!isAgentRunning}
+                        onClick={(e) => handleNewProjectSession(p, e)}
+                      >
+                        +
+                      </button>
+                      <button
+                        style={styles.sessionActionBtn}
+                        title="移除项目（删除项目会话，保留目录）"
+                        disabled={!isAgentRunning}
+                        onClick={(e) => handleDeleteProject(p, e)}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                  {expanded && pSessions.length === 0 && (
+                    <div style={styles.emptyProjectSessions}>暂无会话，点击 + 新建</div>
+                  )}
+                  {expanded && pSessions.map((s) => renderSessionItem(s, true))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -2124,7 +2320,7 @@ export function Chat({
           <div style={styles.noSession}>
             <div style={styles.noSessionIcon}>💬</div>
             <p style={styles.noSessionText}>选择一个会话，或创建新会话开始对话</p>
-            <button style={styles.newSessionLargeBtn} onClick={handleNewSession}>
+            <button style={styles.newSessionLargeBtn} onClick={() => handleNewSession()}>
               创建新会话
             </button>
           </div>
@@ -2717,6 +2913,92 @@ export function Chat({
               <button style={styles.modalClose} onClick={() => setLogs("")}>×</button>
             </div>
             <pre style={styles.modalBody}>{logs}</pre>
+          </div>
+        </div>
+      )}
+
+      {showProjectModal && (
+        <div style={styles.modal} onClick={() => setShowProjectModal(false)}>
+          <div style={styles.projModalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <span>新建项目</span>
+              <button style={styles.modalClose} onClick={() => setShowProjectModal(false)}>×</button>
+            </div>
+            <div style={styles.projModalBody}>
+              <label style={styles.projLabel}>项目目录</label>
+              <div style={styles.projRadioRow}>
+                <label style={styles.projRadio}>
+                  <input
+                    type="radio"
+                    checked={projMode === "create"}
+                    onChange={() => setProjMode("create")}
+                  />
+                  新建目录（projects/ 下自动生成）
+                </label>
+                <label style={styles.projRadio}>
+                  <input
+                    type="radio"
+                    checked={projMode === "bind"}
+                    onChange={() => setProjMode("bind")}
+                  />
+                  绑定 workspace 已有目录
+                </label>
+              </div>
+              {projMode === "create" ? (
+                <>
+                  <label style={styles.projLabel}>项目名称</label>
+                  <input
+                    style={styles.projInput}
+                    value={projName}
+                    maxLength={50}
+                    placeholder="例如：官网改版"
+                    autoFocus
+                    onChange={(e) => setProjName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreateProject();
+                    }}
+                  />
+                </>
+              ) : projDirs.length === 0 ? (
+                <div style={styles.projDirEmpty}>
+                  暂无可绑定目录（需 Agent 至少启动过，且 workspace 下存在非隐藏子目录）
+                </div>
+              ) : (
+                <div style={styles.projDirList}>
+                  {projDirs.map((d) => (
+                    <div
+                      key={d}
+                      style={projDir === d ? styles.projDirItemActive : styles.projDirItem}
+                      onClick={() => setProjDir(d)}
+                    >
+                      📁 {d}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={styles.projHint}>
+                {projMode === "create"
+                  ? "将创建目录 projects/<项目名称>，目录名与项目名称一致，创建后不可改名。"
+                  : "项目名称自动使用所选目录的名称；目录中的历史会话自动归入该项目。"}
+                项目目录即会话工作目录，移除项目不影响目录文件。
+              </div>
+            </div>
+            <div style={styles.projFooter}>
+              <button style={styles.projCancelBtn} onClick={() => setShowProjectModal(false)}>
+                取消
+              </button>
+              <button
+                style={styles.projSubmitBtn}
+                disabled={
+                  projBusy ||
+                  (projMode === "create" && !projName.trim()) ||
+                  (projMode === "bind" && !projDir)
+                }
+                onClick={handleCreateProject}
+              >
+                {projBusy ? "创建中…" : "创建"}
+              </button>
+            </div>
           </div>
         </div>
       )}
