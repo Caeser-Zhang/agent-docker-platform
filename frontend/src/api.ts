@@ -583,6 +583,42 @@ export interface LibrarySeedResult {
   samples_skipped: number;
 }
 
+// --- Knowledge-base whitelist / permission matrix (admin) ------------------
+export interface KbUser {
+  user_id: string;
+  username: string;
+  uid: string | null;
+  role: string;
+}
+
+export interface KbKeyInfo {
+  kb_name: string;
+  has_api_key: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface KbGrantInfo {
+  kb_name: string;
+  user_id: string;
+  username: string;
+  uid: string | null;
+  created_at: string | null;
+}
+
+export interface KbUserAccess {
+  user_id: string;
+  username: string;
+  granted: { kb_name: string; created_at: string | null }[];
+  available: { kb_name: string; has_api_key: boolean }[];
+}
+
+/** One authorised knowledge base as shown to the user — name + description. */
+export interface KbCatalogEntry {
+  name: string;
+  description: string;
+}
+
 async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("token");
   const resp = await fetch(`${API_BASE}${path}`, {
@@ -615,6 +651,192 @@ async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
   // resp.json() on "" throws "Unexpected end of JSON input".
   const text = await resp.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+// --- UX feedback / metrics types (任务一 & 任务二) -------------------------
+
+/** 点踩原因码白名单（与后端 feedback.REASON_CODES 一致）。 */
+export type FeedbackReasonCode =
+  | "misunderstood"
+  | "wrong_answer"
+  | "tool_failure"
+  | "too_verbose"
+  | "ignored_constraints"
+  | "interrupted"
+  | "other";
+
+export interface FeedbackSubmit {
+  session_id: string;
+  message_id: string;
+  user_message_id?: string | null;
+  verdict: "up" | "down";
+  reason_codes?: FeedbackReasonCode[];
+  reason_text?: string | null;
+  turn_errored?: boolean;
+  model_provider?: string | null;
+  model_id?: string | null;
+  agent?: string | null;
+  /** 本轮完整上下文快照（前端组装）。 */
+  context?: Record<string, any>;
+}
+
+export interface FeedbackResult {
+  ok: boolean;
+  already: boolean;
+  verdict: "up" | "down";
+  message_id: string;
+}
+
+export interface SessionFeedbackItem {
+  message_id: string;
+  verdict: "up" | "down";
+  created_at: string | null;
+}
+
+export interface UxQuery {
+  days?: number;
+  user_id?: string;
+  model_provider?: string;
+}
+export interface UxRoundsQuery extends UxQuery {
+  session_id?: string;
+  only_failed?: boolean;
+  limit?: number;
+  offset?: number;
+}
+export interface UxFeedbackQuery {
+  days?: number;
+  verdict?: "up" | "down";
+  limit?: number;
+  offset?: number;
+}
+
+export interface UxOverview {
+  window_days: number;
+  filters: { user_id: string | null; model_provider: string | null };
+  l1_outcome: {
+    rounds_total: number;
+    round_success_rate: number | null;
+    error_rate: number | null;
+    task_rounds: number;
+    task_success_rate: number | null;
+  };
+  l2_efficiency: {
+    duration_avg_ms: number | null;
+    duration_p50_ms: number | null;
+    duration_p90_ms: number | null;
+    duration_p99_ms: number | null;
+    total_cost: number;
+    avg_cost: number | null;
+  };
+  l3_process: {
+    tool_calls: number;
+    tool_errors: number;
+    tool_accuracy: number | null;
+    total_tokens: number;
+    avg_tokens_per_round: number | null;
+    tokens_per_success: number | null;
+  };
+  l4_satisfaction: {
+    thumbs_up: number;
+    thumbs_down: number;
+    total: number;
+    satisfaction_rate: number | null;
+    down_reasons: Record<string, number>;
+  };
+}
+
+export interface UxTrendPoint {
+  date: string;
+  rounds: number;
+  success_rate: number | null;
+  duration_avg_ms: number | null;
+  duration_p90_ms: number | null;
+  tool_accuracy: number | null;
+  total_tokens: number;
+  cost: number;
+  satisfaction_rate: number | null;
+  thumbs_up: number;
+  thumbs_down: number;
+}
+export interface UxTrends {
+  window_days: number;
+  series: UxTrendPoint[];
+}
+
+export interface UxToolRow {
+  tool_name: string;
+  calls: number;
+  errors: number;
+  accuracy: number | null;
+}
+export interface UxTools {
+  window_days: number;
+  tools: UxToolRow[];
+}
+
+export interface UxRoundRow {
+  id: number;
+  user_id: string;
+  session_id: string;
+  round_seq: number;
+  message_id: string;
+  is_task: boolean;
+  succeeded: boolean;
+  task_success: boolean | null;
+  errored: boolean;
+  error_text: string | null;
+  duration_ms: number | null;
+  total_tokens: number | null;
+  cost: number | null;
+  tool_calls: number;
+  tool_errors: number;
+  model_provider: string | null;
+  model_id: string | null;
+  agent: string | null;
+  source: string;
+  created_at: string | null;
+}
+export interface UxRounds {
+  total: number;
+  limit: number;
+  offset: number;
+  rounds: UxRoundRow[];
+}
+
+export interface UxFeedbackRow {
+  id: number;
+  user_id: string;
+  session_id: string;
+  message_id: string;
+  user_message_id: string | null;
+  verdict: "up" | "down";
+  reason_codes: string[];
+  reason_text: string | null;
+  turn_errored: boolean;
+  model_provider: string | null;
+  model_id: string | null;
+  agent: string | null;
+  context: Record<string, any>;
+  context_truncated: boolean;
+  created_at: string | null;
+}
+export interface UxFeedback {
+  total: number;
+  limit: number;
+  offset: number;
+  feedback: UxFeedbackRow[];
+}
+
+/** Build a query string from a params object, dropping undefined/null. */
+function uxQuery(params: Record<string, any>): string {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === "") continue;
+    usp.set(k, String(v));
+  }
+  const s = usp.toString();
+  return s ? `?${s}` : "";
 }
 
 export const api = {
@@ -687,6 +909,78 @@ export const api = {
 
   async adminDestroyContainer(userId: string): Promise<{ ok: boolean; message: string }> {
     return apiCall(`/admin/containers/${userId}/destroy`, { method: "POST" });
+  },
+
+  // --- UX feedback (任务一：点赞/点踩) ------------------------------------
+  /** 提交一条 assistant 回复的反馈。幂等：重复提交返回 already=true。 */
+  async submitFeedback(body: FeedbackSubmit): Promise<FeedbackResult> {
+    return apiCall("/feedback", { method: "POST", body: JSON.stringify(body) });
+  },
+
+  /** 加载某会话下当前用户已提交的反馈（回填锁定态）。 */
+  async getSessionFeedback(sessionId: string): Promise<{ session_id: string; feedback: SessionFeedbackItem[] }> {
+    return apiCall(`/feedback/session/${encodeURIComponent(sessionId)}`);
+  },
+
+  // --- Admin UX 看板 (任务二：用户体验指标) --------------------------------
+  async uxOverview(params: UxQuery = {}): Promise<UxOverview> {
+    return apiCall(`/admin/ux/overview${uxQuery(params)}`);
+  },
+  async uxTrends(params: UxQuery = {}): Promise<UxTrends> {
+    return apiCall(`/admin/ux/trends${uxQuery(params)}`);
+  },
+  async uxTools(params: UxQuery = {}): Promise<UxTools> {
+    return apiCall(`/admin/ux/tools${uxQuery(params)}`);
+  },
+  async uxRounds(params: UxRoundsQuery = {}): Promise<UxRounds> {
+    return apiCall(`/admin/ux/rounds${uxQuery(params)}`);
+  },
+  async uxFeedback(params: UxFeedbackQuery = {}): Promise<UxFeedback> {
+    return apiCall(`/admin/ux/feedback${uxQuery(params)}`);
+  },
+  /** 按需回补某用户某会话的历史指标（容器须运行中）。 */
+  async uxBackfill(userId: string, sessionId: string): Promise<{ ok: boolean; session_id: string; records: number; inserted: number }> {
+    return apiCall("/admin/ux/backfill", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, session_id: sessionId }),
+    });
+  },
+
+  // --- Admin — knowledge-base whitelist / permission matrix ---------------
+  /** Every user, for the matrix row selector. */
+  async adminListKbUsers(): Promise<{ items: KbUser[] }> {
+    return apiCall("/admin/kb-users");
+  },
+
+  /** All recorded credentials (names + presence, never the key). */
+  async adminListKbKeys(): Promise<{ items: KbKeyInfo[] }> {
+    return apiCall("/admin/kb-keys");
+  },
+
+  /** The full active whitelist (user × database pairs). */
+  async adminListKbGrants(): Promise<{ items: KbGrantInfo[] }> {
+    return apiCall("/admin/kb-grants");
+  },
+
+  /** One user's authorised vs. still-unauthorised databases, split in two. */
+  async adminKbUserAccess(userId: string): Promise<KbUserAccess> {
+    return apiCall(`/admin/kb-user-access?user_id=${encodeURIComponent(userId)}`);
+  },
+
+  /** Grant a database to a user (revives a soft-deleted row if present). */
+  async adminGrantKb(username: string, kbName: string): Promise<{ kb_name: string; user_id: string }> {
+    return apiCall("/admin/kb-grants", {
+      method: "POST",
+      body: JSON.stringify({ kb_name: kbName, username }),
+    });
+  },
+
+  /** Revoke a database from a user (soft delete — stamps revoked_at). */
+  async adminRevokeKb(userId: string, kbName: string): Promise<{ kb_name: string; user_id: string }> {
+    return apiCall(
+      `/admin/kb-grants/${encodeURIComponent(userId)}/${encodeURIComponent(kbName)}`,
+      { method: "DELETE" }
+    );
   },
 
   // --- LLM configuration (read from opencode's own /config) -------------

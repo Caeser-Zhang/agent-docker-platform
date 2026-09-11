@@ -14,7 +14,10 @@
 - [7. SSE 事件流](#7-sse-事件流)
 - [8. 透明代理（隧道）](#8-透明代理隧道)
 - [9. opencode 常用透传端点](#9-opencode-常用透传端点)
-- [10. 错误码汇总](#10-错误码汇总)
+- [10. 用户反馈 API](#10-用户反馈-api)
+- [11. 管理员 UX 指标 API](#11-管理员-ux-指标-api)
+- [12. 知识库（KB）API](#12-知识库kb-api)
+- [13. 错误码汇总](#13-错误码汇总)
 
 ---
 
@@ -193,7 +196,7 @@ Authorization: Bearer <access_token>
 
 ## 4. 管理员 API
 
-平台级 Docker 容器管理（前端"Docker 容器管理"面板的数据源）。**全部端点要求 `role=admin`**，角色从数据库实时读取（非 JWT 声明），降权立即生效；非管理员一律 `403 Admin privileges required`。
+平台级 Docker 容器管理（前端"Docker 容器管理"面板的数据源）。**全部端点要求 `role=admin`**，角色从数据库实时读取（非 JWT 声明），降权立即生效；非管理员一律 `403 Admin privileges required`。同为 admin 专属的用户体验指标端点见 [§11](#11-管理员-ux-指标-api)。
 
 ### 管理员的三个来源
 
@@ -835,17 +838,366 @@ GET /api/tunnel/oc/config/providers  → 已配置的 provider
 
 ---
 
-## 10. 错误码汇总
+## 10. 用户反馈 API
+
+assistant 回复的点赞/点踩采集。**登录即可用，不限 admin**。数据落 `message_feedback` 表，自然键 `(user_id, message_id)`，投票后**不可取消**（前端点击即锁定）。指标消费方见 [§11 管理员 UX 指标 API](#11-管理员-ux-指标-api)。
+
+### `POST /api/feedback` — 提交点赞/点踩
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `session_id` | string | ✓ | opencode 会话 id（≤255） |
+| `message_id` | string | ✓ | 被评价的 **assistant** 消息 id（≤255）；无 assistant 消息时前端用 `user:{id}` 合成 |
+| `user_message_id` | string \| null | | 触发本轮的 user 消息 id |
+| `verdict` | `"up"` \| `"down"` | ✓ | 其余取值 → 422 |
+| `reason_codes` | string[] | | 仅 `down` 生效；非白名单码静默丢弃，自动去重 |
+| `reason_text` | string \| null | | 仅 `down` 生效（「其他」自由文本）；服务端 strip 后**截断至 500 字** |
+| `turn_errored` | bool | | 本轮是否报错（前端快照，默认 false） |
+| `model_provider` / `model_id` / `agent` | string \| null | | 各 ≤128 |
+| `context` | object | | 本轮完整上下文快照（前端组装：上一 user 提问 → 本 assistant 全部输出 + 工具轨迹）；服务端 JSON 化后**截断至 60 000 字符**，超限置 `context_truncated=true` |
+
+**原因码白名单**（与前端 `FeedbackModal` / `oc/feedback.ts` 的 `REASON_OPTIONS` 一致）
+
+| 码 | 含义 |
+|---|---|
+| `misunderstood` | 没理解我的意图 |
+| `wrong_answer` | 答案错误 |
+| `tool_failure` | 工具调用失败 |
+| `too_verbose` | 太啰嗦 |
+| `ignored_constraints` | 忽略了约束/要求 |
+| `interrupted` | 中途被打断 |
+| `other` | 其他（配合 `reason_text`） |
+
+**响应**
+
+```json
+{ "ok": true, "already": false, "verdict": "down", "message_id": "msg_..." }
+```
+
+- **幂等**：同一 `(user_id, message_id)` 重复提交返回 `already=true` + 既有 `verdict`，**不改写**已存原因与上下文；并发撞唯一索引同样降级为 `already=true`。
+- `verdict="up"` 时忽略 `reason_codes` / `reason_text`（点赞只记态度）。
+- 反馈行 `user_id` **无外键**（证据留存约定），写入不因用户记录缺失而失败。
+
+**错误**
+
+| 状态码 | 说明 |
+|---|---|
+| 422 | `verdict` 非 `up/down`、必填字段缺失或超长 |
+| 429 | 轻限流：每用户 60s 内最多 30 次提交（滑动窗口，仅防刷） |
+
+### `GET /api/feedback/session/{session_id}` — 回填已锁定状态
+
+前端加载会话时调用，把已投过票的消息渲染为锁定态（「感谢反馈」）。
+
+**Query** `limit`（默认 500，1-2000）
+
+**响应**（不含 `context` 快照，仅渲染所需最小字段）
+
+```json
+{
+  "session_id": "ses_...",
+  "feedback": [
+    { "message_id": "msg_...", "verdict": "up", "created_at": "2026-09-01T02:11:05.120000+00:00" }
+  ]
+}
+```
+
+---
+
+## 11. 管理员 UX 指标 API
+
+**仅 admin**（路由级 `require_admin`，前缀 `/api/admin/ux`）。
+
+数据来源为**服务端 SSE tap**——每容器一个 Pump 在 `ContainerEventBus.push_event()` 处挂载 observer（前端不可篡改），辅以按需**历史回补**；落 `agent_round_metrics` / `tool_call_metrics` / `message_feedback` 三表，明细行受保留窗口自动清理。
+
+**统计单位（双轨）**
+
+| 单位 | 定义 | 对应字段 |
+|---|---|---|
+| 回合 round | user prompt → `session.idle`，每回合 1 行 | 自然键 `(user_id, session_id, message_id)` |
+| 任务 task | 该回合出现过 `todo.updated` 且 todos 全部 `completed` | `is_task=true` / `task_success` |
+
+**四层指标**：L1 结果（任务成功率、回合成功率、错误率）· L2 效率与性能（耗时均值 + p50/p90/p99、成本）· L3 过程与轨迹（工具调用准确率、Token 效率）· L4 主观满意度（点赞/点踩，整合 [§10](#10-用户反馈-api)）。
+
+分位数在应用层用最近秩法计算（SQLite 无 `percentile_cont`）；**所有比率/均值字段在无样本时为 `null`**，前端显示「—」。
+
+**公共 Query**
+
+| 参数 | 适用端点 | 默认 | 说明 |
+|---|---|---|---|
+| `days` | 全部 | overview/trends/tools/feedback = 30；rounds = 7 | 时间窗 1-365，按 `created_at` 过滤 |
+| `user_id` | overview/trends/tools/rounds | — | 按用户过滤 |
+| `model_provider` | overview/trends | — | 按模型供应商过滤 |
+
+### `GET /api/admin/ux/overview` — 四层汇总
+
+```json
+{
+  "window_days": 30,
+  "filters": { "user_id": null, "model_provider": null },
+  "l1_outcome": {
+    "rounds_total": 128, "round_success_rate": 0.92, "error_rate": 0.05,
+    "task_rounds": 41, "task_success_rate": 0.78
+  },
+  "l2_efficiency": {
+    "duration_avg_ms": 24510.5, "duration_p50_ms": 18200.0,
+    "duration_p90_ms": 61000.0, "duration_p99_ms": 145000.0,
+    "total_cost": 3.412, "avg_cost": 0.0266
+  },
+  "l3_process": {
+    "tool_calls": 612, "tool_errors": 24, "tool_accuracy": 0.96,
+    "total_tokens": 1840233, "avg_tokens_per_round": 14376.8, "tokens_per_success": 15594.5
+  },
+  "l4_satisfaction": {
+    "thumbs_up": 17, "thumbs_down": 5, "total": 22, "satisfaction_rate": 0.77,
+    "down_reasons": { "wrong_answer": 3, "too_verbose": 2, "other": 1 }
+  }
+}
+```
+
+> L4 只按 `days` / `user_id` 过滤反馈表，**不受 `model_provider` 影响**（反馈行不记录 provider 维度的回合关联）。`down_reasons` 一条反馈可含多个码，故各码计数之和可大于 `thumbs_down`。
+
+### `GET /api/admin/ux/trends` — 按天时间序列
+
+Python 侧分桶（跨方言安全，不依赖 `date()`/`date_trunc` 差异），只返回**有数据的日期**。
+
+```json
+{
+  "window_days": 30,
+  "series": [
+    {
+      "date": "2026-09-01", "rounds": 22, "success_rate": 0.95,
+      "duration_avg_ms": 21033.4, "duration_p90_ms": 54000.0, "tool_accuracy": 0.97,
+      "total_tokens": 310442, "cost": 0.61,
+      "satisfaction_rate": 0.8, "thumbs_up": 4, "thumbs_down": 1
+    }
+  ]
+}
+```
+
+### `GET /api/admin/ux/tools` — 工具调用准确率排行
+
+**Query** 额外支持 `limit`（默认 50，1-200）；按调用次数降序，`GROUP BY tool_name`。
+
+```json
+{
+  "window_days": 30,
+  "tools": [
+    { "tool_name": "bash", "calls": 210, "errors": 12, "accuracy": 0.943 },
+    { "tool_name": "read", "calls": 180, "errors": 0, "accuracy": 1.0 }
+  ]
+}
+```
+
+### `GET /api/admin/ux/rounds` — 回合明细（下钻排障）
+
+**Query** 额外支持 `session_id`、`only_failed`（默认 false）、`limit`（默认 100，1-500）、`offset`。最新在前。
+
+```json
+{
+  "total": 128, "limit": 20, "offset": 0,
+  "rounds": [
+    {
+      "id": 91, "user_id": "464d...", "session_id": "ses_...", "round_seq": 3,
+      "message_id": "msg_...", "is_task": true, "succeeded": true,
+      "task_success": true, "errored": false, "error_text": null,
+      "duration_ms": 18420, "total_tokens": 24110, "cost": 0.031,
+      "tool_calls": 7, "tool_errors": 0,
+      "model_provider": "anthropic", "model_id": "claude-...", "agent": "build",
+      "source": "tap",                          // tap=实时采集 / backfill=历史回补
+      "created_at": "2026-09-01T02:11:05.120000+00:00"
+    }
+  ]
+}
+```
+
+### `GET /api/admin/ux/feedback` — 反馈明细（只读，含上下文快照）
+
+**Query** 额外支持 `verdict`（`up`/`down`，缺省为全部）、`limit`（默认 100，1-500）、`offset`。最新在前。
+
+```json
+{
+  "total": 22, "limit": 20, "offset": 0,
+  "feedback": [
+    {
+      "id": 7, "user_id": "464d...", "session_id": "ses_...",
+      "message_id": "msg_...", "user_message_id": "msg_...",
+      "verdict": "down", "reason_codes": ["wrong_answer", "other"],
+      "reason_text": "忽略了我只改前端的约束", "turn_errored": false,
+      "model_provider": "anthropic", "model_id": "claude-...", "agent": "build",
+      "context": { "user_text": "...", "assistant_text": "...", "tools": [] },
+      "context_truncated": false,
+      "created_at": "2026-09-01T02:15:41.880000+00:00"
+    }
+  ]
+}
+```
+
+> `context` 为落库 JSON 的反序列化结果。若写入时快照被截断（`context_truncated=true`），落库串不再是合法 JSON，本端点返回 `context: {}`——需要完整前缀时直接查库读原始列。
+
+### `POST /api/admin/ux/backfill` — 历史指标回补
+
+按需回补某用户某会话的历史回合（复用与实时采集同一套结算器，**幂等写入**：已有自然键的回合跳过）。**要求该用户容器正在运行**（需回连容器读取会话历史）。
+
+**请求体**
+
+```json
+{ "user_id": "464d6e13-...", "session_id": "ses_..." }
+```
+
+**响应**
+
+```json
+{ "ok": true, "session_id": "ses_...", "records": 12, "inserted": 5 }
+```
+
+`records` = 从容器的会话历史读出的回合数，`inserted` = 本次新增行数（差值为已存在而被幂等跳过）。
+
+**错误**
+
+| 状态码 | 说明 |
+|---|---|
+| 404 | `No container record for this user` |
+| 409 | `Container not running (status=...)` |
+| 502 | `Backfill failed: ...`（容器不可达 / 历史读取或结算异常） |
+
+---
+
+## 12. 知识库（KB）API
+
+fastk 知识库白名单体系（设计详见 [FASTK_APIKEY_WHITELIST_DESIGN.md](./FASTK_APIKEY_WHITELIST_DESIGN.md)）。核心模型：
+
+- **凭据（`kb_keys` 表）**：每个物理库一条真实 API key，Fernet 加密存储，**只写不读**——任何端点都不回传 key 本体（仅 `has_api_key` 布尔与时间戳），管理员会话被盗也无法导出。
+- **白名单（`kb_grants` 表）**：用户 ↔ 数据库授权矩阵，自然键 `(user_id, kb_name)`；回收为软删除（盖 `revoked_at`），重新授权时复活原行。
+- **权限判定**统一走 `services/kb_access.py`，三个消费方共享同一决策路径：Agent 代理（§12.3）、引用角标（§12.4）、管理端点（§12.1），口径永不漂移。
+- 授权/回收**立即生效**（每次请求实时重读白名单），无需重建容器。
+
+相关配置（`backend/.env`）：`AGENT_FASTK_SERVER_URL`（真实 fastk 服务器，仅后端直连）、`AGENT_KB_PROXY_BASE`（注入容器的代理基址，默认 `http://backend:8000`）、`AGENT_KB_ADMIN_CONTACT`（渲染进 403 文案的管理员联系方式）。
+
+### 12.1 管理端点（前缀 `/api/admin`，全部要求 `role=admin`）
+
+#### `GET /api/admin/kb-keys` — 已录入凭据列表
+
+```json
+{ "items": [ { "kb_name": "global", "has_api_key": true, "created_at": "...", "updated_at": "..." } ] }
+```
+
+#### `PUT /api/admin/kb-keys/{kb_name}` — 录入 / 轮换凭据
+
+请求体 `{ "api_key": "..." }`。幂等 upsert：不存在时 `action=kbkey.create`，已存在时 `kbkey.rotate`。`kb_name` 须匹配 `^[A-Za-z0-9_-]{1,64}$`（否则 400 `无效的知识库名`）。写审计日志。
+
+#### `DELETE /api/admin/kb-keys/{kb_name}` — 删除凭据（连带物理删除全部授权）
+
+该库的所有 grant 行（活跃与已回收）一并物理删除——凭据已不存在，保留悬空授权无意义。响应含 `revoked_users`（删除瞬间仍活跃的用户 id 列表）。404 `该知识库凭据不存在`。写审计日志。
+
+#### `GET /api/admin/kb-grants` — 白名单矩阵
+
+可选 query `kb_name` / `user_id` 缩小范围；仅返回活跃行（`revoked_at IS NULL`），每条带 `username` / `uid` 冗余便于展示。
+
+#### `POST /api/admin/kb-grants` — 授权
+
+请求体 `{ "kb_name": "...", "username": "..." }` 或 `{ "kb_name": "...", "uid": "..." }`（二选一，均缺则 400）。前置校验：
+
+| 条件 | 结果 |
+|---|---|
+| 该库尚未录入凭据 | 400，提示先 `PUT /api/admin/kb-keys/{kb_name}` |
+| 用户不存在 | 404 `用户不存在` |
+| 已有活跃授权 | 幂等，直接返回成功 |
+| 授权曾被回收 | 复活软删除行：清 `revoked_at` 并重置 `created_at`（视为全新授权） |
+
+写审计日志。
+
+#### `DELETE /api/admin/kb-grants/{user_id}/{kb_name}` — 回收
+
+软删除（盖 `revoked_at`）；旧会话中已渲染的引用角标随之失效（见 §12.4）。无活跃授权时 404 `该授权不存在`。写审计日志。
+
+#### `GET /api/admin/kb-users` — 全部用户（矩阵行选择器数据源）
+
+仅标识信息：`user_id` / `username` / `uid` / `role`，无秘密。
+
+#### `GET /api/admin/kb-user-access?user_id=...` — 单用户授权视图
+
+```json
+{
+  "user_id": "...",
+  "username": "...",
+  "granted":   [ { "kb_name": "global",  "created_at": "..." } ],
+  "available": [ { "kb_name": "finance", "has_api_key": true } ]
+}
+```
+
+`granted` = 活跃白名单行；`available` = 已录入凭据但尚未授权给该用户的库（即可直接授权的全集）。404 `用户不存在`。
+
+### 12.2 用户端点
+
+#### `GET /api/kb/my-databases` — 当前用户可读的库名
+
+```json
+{ "databases": ["global", "hr"] }
+```
+
+登录即可用。前端借此提前展示 Agent 可检索范围，而不是先撞 403。仅名称，无凭据。
+
+### 12.3 Agent 容器代理（白名单强制点）
+
+#### `GET|POST /fastk/api/{path}` — 转发到 fastk 服务器的只读代理
+
+**不走 JWT**：调用方是 Agent 容器内置的 fastk CLI，鉴权凭请求头 `X-API-Key` = 容器创建时注入的 `FASTK_API_KEY`——一个不透明的 Fernet 代理令牌（编码 `kbproxy:<user_id>`），**不是真实 key**。容器同时被注入 `FASTDB_BASE_URL`（= `AGENT_KB_PROXY_BASE`），CLI 流量只能经过本代理。
+
+决策流：令牌 → user_id（无效则 401）→ 每请求实时读 `kb_grants`：
+
+| 路径形态 | 行为 |
+|---|---|
+| `databases`（目录） | 拉取服务器全量列表后**只保留已授权的库**，并剥离 `uri` 字段（宿主存储路径，容器内无意义）；不注入 key |
+| `databases/{kb}/...` | 未授权 → 403（文案含 `fastk databases` 指引与管理员联系方式）；已授权但库无可用凭据 → 500；否则注入该库真实 key 后转发 |
+| 其他 | 404 `未知的知识库端点` |
+
+**只读约束**：GET 全放行（服务器所有 GET 均为读）；POST 仅允许 `/search`、`/query`、`/grep` 三个读端点（CLI 实际使用的全部），其余 POST 一律 405。调用方的 `X-API-Key` 转发前**必定剥除**，绝不上传。
+
+错误响应形状与平台惯例不同（CLI 契约，原样打印 `error.message`）：
+
+```json
+{ "error": { "message": "无权限访问知识库 'finance'。……" } }
+```
+
+上游不可达 → 502 `fastk 服务不可达`。
+
+> 旧环境容器（`FASTDB_BASE_URL` 直连 fastk 服务器、或无有效代理令牌）构成白名单绕过——`container_manager` 在启动时检测此类容器并**强制重建**（工作区/数据卷保留，会话不丢）。
+
+### 12.4 引用角标端点（浏览器侧，JWT）
+
+渲染聊天历史中的来源引用。**每次请求重查白名单**：授权被回收后，旧会话里已渲染的角标同样失效（403 文案与代理一致，前端原样展示）。
+
+#### `GET /api/fastk/chunk?db=&chunk_id=` — 取一个 chunk 的完整内容与元数据
+
+#### `GET /api/fastk/chunk-image?db=&chunk_id=&index=` — 中继 chunk 附带图片（`index` 默认 0）
+
+两端点错误语义相同：
+
+| 状态码 | 说明 |
+|---|---|
+| 400 | `db` / `chunk_id` 非法（同 `^[A-Za-z0-9_-]{1,64}$` 闭集） |
+| 403 | 用户不在该库白名单（含已回收） |
+| 500 | 该库缺少可用凭据（运维错误，文案含管理员联系方式） |
+| 502 | fastk 服务不可达 |
+
+---
+
+## 13. 错误码汇总
 
 | 状态码 | 场景 |
 |---|---|
-| 400 | 请求体校验失败、JSON 无效、frontmatter 缺字段、名称非法、skill zip 布局/大小不符、上传文件名为空 |
-| 401 | JWT 缺失/无效/过期、登录凭证错误 |
-| 403 | 命中代理黑名单（`global/dispose`、`auth/` 等）、非 admin 访问 `/api/admin/*` |
-| 404 | 资源不存在（provider/skill/文件）、admin 操作的容器在 Docker 中不存在 |
-| 405 | 代理端点收到不在白名单的 HTTP 方法 |
-| 409 | 工作区端点在容器未创建时调用、admin 重启后健康探测失败 |
+| 400 | 请求体校验失败、JSON 无效、frontmatter 缺字段、名称非法（skill/知识库）、skill zip 布局/大小不符、上传文件名为空、kb-grants 缺 username 与 uid、知识库尚未录入凭据 |
+| 401 | JWT 缺失/无效/过期、登录凭证错误、KB 代理令牌无效 |
+| 403 | 命中代理黑名单（`global/dispose`、`auth/` 等）、非 admin 访问 `/api/admin/*`、用户不在知识库白名单（代理与引用角标） |
+| 404 | 资源不存在（provider/skill/文件/知识库凭据/授权/用户）、admin 操作的容器在 Docker 中不存在、回补目标用户无容器记录、未知的知识库代理端点 |
+| 405 | 代理端点收到不在白名单的 HTTP 方法、KB 代理收到非读端点的 POST |
+| 409 | 工作区端点在容器未创建时调用、admin 重启后健康探测失败、回补时容器未运行 |
 | 413 | 上传超 10MB、预览超 2MB、skill zip 超限 |
 | 422 | Pydantic 请求体校验失败（`detail` 为错误数组） |
-| 500 | 容器/文件系统操作失败 |
+| 429 | 反馈提交触发轻限流（每用户 60s / 30 次） |
+| 500 | 容器/文件系统操作失败、知识库缺少可用凭据 |
+| 502 | UX 历史回补失败（容器不可达或结算异常）、fastk 服务不可达 |
 | 503 | Agent 容器未运行（tunnel 端点）、无容器可重载 |

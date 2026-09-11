@@ -26,8 +26,8 @@ description: Analyze fastk knowledge-base content — inventories, coverage stat
 ## 常用分析模式
 
 - **覆盖度盘点**：files 全清单 → toc 逐个 → 输出"主题 → 文档 → 缺口"对照表
-- **跨库对比**：同一主题分别在 `global` 与 `aicode`（或项目索引）检索，
-  对比两边命中的文档与说法差异
+- **跨库对比**：同一主题分别在多个可用库中检索（先 `fastk databases` 确认
+  当前用户有哪些库），对比两边命中的文档与说法差异
 - **规范一致性审计**：`grep` 固定模式（版本号、接口路径、日期等）跨文档核对
 - **主题摘要**：search 圈定相关文档 → toc 选段 → 汇总成结构化摘要
 

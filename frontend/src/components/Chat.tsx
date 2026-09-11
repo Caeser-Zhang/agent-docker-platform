@@ -4,6 +4,8 @@ import {
   api,
   type AgentRuntime,
   type AgentStatus,
+  type FeedbackReasonCode,
+  type FeedbackSubmit,
   type LibraryTemplateCard,
   type ModelRef,
   type OcAgent,
@@ -16,8 +18,11 @@ import {
   type ProvidersResponse,
 } from "../api";
 import { parseTodos, reduceEvent, toTurns, type Block, type FileDiff, type TodoItem, type Turn } from "../oc/messages";
+import { buildTurnContext } from "../oc/feedback";
 import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
+import { FeedbackBar } from "./FeedbackBar";
+import { FeedbackModal } from "./FeedbackModal";
 import { TextWithChunkRefs } from "./ChunkRef";
 import { ThemeToggle } from "../theme";
 import {
@@ -238,12 +243,14 @@ export function Chat({
   role,
   onOpenAdmin,
   onOpenLibrary,
+  onOpenKbAccess,
   onLogout,
 }: {
   username: string;
   role?: string;
   onOpenAdmin?: () => void;
   onOpenLibrary?: () => void;
+  onOpenKbAccess?: () => void;
   onLogout: () => void;
 }) {
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
@@ -299,6 +306,12 @@ export function Chat({
   const [revertBusy, setRevertBusy] = useState(false);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [busyLabel, setBusyLabel] = useState("");
+
+  // 任务一：点赞/点踩反馈。messageId → verdict（锁定态）；busyId 为提交中的
+  // 消息（乐观锁定）；downTargetId 为正在填写点踩原因的 assistant 消息。
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, "up" | "down">>({});
+  const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
+  const [downTargetId, setDownTargetId] = useState<string | null>(null);
 
   // opencode agent presets + pending approval requests.
   const [agents, setAgents] = useState<OcAgent[]>([]);
@@ -916,6 +929,9 @@ export function Chat({
     // P1-1: revert state + task list belong to the session, not the page.
     setRevertedId(null);
     setTodos([]);
+    // 任务一：反馈锁定态属于会话 —— 先清空，再异步回填。
+    setFeedbackMap({});
+    setDownTargetId(null);
     // present_file delivery tabs belong to the session too — reset, then
     // rebuild from restored turns below (no auto-pop on restore).
     setPresentTabs([]);
@@ -938,6 +954,17 @@ export function Chat({
       .getSessionTodos(session.id)
       .then((raw) => {
         if (sessionIdRef.current === session.id) setTodos(parseTodos(raw));
+      })
+      .catch(() => {});
+    // 任务一：已投过的票同样不会被 SSE 重放 —— 打开会话时拉取一次锁定态。
+    // Race-guarded：快速切换会话时，旧响应不得覆盖新会话的状态。
+    api
+      .getSessionFeedback(session.id)
+      .then((r) => {
+        if (sessionIdRef.current !== session.id) return;
+        const map: Record<string, "up" | "down"> = {};
+        for (const f of r.feedback) map[f.message_id] = f.verdict;
+        setFeedbackMap(map);
       })
       .catch(() => {});
   }, [refreshPending]);
@@ -1058,6 +1085,84 @@ export function Chat({
       }
     },
     [isGenerating, turns, refreshSessionMessages]
+  );
+
+  // ------------------------------------------------------------------
+  //  任务一：点赞 / 点踩反馈。
+  //  提交契约：乐观锁定 → 失败重试一次 → 仍失败回滚并提示。
+  //  投票一经落库不可修改（后端对 (user_id, message_id) 幂等）。
+  // ------------------------------------------------------------------
+  const submitVote = useCallback(
+    async (
+      assistantId: string,
+      verdict: "up" | "down",
+      codes?: string[],
+      text?: string | null
+    ): Promise<boolean> => {
+      const sid = sessionIdRef.current;
+      if (!sid || feedbackMap[assistantId]) return false;
+
+      // 乐观锁定：立即按投票态渲染，禁用该条按钮。
+      setFeedbackMap((m) => ({ ...m, [assistantId]: verdict }));
+      setFeedbackBusyId(assistantId);
+
+      // 本轮完整上下文：上一条 user 提问 → 本条 assistant 的全部输出。
+      const ctx = buildTurnContext(turns, assistantId);
+      const body: FeedbackSubmit = {
+        session_id: sid,
+        message_id: assistantId,
+        user_message_id: ctx?.user_message_id ?? null,
+        verdict,
+        reason_codes: codes as FeedbackReasonCode[] | undefined,
+        reason_text: text ?? null,
+        turn_errored: ctx?.turn_errored ?? false,
+        model_provider: ctx?.model?.providerID ?? null,
+        model_id: ctx?.model?.id ?? null,
+        agent: ctx?.agent ?? null,
+        context: (ctx ?? undefined) as Record<string, any> | undefined,
+      };
+
+      let ok = false;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        try {
+          ok = (await api.submitFeedback(body)).ok;
+        } catch {
+          ok = false;
+        }
+      }
+      setFeedbackBusyId((cur) => (cur === assistantId ? null : cur));
+      if (!ok) {
+        setFeedbackMap((m) => {
+          const next = { ...m };
+          delete next[assistantId];
+          return next;
+        });
+        setError("反馈提交失败，请稍后重试");
+      }
+      return ok;
+    },
+    [feedbackMap, turns]
+  );
+
+  const handleFeedbackUp = useCallback(
+    (assistantId: string) => {
+      void submitVote(assistantId, "up");
+    },
+    [submitVote]
+  );
+
+  /** 👎 先开弹窗收集原因，真正提交在 handleFeedbackDownSubmit。 */
+  const handleFeedbackDown = useCallback((assistantId: string) => {
+    setDownTargetId(assistantId);
+  }, []);
+
+  const handleFeedbackDownSubmit = useCallback(
+    async (codes: string[], text: string | null) => {
+      const id = downTargetId;
+      if (!id) return;
+      if (await submitVote(id, "down", codes, text)) setDownTargetId(null);
+    },
+    [downTargetId, submitVote]
   );
 
   const handleSummarize = useCallback(async () => {
@@ -2034,6 +2139,11 @@ export function Chat({
                 模板库
               </button>
             )}
+            {role === "admin" && onOpenKbAccess && (
+              <button style={styles.logoutBtn} onClick={onOpenKbAccess} title="知识库权限矩阵（仅管理员）">
+                权限
+              </button>
+            )}
             {role === "admin" && onOpenAdmin && (
               <button style={styles.logoutBtn} onClick={onOpenAdmin} title="Docker 容器管理（仅管理员）">
                 管理
@@ -2334,6 +2444,9 @@ export function Chat({
                 const last = turns[turns.length - 1];
                 const regenTargetId =
                   last && last.role === "assistant" && !last.streaming ? last.id : null;
+                // 任务一：只有已完成的 assistant 回复可评价（流式中不显示）。
+                const canVote =
+                  t.role === "assistant" && !t.streaming && !!currentSession;
                 return (
                   <TurnView
                     key={t.id}
@@ -2350,6 +2463,10 @@ export function Chat({
                         ? handleRegenerate
                         : undefined
                     }
+                    feedbackVerdict={feedbackMap[t.id]}
+                    feedbackBusy={feedbackBusyId === t.id}
+                    onFeedbackUp={canVote ? handleFeedbackUp : undefined}
+                    onFeedbackDown={canVote ? handleFeedbackDown : undefined}
                   />
                 );
               })}
@@ -3001,6 +3118,15 @@ export function Chat({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 任务一：点踩原因收集弹窗（提交成功后关闭；取消则不锁定）。 */}
+      {downTargetId && (
+        <FeedbackModal
+          busy={feedbackBusyId === downTargetId}
+          onCancel={() => setDownTargetId(null)}
+          onSubmit={handleFeedbackDownSubmit}
+        />
       )}
 
       {showConfig && <ConfigPanel onClose={() => setShowConfig(false)} />}
@@ -3688,6 +3814,10 @@ function TurnView({
   onUnrevert,
   onFork,
   onRegenerate,
+  feedbackVerdict,
+  feedbackBusy,
+  onFeedbackUp,
+  onFeedbackDown,
 }: {
   turn: Turn;
   username: string;
@@ -3699,6 +3829,12 @@ function TurnView({
   onFork?: (messageId?: string) => void;
   /** 传入即在该 assistant 回复的角色行显示"重新生成"按钮。 */
   onRegenerate?: (assistantId: string) => void;
+  /** 任务一：已锁定的投票；undefined 表示未投票。 */
+  feedbackVerdict?: "up" | "down";
+  feedbackBusy?: boolean;
+  /** 两者同时传入才在该 assistant 回复下方渲染反馈条。 */
+  onFeedbackUp?: (assistantId: string) => void;
+  onFeedbackDown?: (assistantId: string) => void;
 }) {
   if (turn.role === "system") {
     const text = turn.blocks.map((b) => ("text" in b ? b.text : "")).join(" ");
@@ -3770,6 +3906,16 @@ function TurnView({
         )}
 
         {turn.error && <div style={styles.turnError}>⚠ {turn.error}</div>}
+
+        {/* 任务一：点赞 / 点踩 —— 投票后锁定并显示"感谢反馈"。 */}
+        {!isUser && onFeedbackUp && onFeedbackDown && (
+          <FeedbackBar
+            verdict={feedbackVerdict}
+            busy={feedbackBusy}
+            onUp={() => onFeedbackUp(turn.id)}
+            onDown={() => onFeedbackDown(turn.id)}
+          />
+        )}
 
         {(turn.cost != null || turn.tokens) && (
           <div style={styles.turnMeta}>

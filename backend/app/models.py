@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text, Integer, DateTime, Boolean, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import String, Text, Integer, Float, DateTime, Boolean, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -200,6 +200,61 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
 
 
+class KbKey(Base):
+    """A knowledge base's API credential — the minimal copy the proxy needs.
+
+    The fastk server owns the authoritative key↔database mapping; the platform
+    only stores what it must inject when forwarding a read request on a user's
+    behalf. ``kb_name`` is the server's PHYSICAL database name (the CLI's
+    logical→physical mapping is a container-side concern, see FASTK_DB_MAP).
+    The key itself is Fernet-encrypted (see :mod:`app.crypto`) and is never
+    returned by any API.
+    """
+
+    __tablename__ = "kb_keys"
+
+    kb_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    api_key_enc: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class KbGrant(Base):
+    """Whitelist entry: one user may read one knowledge base.
+
+    The unit of authorisation is the DATABASE, not the key — that matches both
+    the server's per-database key scoping and how admins think about access.
+    A credential can never be deleted while leaving grants behind: the admin
+    route removes them in the same transaction (the FK's ON DELETE CASCADE only
+    fires on PostgreSQL — SQLite needs foreign_keys=ON, which this project does
+    not set).
+
+    ``user_id`` has a real FK (unlike AuditEvent/RequestLog): grants are live
+    access control, not evidence, so they must disappear with the user.
+    """
+
+    __tablename__ = "kb_grants"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    kb_name: Mapped[str] = mapped_column(
+        String(100), ForeignKey("kb_keys.kb_name", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Soft delete: revoking stamps this instead of dropping the row, so the
+    # (user_id, kb_name) history survives and re-granting is an UPDATE that
+    # clears it — the composite PK forbids a second INSERT for the same pair.
+    # Every enforcement query filters on ``revoked_at IS NULL``.
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    __table_args__ = (
+        Index("idx_kb_grants_kb", "kb_name"),
+    )
+
+
 class RequestLog(Base):
     """Platform-side access log for tunnel-proxied requests — one row per call.
 
@@ -227,4 +282,126 @@ class RequestLog(Base):
 
     __table_args__ = (
         Index("idx_request_logs_user_time", "user_id", "created_at"),
+    )
+
+
+class MessageFeedback(Base):
+    """用户体验采集：一条 assistant 回复的点赞/点踩（任务一）。
+
+    点击后不可取消；重提同一 (user_id, message_id) 幂等返回 already=true。
+    ``context`` 存本轮完整上下文快照（上一 user 提问 → 本 assistant 全部
+    输出），JSON 序列化后落 Text 列（沿用 AuditEvent.detail 约定，双方言安全）。
+    点踩时 ``reason_codes`` 存白名单原因码数组、``reason_text`` 存「其他」文本。
+
+    ``user_id`` 无 FK（同 AuditEvent/RequestLog）：反馈是证据，须在用户删除后存活。
+    """
+
+    __tablename__ = "message_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    # 被打分的 assistant 消息 id（自然键的一半）。
+    message_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 本轮对应的 user 提问消息 id（上下文快照的起点）。
+    user_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    verdict: Mapped[str] = mapped_column(String(8), nullable=False)  # "up" | "down"
+    # 原因码白名单 JSON 数组：misunderstood / wrong_answer / tool_failure /
+    # too_verbose / ignored_constraints / interrupted / other。
+    reason_codes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    reason_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # ≤500
+    turn_errored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    model_provider: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    agent: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    context: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON 快照
+    context_truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "message_id", name="uq_feedback_user_message"),
+        Index("idx_feedback_session", "session_id"),
+        Index("idx_feedback_verdict_time", "verdict", "created_at"),
+    )
+
+
+class AgentRoundMetrics(Base):
+    """一个回合（user prompt → session.idle）的结算指标（任务二 L1/L2/L3）。
+
+    明细行，看板查询时聚合（分位数无法由预聚合均值二次推导）。由服务端 SSE
+    tap 实时结算，或回补时经同一 RoundAggregator 离线重放写入。``source``
+    区分二者。自然键 (user_id, session_id, round_seq) 保证回补幂等。
+
+    ``is_task``：该回合是否出现过 todo.updated（双轨统计里的「任务」轨）；
+    ``task_success``：is_task 时 todos 是否全部完成。``tokens`` 原样存整个
+    dict（防 cache.read/write 等未列字段丢失），``total_tokens`` 为冗余求和列。
+
+    ``user_id`` 无 FK：度量证据须在用户删除后存活。
+    """
+
+    __tablename__ = "agent_round_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    round_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 幂等自然键的一半：assistant 消息 id（opencode 内全局唯一、tap 与回补一致）；
+    # 无 assistant 消息的回合用 "user:{user_message_id}" 合成兜底，保证非空且确定。
+    message_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_task: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # --- L1 结果层 ---
+    succeeded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    task_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    errored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # --- L2 效率与性能 ---
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON dict 原样
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # --- L3 过程与轨迹 ---
+    tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tool_errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # --- 维度 ---
+    model_provider: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    model_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    agent: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="tap")  # tap | backfill
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", "message_id", name="uq_round_natural"),
+        Index("idx_round_user_time", "user_id", "created_at"),
+        Index("idx_round_model", "model_provider", "model_id"),
+        Index("idx_round_session_seq", "session_id", "round_seq"),
+    )
+
+
+class ToolCallMetrics(Base):
+    """单次工具调用（任务二 L3 工具调用准确率）。
+
+    独立成表以支持 GROUP BY tool_name 的高频聚合（塞进 round 的 JSON 列会
+    无法走索引）。``is_error`` 对应 tool part state.status == "error"。
+    """
+
+    __tablename__ = "tool_call_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    round_seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)  # completed|error|pending|running
+    is_error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="tap")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_tool_user_time", "user_id", "created_at"),
+        Index("idx_tool_name_error", "tool_name", "is_error"),
     )

@@ -1,8 +1,9 @@
 """SSE Pump — continuously reads SSE events from a container and pushes to subscribers.
 
 Each running container gets one pump task that:
-  1. Connects to opencode's GET /event SSE endpoint inside the container
-  2. Parses incoming events (including `message.part.delta` streaming chunks)
+  1. Connects to opencode's GET /global/event SSE endpoint inside the container
+  2. Unwraps each envelope and parses the event (including `message.part.delta`
+     streaming chunks)
   3. Pushes them to all subscribed browser clients via asyncio.Queue
   4. Reconnects automatically on disconnect
 
@@ -32,6 +33,10 @@ class ContainerEventBus:
     auth: tuple[str, str]
     _events: deque = field(default_factory=lambda: deque(maxlen=200))
     _subscribers: set = field(default_factory=set)
+    # Server-side observers tapped on every event (metrics collection). Each is
+    # called with (user_id, event_with_seq) and MUST NOT raise into the pump —
+    # exceptions are swallowed per-observer so a bad tap can never stall the fan-out.
+    _observers: list = field(default_factory=list)
     _pump_task: asyncio.Task | None = None
     # Monotonic sequence. It must NOT be derived from len(self._events): the
     # deque is bounded, so once it is full len() stops growing and every event
@@ -51,6 +56,12 @@ class ContainerEventBus:
                 q.put_nowait(event_with_seq)
             except asyncio.QueueFull:
                 pass  # drop if subscriber is too slow
+        # Server-side taps (e.g. UX metrics collector). Never let one break the fan-out.
+        for obs in list(self._observers):
+            try:
+                obs(self.user_id, event_with_seq)
+            except Exception:  # noqa: BLE001
+                logger.warning("SSE observer failed for user %s", self.user_id, exc_info=True)
 
     def replay_after(self, last_id: int) -> list[dict]:
         """Return events with id > last_id (for reconnection)."""
@@ -89,6 +100,9 @@ class SSEPumpManager:
                 base_url=base_url,
                 auth=auth,
             )
+            # Register the UX metrics tap (local import avoids a circular dep).
+            from .metrics_collector import metrics_collector
+            bus._observers.append(metrics_collector.observe)
             bus._pump_task = asyncio.create_task(self._pump_loop(bus))
             self._buses[user_id] = bus
             logger.info("SSE pump started for user %s", user_id)
@@ -124,11 +138,21 @@ class SSEPumpManager:
         probe lived in an unreachable branch and the loop spun forever
         without ever reconnecting.)
         """
-        # opencode v1.18.16 exposes two event surfaces. `/api/event` only
-        # publishes the user-side durable lifecycle; `/event` is the surface
-        # consumed by the official web app and additionally emits assistant
-        # `message.part.delta` chunks needed for streaming UI updates.
-        url = f"{bus.base_url}/event"
+        # opencode v1.18.x exposes two event surfaces:
+        #   /event        — instance-scoped. The instance is resolved from the
+        #                   `directory` query param / `x-opencode-directory`
+        #                   header, defaulting to the server's cwd (/workspace).
+        #                   A session created in a project subdirectory belongs
+        #                   to a *different* instance, so its bus-local events
+        #                   (notably `message.part.delta`) never reach a
+        #                   subscriber on the /workspace instance — project
+        #                   sessions appeared to stream nothing while global
+        #                   ones worked.
+        #   /global/event — server-wide fan-out of every instance's bus, each
+        #                   event wrapped as {directory, project, payload}.
+        # One container hosts many project directories, so this is the only
+        # surface that sees all of them.
+        url = f"{bus.base_url}/global/event"
         backoff = 1.0
         max_backoff = 15.0
         while True:
@@ -152,11 +176,20 @@ class SSEPumpManager:
                                 if line.startswith("data:"):
                                     event_data = line.split(":", 1)[1].strip()
                                 elif line == "" and event_data:
+                                    raw, event_data = event_data, ""
                                     try:
-                                        bus.push_event(json.loads(event_data))
+                                        envelope = json.loads(raw)
                                     except json.JSONDecodeError:
-                                        pass
-                                    event_data = ""
+                                        continue
+                                    if not isinstance(envelope, dict):
+                                        continue
+                                    # /global/event wraps every event as
+                                    # {directory, project, workspace, payload};
+                                    # subscribers want the bare Event, which is
+                                    # shaped exactly like the old /event one.
+                                    event = envelope.get("payload")
+                                    if isinstance(event, dict):
+                                        bus.push_event(event)
             except asyncio.CancelledError:
                 logger.info("SSE pump cancelled for user %s", bus.user_id)
                 raise

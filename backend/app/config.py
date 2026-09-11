@@ -51,19 +51,30 @@ class Settings(BaseSettings):
     # "backend" resolves on agent-net via the compose service name.
     llm_proxy_base: str = "http://backend:8000/llm-proxy"
 
-    # Base URL agent containers use to reach the platform-managed fastk-mcp
-    # service (mcp-fastk/ in this repo; docker-compose runs it on agent-net).
-    # The fastk builtin MCP manifest (agent-image/builtin-mcp/fastk) resolves
-    # ${FASTK_MCP_URL} against this setting, so every user container gets the
-    # knowledge-base search tools injected as a remote MCP server.
+    # DEPRECATED (P0④): fastk-mcp retired. The builtin MCP manifest was deleted
+    # so this URL is no longer resolved into any container config. Kept for
+    # reference / potential future re-enablement.
     fastk_mcp_url: str = "http://fastk-mcp:8001/mcp"
 
     # Root URL of the fastk REST server (fastdb serve fastapi, run on the
-    # Docker/WSL host). Injected into every user container as FASTDB_BASE_URL
-    # so the built-in fastk CLI (agent-image/builtin-tools/fastk-cli) — used by
-    # the fastk-search / fastk-analyze skills — hits this server instead of a
-    # possibly absent local one. The server serves the /fastk/api prefix.
+    # Docker/WSL host). The BACKEND talks to this directly — routers/kb_proxy.py
+    # forwards here after injecting the per-database key, and routers/fastk.py
+    # resolves citation badges through it. The server serves the /fastk/api
+    # prefix. Agent containers must never use it (see kb_proxy_base).
     fastk_server_url: str = "http://host.docker.internal:8000"
+
+    # Base URL injected into every user container as FASTDB_BASE_URL, so the
+    # built-in fastk CLI (agent-image/builtin-tools/fastk-cli) reaches the fastk
+    # server ONLY through this app's whitelist proxy. "backend" resolves on
+    # agent-net via the compose service name. Containers get FASTK_API_KEY =
+    # an opaque proxy token, never a real key.
+    kb_proxy_base: str = "http://backend:8000"
+
+    # Contact name(s) rendered into the "no permission" message the fastk proxy
+    # returns to agent containers (and the citation-badge 403). Plain display
+    # text — separate multiple admins with 、 or , . Changing it needs a backend
+    # restart only; agent containers are unaffected.
+    kb_admin_contact: str = "张智骁（工号 00899219）"
 
     # Directory containing built-in MCP server manifests (mounted read-only
     # into the backend from the agent image source). Each subdirectory has a

@@ -1,6 +1,0 @@
-{
-  "name": "fastk",
-  "type": "remote",
-  "url": "${FASTK_MCP_URL}",
-  "enabled": true
-}

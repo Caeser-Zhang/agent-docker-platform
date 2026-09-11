@@ -1,25 +1,26 @@
 ---
 name: fastk-search
-description: Search the FastDB knowledge bases (global specs, AI-code notes, project indexes) with the fastk CLI. Use when looking up platform specs, design docs, prior decisions, code knowledge, or any content stored in the platform knowledge bases.
+description: Search the FastDB knowledge bases with the fastk CLI. Use when looking up platform specs, design docs, prior decisions, code knowledge, or any content stored in the platform knowledge bases. Always discover available databases first — the list is dynamic and user-specific.
 ---
 
 # fastk-search — fastk 知识库检索
 
-使用内置的 `fastk` CLI（`/usr/local/bin/fastk`，只读）检索平台的 fastk 知识库。
-fastk 服务（fastdb serve fastapi，`/fastk/api` 前缀）运行在宿主机上，经
-`host.docker.internal:8000` 可达；环境变量 `FASTDB_BASE_URL` 已由平台注入，
-不要自行覆盖，除非用户明确要求其他地址。
+使用内置的 `fastk` CLI（`/usr/local/bin/fastk`，只读）检索平台知识库。
+环境变量 `FASTDB_BASE_URL` 已由平台注入（指向后端代理，代理负责鉴权与
+逐库 Key 注入），**不要自行覆盖或尝试直连其他地址**。
 
-## 库名约定
+## 探库必做
 
-`--db` 接受逻辑名或物理库名，未指定时默认 `global`（映射到 `fastdb`）：
+可用知识库列表是**动态的、按用户白名单过滤的**——不同用户看到的库不同，
+且管理员随时可能增删授权。因此：
 
-| 逻辑名 | 物理库   | 内容                       |
-|--------|----------|----------------------------|
-| global | fastdb   | 平台全局共享知识/规范      |
-| —      | vl_test  | 多模态（图文）知识库       |
+> **每次对话首次使用 fastk 前，必须先执行 `fastk databases` 获取当前可用库清单。**
+> 不要假设任何库名存在，不要使用记忆中的旧库名。
 
-其余库先用 `fastk databases` 查看实际清单，再按物理库名引用。
+`--db` 参数接受 `fastk databases` 返回的物理库名（如 `fastdb`、`asset_test`）。
+未指定 `--db` 时 CLI 默认使用 `global`（映射到 `fastdb`），但**仅当该库出现在
+探库结果中时才可使用**；若不在清单中，说明当前用户无权限，应告知用户并建议
+联系管理员开通。
 
 ## 渐进式检索工作流
 

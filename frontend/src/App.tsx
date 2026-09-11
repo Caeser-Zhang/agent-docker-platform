@@ -3,11 +3,12 @@ import { Login } from "./components/Login";
 import { Chat } from "./components/Chat";
 import { AdminPanel } from "./components/AdminPanel";
 import { LibraryAdminPage } from "./components/PptxLibrary";
+import { KbAccessAdminPage } from "./components/KbAccessAdmin";
 import type { TokenResponse } from "./api";
 
 export default function App() {
   const [auth, setAuth] = useState<TokenResponse | null>(null);
-  const [page, setPage] = useState<"chat" | "admin" | "library">("chat");
+  const [page, setPage] = useState<"chat" | "admin" | "library" | "kbaccess">("chat");
 
   useEffect(() => {
     // Restore session from localStorage
@@ -46,12 +47,17 @@ export default function App() {
     return <LibraryAdminPage username={auth.username} onLogout={handleLogout} onExit={() => setPage("chat")} />;
   }
 
+  if (page === "kbaccess" && auth.role === "admin") {
+    return <KbAccessAdminPage username={auth.username} onLogout={handleLogout} onExit={() => setPage("chat")} />;
+  }
+
   return (
     <Chat
       username={auth.username}
       role={auth.role || "user"}
       onOpenAdmin={auth.role === "admin" ? () => setPage("admin") : undefined}
       onOpenLibrary={auth.role === "admin" ? () => setPage("library") : undefined}
+      onOpenKbAccess={auth.role === "admin" ? () => setPage("kbaccess") : undefined}
       onLogout={handleLogout}
     />
   );

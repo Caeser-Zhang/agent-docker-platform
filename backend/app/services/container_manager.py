@@ -37,6 +37,7 @@ from docker.models.networks import Network
 from docker.models.volumes import Volume
 
 from ..config import settings
+from . import kb_access
 from .host_config import SKILLS_DIR
 from .opencode_config import (
     PLUGIN_CONFIG_FILENAME,
@@ -435,10 +436,16 @@ class ContainerManager:
                 "XDG_STATE_HOME": "/data/state",
                 "AGENT_WORKDIR": settings.agent_workdir,
                 "AGENT_USER_ID": user_id,
-                # fastk CLI (fastk-search / fastk-analyze skills) targets the
-                # platform fastk REST server on the host.
-                "FASTDB_BASE_URL": settings.fastk_server_url,
-                "FASTK_DEFAULT_DB": "global",
+                # fastk CLI (fastk-search / fastk-analyze skills) goes through
+                # this app's whitelist proxy, never to the fastk server
+                # directly. FASTK_API_KEY is an opaque per-user proxy token
+                # (encrypted user id), not a real key: the proxy resolves the
+                # caller's grants and injects the database's actual credential
+                # when forwarding. No FASTK_DEFAULT_DB — which databases exist
+                # and which the user may read is answered live by `fastk
+                # databases`, so the platform must not bake in a default.
+                "FASTDB_BASE_URL": settings.kb_proxy_base,
+                "FASTK_API_KEY": kb_access.issue_proxy_token(user_id),
                 # Read-only shared PPTX template library (one physical copy for
                 # all users). The pptx-generator skill reads templates and
                 # style presets from here and must never write into it.
@@ -481,6 +488,32 @@ class ContainerManager:
         except Exception:
             return False
 
+    def _fastk_env_stale(self, container) -> bool:
+        """True when a container's fastk env would bypass the whitelist proxy.
+
+        Containers created before the proxy provisioning landed point
+        ``FASTDB_BASE_URL`` straight at the fastk server and carry no proxy
+        token, so the built-in CLI reaches EVERY database regardless of
+        kb_grants — a live access-control bypass. Docker never refreshes the
+        env of an existing container (``start``/``restart`` reuse creation-time
+        env), so such containers must be recreated to pick up the proxy base +
+        per-user token.
+
+        The token value is not compared directly: Fernet embeds a timestamp, so
+        re-minting yields a different string. Instead it is validated by
+        decoding it back to a user id — any valid proxy token works, because
+        the proxy resolves grants live from the token's user id.
+        """
+        env_list = (container.attrs.get("Config") or {}).get("Env") or []
+        env = dict(item.split("=", 1) for item in env_list if "=" in item)
+        if env.get("FASTDB_BASE_URL") != settings.kb_proxy_base:
+            return True
+        if "FASTK_DEFAULT_DB" in env:
+            # Current provisioning deliberately omits this — a baked-in default
+            # predates the whitelist and signals a legacy container.
+            return True
+        return kb_access.verify_proxy_token(env.get("FASTK_API_KEY")) is None
+
     def _mount_fingerprint(self) -> str:
         """Stable hash of the shared mount/tmpfs layout baked into every container.
 
@@ -509,6 +542,8 @@ class ContainerManager:
         """Why a stopped container must be rebuilt from scratch (empty = no reason)."""
         if self._image_stale(client, container):
             return True, f"stale image (want {settings.agent_image})"
+        if self._fastk_env_stale(container):
+            return True, "stale fastk env (would bypass the KB whitelist proxy)"
         labels = (container.attrs.get("Config") or {}).get("Labels") or {}
         if labels.get("mount-fingerprint") != self._mount_fingerprint():
             # Missing label == container predates the shared-library mount.
@@ -571,10 +606,28 @@ class ContainerManager:
         if container is not None:
             password = self._extract_password(container) or secrets.token_urlsafe(32)
             if container.status == "running":
-                logger.info("Container %s already running", container_name)
-                # A running container was validated on its previous start:
-                # a config-injection failure would have stopped it then.
-                return container, password, True
+                # A running container is normally reused as-is, but a stale
+                # fastk env is a live access-control bypass (the CLI would reach
+                # the fastk server directly, ignoring kb_grants). Security wins
+                # over session continuity: recreate it now. User data survives
+                # in the named workspace/data volumes.
+                if self._fastk_env_stale(container):
+                    logger.warning(
+                        "Running container %s bypasses the KB whitelist (stale fastk env) — recreating",
+                        container_name,
+                    )
+                    container.remove(force=True)
+                    container = None
+                else:
+                    logger.info("Container %s already running", container_name)
+                    # A running container was validated on its previous start:
+                    # a config-injection failure would have stopped it then.
+                    return container, password, True
+
+        # Stopped container — or one just removed above because it was running
+        # with a stale fastk env. Rebuild if the image/mount layout drifted too,
+        # otherwise refresh config and start it.
+        if container is not None:
             # Image upgrade: start/restart reuse the image the container was
             # CREATED with — after an agent image rebuild (new plugins, new
             # opencode version) stale containers would keep the old rootfs

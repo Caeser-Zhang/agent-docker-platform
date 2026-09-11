@@ -111,20 +111,11 @@ services:
     networks:
       - agent-net
 
-  # fastk-mcp — platform-managed remote MCP server for the FastDB knowledge
-  # bases (P1-3 knowledge-base MVP + P1-7 managed remote MCP pattern). Serves
-  # the 7 read-only KB tools (list_databases/list_files/get_stats/toc/search/
-  # query/grep) over streamable HTTP at /mcp. Agent containers connect with
-  # type=remote via the URL injected from AGENT_FASTK_MCP_URL. FastDB runs on
-  # the host (WSL localhost:8000), reached via host-gateway — same pattern as
-  # the backend service. Internal only: no host ports, agent-net only.
-  fastk-mcp:
-    build: ./mcp-fastk
-    restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - agent-net
+  # fastk-mcp — RETIRED (P0④). The fastk knowledge-base tools are now served
+  # through the backend's /fastk/api proxy (routers/kb_proxy.py), which enforces
+  # per-user API-key whitelisting. The standalone MCP server bypassed that control
+  # and is no longer injected into agent containers (manifest deleted). The
+  # mcp-fastk/ source tree is kept for reference but not built or run.
 
   # PostgreSQL — platform database. Credentials/config live here only;
   # the backend connects via backend/.env AGENT_DATABASE_URL.

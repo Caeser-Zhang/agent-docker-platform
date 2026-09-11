@@ -17,9 +17,13 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import get_current_user
 from ..config import settings
+from ..database import get_db
+from ..models import User
+from ..services import kb_access
 
 router = APIRouter(prefix="/api/fastk", tags=["fastk"])
 
@@ -36,6 +40,27 @@ def _check_params(db: str, chunk_id: str) -> None:
         raise HTTPException(status_code=400, detail="无效的数据库名")
     if not _NAME_RE.fullmatch(chunk_id):
         raise HTTPException(status_code=400, detail="无效的 chunk_id")
+
+
+async def _kb_headers(db: str, user: User, session: AsyncSession) -> dict[str, str]:
+    """Whitelist check + the credential to forward with.
+
+    Badges are rendered from chat history, so this runs long after the search
+    that produced them: a user whose grant was revoked must find the old badge
+    dead too. Same decision path as the agent proxy (kb_access), which keeps
+    the two routes from drifting apart. The 403 text is the proxy's wording —
+    it already names the admin to contact, so the frontend shows it as-is
+    instead of hardcoding a second copy of the contact list.
+    """
+    access = await kb_access.resolve_access(session, db, user.id)
+    if not access.granted:
+        raise HTTPException(status_code=403, detail=kb_access.denial_message(db))
+    if access.api_key is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"知识库 '{db}' 缺少可用凭据，请联系管理员{settings.kb_admin_contact}。",
+        )
+    return {"X-API-Key": access.api_key}
 
 
 def _api_base(db: str) -> str:
@@ -71,14 +96,16 @@ def _parse_image_entries(raw: Any) -> list[dict[str, str]]:
 async def get_chunk(
     db: str = Query(...),
     chunk_id: str = Query(...),
-    _user: Any = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Fetch one chunk's full content (text + metadata) by chunk_id."""
     _check_params(db, chunk_id)
+    headers = await _kb_headers(db, user, session)
     body = {"filter": f"chunk_id == '{chunk_id}'", "limit": 1}
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         try:
-            resp = await client.post(f"{_api_base(db)}/query", json=body)
+            resp = await client.post(f"{_api_base(db)}/query", json=body, headers=headers)
         except httpx.HTTPError:
             raise HTTPException(status_code=502, detail="fastk 服务不可达")
     if resp.status_code != 200:
@@ -106,14 +133,18 @@ async def get_chunk_image(
     db: str = Query(...),
     chunk_id: str = Query(...),
     index: int = Query(default=0, ge=0),
-    _user: Any = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
 ) -> Response:
     """Relay one of the images attached to a chunk from the fastk server."""
     _check_params(db, chunk_id)
+    headers = await _kb_headers(db, user, session)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         try:
             resp = await client.get(
-                f"{_api_base(db)}/images", params={"chunk_id": chunk_id, "index": index}
+                f"{_api_base(db)}/images",
+                params={"chunk_id": chunk_id, "index": index},
+                headers=headers,
             )
         except httpx.HTTPError:
             raise HTTPException(status_code=502, detail="fastk 服务不可达")

@@ -46,6 +46,11 @@ async def init_db():
         UserLLMProvider,
         AuditEvent,
         RequestLog,
+        KbKey,
+        KbGrant,
+        MessageFeedback,
+        AgentRoundMetrics,
+        ToolCallMetrics,
     )
 
     async with engine.begin() as conn:
@@ -88,6 +93,26 @@ def _add_missing_columns(sync_conn) -> None:
         sync_conn.execute(
             text("ALTER TABLE users ADD COLUMN active_model VARCHAR(100)")
         )
+
+    # kb_grants.revoked_at — soft-delete stamp added after the whitelist shipped.
+    if sync_conn.dialect.name == "sqlite":
+        grant_cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(kb_grants)"))}
+    else:
+        grant_cols = {
+            row[0] for row in sync_conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'kb_grants'"
+                )
+            )
+        }
+    # An empty introspection result means the table does not exist yet (create_all
+    # will build it with revoked_at already present) — nothing to migrate.
+    if grant_cols and "revoked_at" not in grant_cols:
+        # Match the model's DateTime(timezone=True): TIMESTAMPTZ on PostgreSQL,
+        # plain TIMESTAMP on SQLite (which stores whatever it is given).
+        col_type = "TIMESTAMPTZ" if sync_conn.dialect.name != "sqlite" else "TIMESTAMP"
+        sync_conn.execute(text(f"ALTER TABLE kb_grants ADD COLUMN revoked_at {col_type}"))
 
 
 def _drop_legacy_tables(sync_conn) -> None:

@@ -18,6 +18,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type AdminContainer, type AdminOverview, type AdminRequestLogEntry } from "../api";
 import { adminStyles as s, adminCss } from "./adminStyles";
+import { UxDashboard } from "./UxDashboard";
+
+/** 顶级 Tab：容器管理（原有）/ 用户体验看板（任务二）。 */
+type AdminTab = "containers" | "ux";
 
 type LogsTab = "container" | "requests";
 
@@ -213,6 +217,7 @@ export function AdminPanel({
 }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [containers, setContainers] = useState<AdminContainer[]>([]);
+  const [tab, setTab] = useState<AdminTab>("containers");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null); // user_id being operated on
@@ -279,10 +284,10 @@ export function AdminPanel({
   }, [refresh]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || tab !== "containers") return;
     const id = window.setInterval(refresh, 5000);
     return () => window.clearInterval(id);
-  }, [autoRefresh, refresh]);
+  }, [autoRefresh, tab, refresh]);
 
   // Auto-scroll the log box to the bottom whenever new logs land.
   useEffect(() => {
@@ -554,10 +559,12 @@ export function AdminPanel({
             <ShieldIcon />
           </span>
           <div>
-            <div style={s.headerTitle}>Docker 容器管理</div>
+            <div style={s.headerTitle}>{tab === "ux" ? "用户体验看板" : "Docker 容器管理"}</div>
             <div style={s.headerSubtitle}>
-              平台级容器状态与操作 · 管理员专属
-              {updatedAt && ` · 更新于 ${updatedAt.toLocaleTimeString("zh-CN", { hour12: false })}`}
+              {tab === "ux" ? "Agent 回复质量与体验指标 · 管理员专属" : "平台级容器状态与操作 · 管理员专属"}
+              {tab === "containers" &&
+                updatedAt &&
+                ` · 更新于 ${updatedAt.toLocaleTimeString("zh-CN", { hour12: false })}`}
             </div>
           </div>
         </div>
@@ -574,7 +581,30 @@ export function AdminPanel({
         </div>
       </div>
 
-      {/* --- Body --------------------------------------------------------- */}
+      {/* --- 顶级 Tab ----------------------------------------------------- */}
+      <div style={s.logsTabBar}>
+        <button
+          className={`adm-tab${tab === "containers" ? " adm-tab-active" : ""}`}
+          style={{ ...s.logsTab, ...(tab === "containers" ? s.logsTabActive : {}) }}
+          onClick={() => setTab("containers")}
+        >
+          容器管理
+        </button>
+        <button
+          className={`adm-tab${tab === "ux" ? " adm-tab-active" : ""}`}
+          style={{ ...s.logsTab, ...(tab === "ux" ? s.logsTabActive : {}) }}
+          onClick={() => setTab("ux")}
+        >
+          用户体验
+        </button>
+      </div>
+
+      {tab === "ux" ? (
+        <div style={{ ...s.body }} className="adm-scroll">
+          <UxDashboard />
+        </div>
+      ) : (
+      /* --- Body --------------------------------------------------------- */
       <div style={{ ...s.body }} className="adm-scroll">
         {error && <div style={s.errorBanner}>加载失败：{error}</div>}
 
@@ -953,6 +983,7 @@ export function AdminPanel({
           {loading && containers.length === 0 && <div style={s.empty}>加载中…</div>}
         </div>
       </div>
+      )}
 
       {/* --- Logs modal ----------------------------------------------------- */}
       {logsModal && (
