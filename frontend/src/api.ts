@@ -983,6 +983,16 @@ export const api = {
     );
   },
 
+  // --- User — knowledge bases authorised for the caller -------------------
+  /**
+   * The caller's authorised knowledge bases with descriptions. The backend
+   * fetches the fastk catalog and filters it by the whitelist, so the frontend
+   * never touches /databases directly nor performs any authorisation itself.
+   */
+  async myKbCatalog(): Promise<{ databases: KbCatalogEntry[] }> {
+    return apiCall("/kb/my-catalog");
+  },
+
   // --- LLM configuration (read from opencode's own /config) -------------
   async getProviders(): Promise<ProvidersResponse> {
     return apiCall("/tunnel/providers");

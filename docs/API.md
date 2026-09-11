@@ -1140,6 +1140,14 @@ fastk 知识库白名单体系（设计详见 [FASTK_APIKEY_WHITELIST_DESIGN.md]
 
 登录即可用。前端借此提前展示 Agent 可检索范围，而不是先撞 403。仅名称，无凭据。
 
+#### `GET /api/kb/my-catalog` — 可读库名 + 描述（展示用）
+
+```json
+{ "databases": [ { "name": "global", "description": "全员通用知识库" } ] }
+```
+
+名称来自白名单（`kb_grants`），描述取自 fastk 服务器目录（与代理目录同一套过滤，剥离 `uri`）。**软失败**：fastk 不可达时不报错，返回已授权库名 + 空描述，面板仍能展示"能访问什么"。
+
 ### 12.3 Agent 容器代理（白名单强制点）
 
 #### `GET|POST /fastk/api/{path}` — 转发到 fastk 服务器的只读代理
