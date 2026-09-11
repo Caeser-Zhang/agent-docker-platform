@@ -39,6 +39,9 @@ export function KbAccessAdminPage({
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<string>("");
   const [access, setAccess] = useState<KbUserAccess | null>(null);
+  // 凭据录入表单（kb_keys）：物理库名 + API Key。
+  const [newKbName, setNewKbName] = useState("");
+  const [newApiKey, setNewApiKey] = useState("");
   const toastTimer = useRef<number | null>(null);
 
   const flash = useCallback((msg: string) => {
@@ -141,6 +144,48 @@ export function KbAccessAdminPage({
     [flash, refreshAfterMutation]
   );
 
+  /** 录入 / 轮换某个物理库的 API Key（幂等 upsert，加密存库、永不回显）。 */
+  const doPutKey = useCallback(async () => {
+    const name = newKbName.trim();
+    const key = newApiKey.trim();
+    if (!name || !key) {
+      flash("库名和 API Key 都不能为空");
+      return;
+    }
+    setBusy(`putkey:${name}`);
+    try {
+      await api.adminPutKbKey(name, key);
+      flash(`已录入 / 轮换「${name}」的凭据`);
+      setNewKbName("");
+      setNewApiKey("");
+      await refreshAfterMutation();
+    } catch (e: any) {
+      flash(`录入失败：${e.message}`);
+    } finally {
+      setBusy(null);
+    }
+  }, [newKbName, newApiKey, flash, refreshAfterMutation]);
+
+  /** 删除某个库的凭据（后端会连带撤销该库的所有授权）。 */
+  const doDeleteKey = useCallback(
+    async (name: string) => {
+      if (!window.confirm(`删除「${name}」的凭据？该库的所有用户授权也会被一并撤销。`)) {
+        return;
+      }
+      setBusy(`delkey:${name}`);
+      try {
+        await api.adminDeleteKbKey(name);
+        flash(`已删除「${name}」的凭据`);
+        await refreshAfterMutation();
+      } catch (e: any) {
+        flash(`删除失败：${e.message}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [flash, refreshAfterMutation]
+  );
+
   const selectedUser = users.find((u) => u.user_id === selected) ?? null;
   const totalGranted = grants.length;
 
@@ -208,6 +253,90 @@ export function KbAccessAdminPage({
             <div style={adm.cardValueGreen}>{totalGranted}</div>
             <div style={adm.cardSub}>仅统计未撤销（revoked_at 为空）的白名单行</div>
           </div>
+        </div>
+
+        {/* --- 知识库凭据管理（录入 / 轮换 / 删除 kb_keys）------------------ */}
+        <div className="adm-card" style={adm.card}>
+          <div style={adm.cardLabel}>知识库凭据管理 · 已录入 {keys.filter((k) => k.has_api_key).length} / {keys.length}</div>
+          <div style={{ ...adm.muted, fontSize: "12px", margin: "6px 0 12px" }}>
+            录入 fastk 服务器的<strong>物理库名</strong>及其 API Key（Fernet 加密存库、永不回显）。
+            下方权限矩阵的「列」即来自这里；未录入凭据的库无法授权。
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "8px",
+              alignItems: "center",
+              marginBottom: "12px",
+            }}
+          >
+            <input
+              className="adm-select"
+              style={{ ...adm.select, minWidth: "180px" }}
+              placeholder="物理库名，如 fastdb"
+              value={newKbName}
+              onChange={(e) => setNewKbName(e.target.value)}
+            />
+            <input
+              className="adm-select"
+              style={{ ...adm.select, minWidth: "280px" }}
+              type="password"
+              placeholder="API Key"
+              value={newApiKey}
+              onChange={(e) => setNewApiKey(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") doPutKey();
+              }}
+            />
+            <button
+              className="adm-btn adm-btn-primary"
+              style={adm.btnPrimary}
+              disabled={busy !== null || !newKbName.trim() || !newApiKey.trim()}
+              onClick={doPutKey}
+            >
+              {busy?.startsWith("putkey:") ? "录入中…" : "录入 / 轮换"}
+            </button>
+          </div>
+
+          {keys.length === 0 ? (
+            <div style={adm.empty}>尚未录入任何知识库凭据 —— 在上方填写库名与 Key 后点「录入 / 轮换」</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {keys.map((k) => (
+                <div
+                  key={k.kb_name}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "6px 8px",
+                    border: "1px solid var(--border)",
+                    borderRadius: "8px",
+                  }}
+                >
+                  <span style={adm.mono}>{k.kb_name}</span>
+                  {k.has_api_key ? (
+                    <span style={{ ...adm.badge, ...adm.badgeGreen }}>已录入</span>
+                  ) : (
+                    <span style={{ ...adm.badge, ...adm.badgeYellow }}>缺凭据</span>
+                  )}
+                  <span style={{ ...adm.muted, fontSize: "11px", marginLeft: "auto" }}>
+                    {k.updated_at ? `更新于 ${k.updated_at.slice(0, 10)}` : ""}
+                  </span>
+                  <button
+                    className="adm-btn adm-btn-danger"
+                    style={adm.btnSmallDanger}
+                    disabled={busy !== null}
+                    onClick={() => doDeleteKey(k.kb_name)}
+                  >
+                    {busy === `delkey:${k.kb_name}` ? "…" : "删除"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Toolbar */}
@@ -340,7 +469,7 @@ export function KbAccessAdminPage({
         {loading && <div style={adm.empty}>加载中…</div>}
         {!loading && keys.length === 0 && (
           <div style={adm.empty}>
-            尚未录入任何知识库凭据 —— 请先通过 PUT /api/admin/kb-keys/&#123;kb_name&#125; 录入
+            尚未录入任何知识库凭据 —— 请先在上方「知识库凭据管理」录入库名与 Key
           </div>
         )}
         {!loading && keys.length > 0 && (

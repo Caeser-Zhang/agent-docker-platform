@@ -6,6 +6,7 @@ import {
   type AgentStatus,
   type FeedbackReasonCode,
   type FeedbackSubmit,
+  type KbCatalogEntry,
   type LibraryTemplateCard,
   type ModelRef,
   type OcAgent,
@@ -319,6 +320,10 @@ export function Chat({
   const [permissions, setPermissions] = useState<OcPermissionRequest[]>([]);
   const [questions, setQuestions] = useState<OcQuestionRequest[]>([]);
 
+  // 已授权知识库展示区：名称 + 描述。数据由后端 /api/kb/my-catalog 提供——
+  // 后端拉取 fastk 目录并按白名单过滤，前端不做任何鉴权，只负责展示。
+  const [kbCatalog, setKbCatalog] = useState<KbCatalogEntry[]>([]);
+
   // Chat attach: skill picker + file uploads.
   const [allSkills, setAllSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
@@ -476,6 +481,17 @@ export function Chat({
     if (ps.status === "fulfilled") setPermissions(ps.value);
     if (qs.status === "fulfilled") setQuestions(qs.value);
   }, []);
+
+  // 已授权知识库：登录后即可加载，与容器是否运行无关。后端已按白名单过滤，
+  // 失败时静默保留空列表（展示区显示"暂无"），不打断主流程。
+  const loadKbCatalog = useCallback(async () => {
+    const r = await api.myKbCatalog().catch(() => null);
+    if (r) setKbCatalog(r.databases ?? []);
+  }, []);
+
+  useEffect(() => {
+    loadKbCatalog();
+  }, [loadKbCatalog]);
 
   // Skill 列表：优先平台侧 /workspace/skills/all（后端已合并 global/project/
   // builtin 插件 skill，scope 由后端直接标注），失败时回退 opencode 原生
@@ -2228,6 +2244,35 @@ export function Chat({
             <button style={styles.logBtn} onClick={handleViewLogs}>日志</button>
             <button style={styles.logBtn} onClick={() => setShowConfig(true)}>配置管理</button>
           </div>
+        </div>
+
+        {/* 知识库展示区：紧邻上方的"工作区"运行时信息，列出当前用户已被授权的
+            fastk 知识库（名称 + 描述）。数据来自后端 /api/kb/my-catalog，后端已
+            按白名单过滤，前端不做鉴权。 */}
+        <div style={styles.kbPanel}>
+          <div style={styles.kbPanelHeader}>
+            <span style={styles.kbPanelTitle}>📚 知识库</span>
+            <span style={styles.kbCount}>{kbCatalog.length}</span>
+            <button
+              style={styles.kbRefresh}
+              title="刷新知识库列表"
+              onClick={loadKbCatalog}
+            >
+              ↻
+            </button>
+          </div>
+          {kbCatalog.length === 0 ? (
+            <div style={styles.kbEmpty}>暂无已授权知识库</div>
+          ) : (
+            <div style={styles.kbList}>
+              {kbCatalog.map((kb) => (
+                <div key={kb.name} style={styles.kbItem}>
+                  <div style={styles.kbName}>{kb.name}</div>
+                  {kb.description && <div style={styles.kbDesc}>{kb.description}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={styles.sessionsSection}>

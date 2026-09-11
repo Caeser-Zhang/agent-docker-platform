@@ -957,6 +957,27 @@ export const api = {
     return apiCall("/admin/kb-keys");
   },
 
+  /**
+   * Record or rotate a database's API Key (idempotent upsert). The key is
+   * Fernet-encrypted server-side and never echoed back by any endpoint.
+   */
+  async adminPutKbKey(
+    kbName: string,
+    apiKey: string
+  ): Promise<{ kb_name: string; has_api_key: boolean }> {
+    return apiCall(`/admin/kb-keys/${encodeURIComponent(kbName)}`, {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+  },
+
+  /** Delete a recorded credential (also revokes every grant for that database). */
+  async adminDeleteKbKey(kbName: string): Promise<{ kb_name: string }> {
+    return apiCall(`/admin/kb-keys/${encodeURIComponent(kbName)}`, {
+      method: "DELETE",
+    });
+  },
+
   /** The full active whitelist (user × database pairs). */
   async adminListKbGrants(): Promise<{ items: KbGrantInfo[] }> {
     return apiCall("/admin/kb-grants");
