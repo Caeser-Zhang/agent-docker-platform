@@ -1,4 +1,8 @@
 import { useState, useEffect } from "react";
+import type { ReactNode } from "react";
+import { ConfigProvider, theme as antdTheme } from "antd";
+import zhCN from "antd/locale/zh_CN";
+import { useTheme } from "./theme";
 import { Login } from "./components/Login";
 import { Chat } from "./components/Chat";
 import { AdminPanel } from "./components/AdminPanel";
@@ -6,7 +10,7 @@ import { LibraryAdminPage } from "./components/PptxLibrary";
 import { KbAccessAdminPage } from "./components/KbAccessAdmin";
 import type { TokenResponse } from "./api";
 
-export default function App() {
+function AppRoutes() {
   const [auth, setAuth] = useState<TokenResponse | null>(null);
   const [page, setPage] = useState<"chat" | "admin" | "library" | "kbaccess">("chat");
 
@@ -60,5 +64,45 @@ export default function App() {
       onOpenKbAccess={auth.role === "admin" ? () => setPage("kbaccess") : undefined}
       onLogout={handleLogout}
     />
+  );
+}
+
+/**
+ * antd 主题与 theme.css 令牌对齐：
+ * 主色 / 圆角 / 字体沿用现有设计变量，明暗随 ThemeProvider 的 data-theme 切换。
+ * 未引入 antd/dist/reset.css —— theme.css 已自带全局 reset，
+ * 且 antd reset 使用裸元素选择器（p / h1~h6）特异度高于 `*`，会改变对话区既有排版。
+ */
+export default function App() {
+  const { theme } = useTheme();
+  const dark = theme !== "light";
+  return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+        token: {
+          colorPrimary: "#7c3aed",
+          colorInfo: "#7c3aed",
+          colorLink: dark ? "#a78bfa" : "#6d28d9",
+          colorBgBase: dark ? "#161327" : "#ffffff",
+          colorText: dark ? "#f1effb" : "#211b3d",
+          colorTextSecondary: dark ? "#b7b2d6" : "#57516f",
+          colorTextTertiary: dark ? "#8f89b4" : "#837d9e",
+          colorBorder: dark ? "#2a2444" : "#e2def0",
+          colorBorderSecondary: dark ? "#2a2444" : "#e2def0",
+          colorSplit: dark ? "#2a2444" : "#e2def0",
+          borderRadius: 10,
+          fontFamily: '"Space Grotesk", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+          fontSize: 14,
+        },
+        components: {
+          Modal: { contentBg: dark ? "#161327" : "#ffffff", headerBg: dark ? "#161327" : "#ffffff", titleColor: dark ? "#f1effb" : "#211b3d" },
+          Tag: { borderRadiusSM: 999 },
+        },
+      }}
+    >
+      <AppRoutes />
+    </ConfigProvider>
   );
 }

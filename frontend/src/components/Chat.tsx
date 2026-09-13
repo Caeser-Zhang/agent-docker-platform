@@ -1,5 +1,29 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { PresentationViewerHandle } from "pptx-wasm/react";
+import { App as AntdApp, Button, Input, Modal, Radio, Tag, Tooltip } from "antd";
+import {
+  AppstoreAddOutlined,
+  CloseOutlined,
+  CodeOutlined,
+  DeleteOutlined,
+  DeploymentUnitOutlined,
+  DownOutlined,
+  EditOutlined,
+  FolderOpenOutlined,
+  FolderOutlined,
+  InboxOutlined,
+  LoadingOutlined,
+  MessageOutlined,
+  PaperClipOutlined,
+  PictureOutlined,
+  PlusOutlined,
+  ProfileOutlined,
+  ReloadOutlined,
+  RightOutlined,
+  SendOutlined,
+  StopOutlined,
+  ThunderboltFilled,
+} from "@ant-design/icons";
 import {
   api,
   type AgentRuntime,
@@ -33,6 +57,105 @@ import {
   StylePickerMenu,
   TemplatePickerMenu,
 } from "./PptxLibrary";
+
+// ---------------------------------------------------------------------------
+// 快捷技能（一键启用）
+//
+// opencode 的 prompt_async 没有 skill / 模板字段，约束只能写进文本前缀
+// （见 PptxLibrary.buildLibraryPrompt 的同款注释）。所以「技能参数」的提交方式
+// 是拼前缀，界面则通过下面的解析器把前缀还原成标签，参数收进 Tooltip。
+// ---------------------------------------------------------------------------
+
+/** 流程图方言 → 实际启用的 builtin skill 名。 */
+export type FlowDialect = "mermaid" | "plantuml";
+const FLOW_SKILL: Record<FlowDialect, string> = {
+  mermaid: "pretty-mermaid",
+  plantuml: "plantuml",
+};
+const PPT_SKILL = "pptx-generator";
+/** 图标按钮「已选中」态的强调色（primary 变量，双主题自适应）。 */
+const accentIcon = "var(--primary)";
+
+/** skill 名 → 界面展示标签。多个 skill 可映射到同一个标签。 */
+const SKILL_TAG_LABEL: Record<string, string> = {
+  [PPT_SKILL]: "PPT生成",
+  "pretty-mermaid": "流程图生成",
+  plantuml: "流程图生成",
+};
+
+export interface SkillTag {
+  label: string;
+  /** 隐藏在标签内部的提交数据，仅 Tooltip 展示。 */
+  detail: string;
+}
+
+const CONSTRAINT_HEADS = ["PPTX 制作约束：", "流程图生成约束：", "PPTX 制作约束", "流程图生成约束"];
+
+/**
+ * 把 prompt 文本拆成「技能标签 + 用户真实输入」。
+ *
+ * 识别两类我们自己生成的块：
+ *   1. `请使用 skill: a, b`
+ *   2. 以 `PPTX 制作约束：` / `流程图生成约束：` 开头、直到空行结束的 `- 条目` 列表
+ * 命中即从展示文本里剥离，块内条目转为标签的 detail。
+ */
+export function splitSkillMarks(text: string): { tags: SkillTag[]; rest: string } {
+  if (!text) return { tags: [], rest: "" };
+  const lines = text.split("\n");
+  const tags: SkillTag[] = [];
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const skillHit = /^请使用 skill[:：]\s*(.+)$/.exec(line);
+    if (skillHit) {
+      for (const name of skillHit[1].split(/[,，]/).map((s) => s.trim()).filter(Boolean)) {
+        const label = SKILL_TAG_LABEL[name] || name;
+        if (!tags.some((t) => t.label === label)) tags.push({ label, detail: name });
+      }
+      continue;
+    }
+    if (CONSTRAINT_HEADS.includes(line)) {
+      const detail: string[] = [];
+      let j = i + 1;
+      for (; j < lines.length && lines[j].trim() !== ""; j++) {
+        const item = lines[j].trim();
+        // 块内条目是「模板名 / 配色 / 图表类型」等参数，收进标签的 Tooltip。
+        if (item.startsWith("- ")) detail.push(item.slice(2).trim());
+      }
+      i = j - 1;
+      if (!detail.length) continue;
+      const label = line.startsWith("PPTX") ? "PPT生成" : "流程图生成";
+      const existing = tags.find((t) => t.label === label);
+      if (existing) existing.detail = `${existing.detail}\n${detail.join("\n")}`;
+      else tags.push({ label, detail: detail.join("\n") });
+      continue;
+    }
+    kept.push(lines[i]);
+  }
+  if (tags.length === 0) return { tags, rest: text };
+  let rest = kept.join("\n").replace(/^\n+/, "");
+  // 前缀与正文之间以空行分隔；剥离后正文尾部不应再留下技能块造成的空白。
+  rest = rest.replace(/\n{3,}/g, "\n\n").trim();
+  return { tags, rest: rest || text };
+}
+
+/** 流程图技能的 prompt 约束块（与 PPTX 制作约束同一范式）。 */
+function buildFlowPrompt(dialect: FlowDialect): string {
+  if (dialect === "mermaid") {
+    return [
+      "流程图生成约束：",
+      "- 图表类型：Mermaid。请使用 pretty-mermaid skill 生成，产出美化后的 Mermaid 源码",
+      "- 落盘为 /workspace 下的 .mmd 文件，同时把源码贴在回答里便于预览",
+      "- 语法保持标准 Mermaid，不要引入 HTML 或外部图片引用",
+    ].join("\n");
+  }
+  return [
+    "流程图生成约束：",
+    "- 图表类型：PlantUML。请使用 plantuml skill 生成",
+    "- 落盘为 /workspace 下的 .puml 源文件，同时把源码贴在回答里便于预览",
+    "- 平台内不渲染图片，只交付 .puml 源码，不要尝试调用本地渲染器",
+  ].join("\n");
+}
 
 /** "provider/model" <-> ModelRef, the format opencode uses in config.model. */
 function parseModel(value: string | null | undefined): ModelRef | undefined {
@@ -254,6 +377,8 @@ export function Chat({
   onOpenKbAccess?: () => void;
   onLogout: () => void;
 }) {
+  // antd App 上下文：confirm 模态继承 ConfigProvider 的明暗主题与主色。
+  const { modal: modalApi } = AntdApp.useApp();
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [runtime, setRuntime] = useState<AgentRuntime | null>(null);
   const [providers, setProviders] = useState<ProvidersResponse | null>(null);
@@ -344,6 +469,26 @@ export function Chat({
   const [selRecipeId, setSelRecipeId] = useState<string | null>(null);
   const selPalette = libCatalog.styles?.palettes.find((p) => p.id === selPaletteId) ?? null;
   const selRecipe = libCatalog.recipes.find((r) => r.id === selRecipeId) ?? null;
+
+  // 快捷技能一键启用：PPT 复用上面的模板库选择，流程图只需选方言。
+  const [pptOn, setPptOn] = useState(false);
+  const [flowOn, setFlowOn] = useState(false);
+  const [flowDialect, setFlowDialect] = useState<FlowDialect>("mermaid");
+  const [pptModalOpen, setPptModalOpen] = useState(false);
+  const [flowModalOpen, setFlowModalOpen] = useState(false);
+  // 标签 Tooltip 里的参数摘要（界面上不直接展开，属于「隐藏在标签内部」的提交数据）。
+  const pptDetail = (() => {
+    const parts: string[] = [];
+    if (selTemplate) parts.push(`模板：${templateLabel(selTemplate)}`);
+    if (selPalette) parts.push(`配色：${selPalette.name_zh || selPalette.name}`);
+    if (selRecipe) parts.push(`版式：${selRecipe.name_zh || selRecipe.name}`);
+    return parts.length ? parts.join("\n") : "模板 / 风格：不指定";
+  })();
+  const flowDetail = `图表类型：${flowDialect === "mermaid" ? "Mermaid" : "PlantUML"}`;
+
+  // 会话重命名：受控 antd Modal + Input 替代 window.prompt（样式随主题）。
+  const [renameTarget, setRenameTarget] = useState<OcSession | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // @-mention autocomplete: activated while typing "@query" in the textarea.
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1006,19 +1151,27 @@ export function Chat({
     async (messageId: string) => {
       const sid = sessionIdRef.current;
       if (!sid || revertBusy) return;
-      if (!window.confirm("回退该回合产生的所有文件改动？")) return;
-      setRevertBusy(true);
-      try {
-        await api.revertSession(sid, messageId);
-        setRevertedId(messageId);
-        refreshSessionMessages();
-      } catch (e: any) {
-        setError(`回退失败：${e?.message ?? e}`);
-      } finally {
-        setRevertBusy(false);
-      }
+      modalApi.confirm({
+        title: "回退该回合的文件改动？",
+        content: "本回合产生的所有文件改动会还原到请求前的状态。",
+        okText: "回退",
+        cancelText: "取消",
+        okButtonProps: { danger: true },
+        onOk: async () => {
+          setRevertBusy(true);
+          try {
+            await api.revertSession(sid, messageId);
+            setRevertedId(messageId);
+            refreshSessionMessages();
+          } catch (e: any) {
+            setError(`回退失败：${e?.message ?? e}`);
+          } finally {
+            setRevertBusy(false);
+          }
+        },
+      });
     },
-    [revertBusy, refreshSessionMessages]
+    [revertBusy, refreshSessionMessages, modalApi]
   );
 
   const handleUnrevert = useCallback(async () => {
@@ -1223,36 +1376,51 @@ export function Chat({
     }
   };
 
-  const handleRenameSession = async (s: OcSession, e: React.MouseEvent) => {
+  const handleRenameSession = (s: OcSession, e: React.MouseEvent) => {
     e.stopPropagation();
-    const title = window.prompt("新的会话标题", s.title || "")?.trim();
-    if (!title) return;
+    setRenameTarget(s);
+    setRenameValue(s.title || "");
+  };
+
+  const handleRenameConfirm = async () => {
+    const s = renameTarget;
+    const title = renameValue.trim();
+    if (!s || !title) return;
     try {
       // opencode's v2 surface has no update route — legacy PATCH returns the
       // bare legacy Session; session.updated on SSE also refreshes the list.
       await api.renameSession(s.id, title);
       setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, title } : x)));
       setCurrentSession((cur) => (cur?.id === s.id ? { ...cur, title } : cur));
+      setRenameTarget(null);
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const handleDeleteSession = async (s: OcSession, e: React.MouseEvent) => {
+  const handleDeleteSession = (s: OcSession, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm(`删除会话「${s.title || s.id.slice(0, 12)}」？此操作不可恢复。`)) return;
-    try {
-      await api.deleteSession(s.id);
-      setSessions((prev) => prev.filter((x) => x.id !== s.id));
-      if (sessionIdRef.current === s.id) {
-        setCurrentSession(null);
-        sessionIdRef.current = null;
-        setTurns([]);
-        setIsGenerating(false);
-      }
-    } catch (err: any) {
-      setError(err.message);
-    }
+    modalApi.confirm({
+      title: "删除会话？",
+      content: `「${s.title || s.id.slice(0, 12)}」将被删除，此操作不可恢复。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await api.deleteSession(s.id);
+          setSessions((prev) => prev.filter((x) => x.id !== s.id));
+          if (sessionIdRef.current === s.id) {
+            setCurrentSession(null);
+            sessionIdRef.current = null;
+            setTurns([]);
+            setIsGenerating(false);
+          }
+        } catch (err: any) {
+          setError(err.message);
+        }
+      },
+    });
   };
 
   // ------------------------------------------------------------------
@@ -1283,32 +1451,39 @@ export function Chat({
     setExpandedProjects((prev) => ({ ...prev, [p.id]: true }));
   };
 
-  const handleDeleteProject = async (p: ProjectInfo, e: React.MouseEvent) => {
+  const handleDeleteProject = (p: ProjectInfo, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (
-      !window.confirm(
-        `移除项目「${p.name}」？\n将删除该项目下的所有会话（不可恢复），目录文件保留在 workspace 中。`
-      )
-    )
-      return;
-    setBusy("移除项目中…");
-    setError("");
-    try {
-      await api.deleteProject(p.id);
-      setProjects((prev) => prev.filter((x) => x.id !== p.id));
-      // 后端已连带删除项目会话 —— 本地列表同步移除，避免幽灵条目。
-      setSessions((prev) => prev.filter((s) => s.location?.directory !== p.directory));
-      if (currentSession?.location?.directory === p.directory) {
-        setCurrentSession(null);
-        sessionIdRef.current = null;
-        setTurns([]);
-        setIsGenerating(false);
-      }
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setBusy("");
-    }
+    modalApi.confirm({
+      title: "移除项目？",
+      content: (
+        <span style={{ whiteSpace: "pre-line" }}>
+          {`「${p.name}」项目下的所有会话将被删除（不可恢复），目录文件保留在 workspace 中。`}
+        </span>
+      ),
+      okText: "移除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setBusy("移除项目中…");
+        setError("");
+        try {
+          await api.deleteProject(p.id);
+          setProjects((prev) => prev.filter((x) => x.id !== p.id));
+          // 后端已连带删除项目会话 —— 本地列表同步移除，避免幽灵条目。
+          setSessions((prev) => prev.filter((s) => s.location?.directory !== p.directory));
+          if (currentSession?.location?.directory === p.directory) {
+            setCurrentSession(null);
+            sessionIdRef.current = null;
+            setTurns([]);
+            setIsGenerating(false);
+          }
+        } catch (err: any) {
+          setError(err.message);
+        } finally {
+          setBusy("");
+        }
+      },
+    });
   };
 
   const openProjectModal = async () => {
@@ -1374,7 +1549,7 @@ export function Chat({
       }}
       onClick={() => openSession(s)}
     >
-      <span style={styles.sessionIcon}>💬</span>
+      <span style={styles.sessionIcon}><MessageOutlined /></span>
       <span style={styles.sessionItemActiveTitle}>{s.title || s.id.slice(0, 12)}</span>
       <div style={styles.sessionActions}>
         <button
@@ -1382,14 +1557,14 @@ export function Chat({
           title="重命名会话"
           onClick={(e) => handleRenameSession(s, e)}
         >
-          ✏️
+          <EditOutlined />
         </button>
         <button
           style={styles.sessionActionBtn}
           title="删除会话"
           onClick={(e) => handleDeleteSession(s, e)}
         >
-          🗑️
+          <DeleteOutlined />
         </button>
       </div>
     </div>
@@ -1511,25 +1686,26 @@ export function Chat({
     // 模板与预定义风格同理——没有结构化字段，只能把容器内的只读挂载路径和风格
     // 约束拼进文本前缀，agent 据此直接读共享卷，不会把字节复制进工作区。
     const prefixes: string[] = [];
-    if (selectedSkills.length > 0) prefixes.push(`请使用 skill: ${selectedSkills.join(", ")}`);
+    // 快捷技能（一键启用）与 🧩 菜单手动选择的 skill 合并为一条 skill 声明。
+    const quickSkills: string[] = [];
+    if (pptOn) quickSkills.push(PPT_SKILL);
+    if (flowOn) quickSkills.push(FLOW_SKILL[flowDialect]);
+    const activeSkills = Array.from(new Set([...selectedSkills, ...quickSkills]));
+    if (activeSkills.length > 0) prefixes.push(`请使用 skill: ${activeSkills.join(", ")}`);
     const libPrompt = buildLibraryPrompt(
       { template: selTemplate, paletteId: selPaletteId, recipeId: selRecipeId },
       libCatalog.styles
     );
     if (libPrompt) prefixes.push(libPrompt);
+    if (flowOn) prefixes.push(buildFlowPrompt(flowDialect));
     const finalText = prefixes.length ? `${prefixes.join("\n\n")}\n\n${text}` : text;
-    // 气泡只显示短标记，完整约束属于发给 agent 的文本。
-    const bubbleMarks = [
-      ...(selectedSkills.length ? [`🧩 ${selectedSkills.join(", ")}`] : []),
-      ...(selTemplate ? [`🎞 ${templateLabel(selTemplate)}`] : []),
-      ...(selPalette ? [`🎨 ${selPalette.name_zh || selPalette.name}`] : []),
-      ...(selRecipe ? [`🧊 ${selRecipe.name_zh || selRecipe.name}`] : []),
-    ];
 
     setInput("");
     setAttachments([]);
     setIsGenerating(true);
     // Optimistic bubble; reconciled to the real id by session.next.prompted.
+    // 存完整 finalText：服务端回填的权威文本同样带前缀，两边都经 splitSkillMarks
+    // 渲染成「标签 + 正文」，避免乐观态与回填态闪一下不一致。
     setTurns((prev) => [
       ...prev,
       {
@@ -1541,7 +1717,7 @@ export function Chat({
           ? files.map((f) => (f.url.startsWith("data:") ? f.filename ?? "image" : f.url))
           : undefined,
         blocks: [
-          { kind: "text", id: "pending-user:text", text: bubbleMarks.length ? `${bubbleMarks.join("  ")}\n${text}` : text },
+          { kind: "text", id: "pending-user:text", text: finalText },
           ...(attachments.map((a, i) => ({
             kind: "text" as const,
             id: `pending-user:file-${i}`,
@@ -2196,7 +2372,7 @@ export function Chat({
             </span>
           </div>
           {agentStatus?.container_name && (
-            <div style={styles.containerName}>📦 {agentStatus.container_name}</div>
+            <div style={styles.containerName}><CodeOutlined /> {agentStatus.container_name}</div>
           )}
           <div style={styles.statusDetail}>
             状态: {agentStatus?.status || "absent"} | 健康: {agentStatus?.healthy ? "✓" : "✗"}
@@ -2251,14 +2427,14 @@ export function Chat({
             按白名单过滤，前端不做鉴权。 */}
         <div style={styles.kbPanel}>
           <div style={styles.kbPanelHeader}>
-            <span style={styles.kbPanelTitle}>📚 知识库</span>
+            <span style={styles.kbPanelTitle}><InboxOutlined /> 知识库</span>
             <span style={styles.kbCount}>{kbCatalog.length}</span>
             <button
               style={styles.kbRefresh}
               title="刷新知识库列表"
               onClick={loadKbCatalog}
             >
-              ↻
+              <ReloadOutlined />
             </button>
           </div>
           {kbCatalog.length === 0 ? (
@@ -2319,8 +2495,8 @@ export function Chat({
                     title={p.directory}
                     onClick={() => toggleProject(p.id)}
                   >
-                    <span style={styles.projectCaret}>{expanded ? "▾" : "▸"}</span>
-                    <span style={styles.sessionIcon}>📁</span>
+                    <span style={styles.projectCaret}>{expanded ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}</span>
+                    <span style={styles.sessionIcon}><FolderOutlined /></span>
                     <span style={styles.projectName}>{p.name}</span>
                     <span style={styles.projectCount}>{pSessions.length}</span>
                     <div style={styles.sessionActions}>
@@ -2330,7 +2506,7 @@ export function Chat({
                         disabled={!isAgentRunning}
                         onClick={(e) => handleNewProjectSession(p, e)}
                       >
-                        +
+                        <PlusOutlined />
                       </button>
                       <button
                         style={styles.sessionActionBtn}
@@ -2338,7 +2514,7 @@ export function Chat({
                         disabled={!isAgentRunning}
                         onClick={(e) => handleDeleteProject(p, e)}
                       >
-                        🗑️
+                        <DeleteOutlined />
                       </button>
                     </div>
                   </div>
@@ -2421,7 +2597,7 @@ export function Chat({
                   disabled={!!busy || !!busyLabel || !model}
                   title="让模型总结当前会话（生成摘要消息）"
                 >
-                  {busyLabel === "生成摘要中…" ? "…" : "✨"}
+                  {busyLabel === "生成摘要中…" ? <LoadingOutlined /> : <ThunderboltFilled />}
                 </button>
                 <button
                   className="icon-btn"
@@ -2430,7 +2606,7 @@ export function Chat({
                   disabled={!!busy}
                   title="重载容器内 opencode 配置（来源：opencode /config）"
                 >
-                  ⟳
+                  <ReloadOutlined />
                 </button>
                 <button
                   className="icon-btn"
@@ -2438,7 +2614,7 @@ export function Chat({
                   onClick={() => setShowFiles((v) => !v)}
                   title={showFiles ? "隐藏工作区文件面板" : "显示工作区文件面板"}
                 >
-                  📁
+                  <FolderOpenOutlined />
                 </button>
               </>
             )}
@@ -2576,23 +2752,228 @@ export function Chat({
 
             <div style={styles.inputArea}>
               <div style={styles.composer}>
+                {/* 快捷技能：一键启用 PPT / 流程图；启用后参数收进下方标签内部 */}
+                <div style={styles.skillQuickRow}>
+                  <span style={styles.skillQuickLabel}>
+                    <ThunderboltFilled style={{ fontSize: 12 }} /> 快捷技能
+                  </span>
+                  <Button
+                    size="small"
+                    type={pptOn ? "primary" : "default"}
+                    icon={<AppstoreAddOutlined />}
+                    style={styles.quickSkillBtn}
+                    onClick={() => setPptModalOpen(true)}
+                  >
+                    PPT生成
+                  </Button>
+                  <Button
+                    size="small"
+                    type={flowOn ? "primary" : "default"}
+                    icon={<DeploymentUnitOutlined />}
+                    style={styles.quickSkillBtn}
+                    onClick={() => setFlowModalOpen(true)}
+                  >
+                    流程图生成
+                  </Button>
+                </div>
+                {(pptOn || flowOn) && (
+                  <div style={styles.skillTagRow}>
+                    {pptOn && (
+                      <Tooltip
+                        title={
+                          <span style={{ whiteSpace: "pre-line" }}>
+                            {`skill: ${PPT_SKILL}\n${pptDetail}`}
+                          </span>
+                        }
+                      >
+                        <Tag
+                          color="purple"
+                          closable
+                          onClose={() => setPptOn(false)}
+                          onClick={() => setPptModalOpen(true)}
+                          style={styles.skillTag}
+                        >
+                          PPT生成
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    {flowOn && (
+                      <Tooltip
+                        title={
+                          <span style={{ whiteSpace: "pre-line" }}>
+                            {`skill: ${FLOW_SKILL[flowDialect]}\n${flowDetail}`}
+                          </span>
+                        }
+                      >
+                        <Tag
+                          color="cyan"
+                          closable
+                          onClose={() => setFlowOn(false)}
+                          onClick={() => setFlowModalOpen(true)}
+                          style={styles.skillTag}
+                        >
+                          流程图生成
+                        </Tag>
+                      </Tooltip>
+                    )}
+                    <span style={styles.skillTagHint}>启用中的技能会随消息一同提交</span>
+                  </div>
+                )}
+
+                {/* PPT生成：模板 / 配色 / 版式配方三组单选，确认后启用 pptx-generator */}
+                <Modal
+                  open={pptModalOpen}
+                  title="PPT生成 · 选择模板与风格"
+                  width={560}
+                  okText={pptOn ? "保存" : "启用技能"}
+                  cancelText="取消"
+                  onOk={() => {
+                    setPptOn(true);
+                    setPptModalOpen(false);
+                  }}
+                  onCancel={() => setPptModalOpen(false)}
+                  okButtonProps={{ icon: <ThunderboltFilled /> }}
+                >
+                  <div style={styles.modalPickGroup}>
+                    <div style={styles.modalPickTitle}>PPT 模板</div>
+                    <Radio.Group
+                      value={selTemplate?.id ?? ""}
+                      onChange={(e) =>
+                        setSelTemplate(
+                          e.target.value ? libCatalog.templates.find((t) => t.id === e.target.value) ?? null : null
+                        )
+                      }
+                      style={styles.modalRadioGroup}
+                    >
+                      <Radio value="" style={styles.modalRadio}>
+                        不指定<span style={styles.modalRadioNote}>（由 agent 自行组织结构）</span>
+                      </Radio>
+                      {libCatalog.templates.map((t) => (
+                        <Radio key={t.id} value={t.id} style={styles.modalRadio}>
+                          {templateLabel(t)}
+                          <span style={styles.modalRadioNote}>
+                            （{t.slides} 页 · {t.aspect}）
+                          </span>
+                        </Radio>
+                      ))}
+                      {!libCatalog.loading && libCatalog.templates.length === 0 && (
+                        <div style={styles.modalRadioNote}>模板库为空，可在「模板库」管理页导入 .pptx</div>
+                      )}
+                    </Radio.Group>
+                  </div>
+                  <div style={styles.modalPickGroup}>
+                    <div style={styles.modalPickTitle}>配色风格</div>
+                    <Radio.Group
+                      value={selPaletteId ?? ""}
+                      onChange={(e) => setSelPaletteId(e.target.value || null)}
+                      style={styles.modalRadioGroup}
+                    >
+                      <Radio value="" style={styles.modalRadio}>
+                        不指定
+                      </Radio>
+                      {libCatalog.palettes.map((p) => (
+                        <Radio key={p.id} value={p.id} style={styles.modalRadio}>
+                          {p.name_zh || p.name}
+                          <span style={{ display: "inline-flex", gap: "2px", marginLeft: "6px", verticalAlign: "middle" }}>
+                            {p.colors.slice(0, 5).map((c) => (
+                              <i key={c} style={{ ...styles.libChipSwatch, background: c }} />
+                            ))}
+                          </span>
+                        </Radio>
+                      ))}
+                    </Radio.Group>
+                  </div>
+                  <div style={styles.modalPickGroup}>
+                    <div style={styles.modalPickTitle}>版式配方</div>
+                    <Radio.Group
+                      value={selRecipeId ?? ""}
+                      onChange={(e) => setSelRecipeId(e.target.value || null)}
+                      style={styles.modalRadioGroup}
+                    >
+                      <Radio value="" style={styles.modalRadio}>
+                        不指定
+                      </Radio>
+                      {libCatalog.recipes.map((r) => (
+                        <Radio key={r.id} value={r.id} style={styles.modalRadio}>
+                          {r.name_zh || r.name}
+                          <span style={styles.modalRadioNote}>（{r.character}）</span>
+                        </Radio>
+                      ))}
+                    </Radio.Group>
+                  </div>
+                </Modal>
+
+                {/* 流程图生成：mermaid / plantuml 单选 */}
+                <Modal
+                  open={flowModalOpen}
+                  title="流程图生成 · 选择图表语法"
+                  width={460}
+                  okText={flowOn ? "保存" : "启用技能"}
+                  cancelText="取消"
+                  onOk={() => {
+                    setFlowOn(true);
+                    setFlowModalOpen(false);
+                  }}
+                  onCancel={() => setFlowModalOpen(false)}
+                  okButtonProps={{ icon: <ThunderboltFilled /> }}
+                >
+                  <Radio.Group
+                    value={flowDialect}
+                    onChange={(e) => setFlowDialect(e.target.value as FlowDialect)}
+                    style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+                  >
+                    <Radio value="mermaid" style={styles.modalRadio}>
+                      Mermaid
+                      <span style={styles.modalRadioNote}>
+                        （pretty-mermaid · 美化后的 Mermaid 源码，产出 .mmd）
+                      </span>
+                    </Radio>
+                    <Radio value="plantuml" style={styles.modalRadio}>
+                      PlantUML
+                      <span style={styles.modalRadioNote}>（plantuml · 只交付 .puml 源文件，平台内不渲染图片）</span>
+                    </Radio>
+                  </Radio.Group>
+                </Modal>
+
+                {/* 会话重命名（原 window.prompt） */}
+                <Modal
+                  open={renameTarget !== null}
+                  title="重命名会话"
+                  width={420}
+                  okText="保存"
+                  cancelText="取消"
+                  onOk={handleRenameConfirm}
+                  onCancel={() => setRenameTarget(null)}
+                  destroyOnClose
+                >
+                  <Input
+                    autoFocus
+                    value={renameValue}
+                    placeholder="新的会话标题"
+                    maxLength={80}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onPressEnter={handleRenameConfirm}
+                  />
+                </Modal>
+
                 <div className="input-card" style={styles.inputRowCard}>
 
-                  {/* 本条消息上下文 chips：模板/风格选择（跨消息保持）、显式 skill 与附件 */}
-                  {(attachments.length > 0 || selectedSkills.length > 0 || selTemplate || selPalette || selRecipe) && (
+                  {/* 本条消息上下文 chips：模板/风格选择（跨消息保持）、显式 skill 与附件。
+                      PPT 技能启用后模板/配色/配方数据收进「PPT生成」标签内部，卡内不再重复展示。 */}
+                  {(attachments.length > 0 || selectedSkills.length > 0 || (!pptOn && (selTemplate || selPalette || selRecipe))) && (
                     <div style={styles.promptChips}>
-                      {selTemplate && (
+                      {!pptOn && selTemplate && (
                         <span
                           style={styles.libChip}
                           title={`共享卷只读挂载：${selTemplate.path}（${selTemplate.slides} 页 · 不会复制进工作区）`}
                         >
                           🎞 <span style={styles.chipText}>{templateLabel(selTemplate)}</span>
                           <button style={styles.chipRemove} onClick={() => setSelTemplate(null)} title="移除模板">
-                            ×
+                            <CloseOutlined style={{ fontSize: 9 }} />
                           </button>
                         </span>
                       )}
-                      {selPalette && (
+                      {!pptOn && selPalette && (
                         <span style={styles.libChip} title={selPalette.tips || selPalette.use_cases.join(" / ")}>
                           🎨 <span style={styles.chipText}>{selPalette.name_zh || selPalette.name}</span>
                           <span style={{ display: "inline-flex", gap: "2px" }}>
@@ -2601,15 +2982,15 @@ export function Chat({
                             ))}
                           </span>
                           <button style={styles.chipRemove} onClick={() => setSelPaletteId(null)} title="移除调色板">
-                            ×
+                            <CloseOutlined style={{ fontSize: 9 }} />
                           </button>
                         </span>
                       )}
-                      {selRecipe && (
+                      {!pptOn && selRecipe && (
                         <span style={styles.libChip} title={`${selRecipe.character} · 适合：${selRecipe.best_for}`}>
                           🧊 <span style={styles.chipText}>{selRecipe.name_zh || selRecipe.name}</span>
                           <button style={styles.chipRemove} onClick={() => setSelRecipeId(null)} title="移除风格配方">
-                            ×
+                            <CloseOutlined style={{ fontSize: 9 }} />
                           </button>
                         </span>
                       )}
@@ -2621,7 +3002,7 @@ export function Chat({
                             onClick={() => toggleSkill(s)}
                             title="移除"
                           >
-                            ×
+                            <CloseOutlined style={{ fontSize: 9 }} />
                           </button>
                         </span>
                       ))}
@@ -2631,7 +3012,7 @@ export function Chat({
                           style={styles.attachChip}
                           title={`${a.path || a.filename} (${Math.ceil(a.size / 1024)}KB)${a.dataUrl ? " · base64 直传" : ""}`}
                         >
-                          {a.isImage ? "🖼️" : "📎"}{" "}
+                          {a.isImage ? <PictureOutlined style={{ color: "var(--green)" }} /> : <PaperClipOutlined />}{" "}
                           <span style={styles.chipText}>{a.filename}</span>
                           <button
                             style={styles.chipRemove}
@@ -2642,7 +3023,7 @@ export function Chat({
                             }
                             title="移除"
                           >
-                            ×
+                            <CloseOutlined style={{ fontSize: 9 }} />
                           </button>
                         </span>
                       ))}
@@ -2755,7 +3136,7 @@ export function Chat({
                         title="为这条消息显式指定 skill"
                         disabled={allSkills.length === 0}
                       >
-                        {selectedSkills.length > 0 ? `🧩×${selectedSkills.length}` : "🧩"}
+                        {selectedSkills.length > 0 ? <><ProfileOutlined />×{selectedSkills.length}</> : <ProfileOutlined />}
                       </button>
                       {skillMenuOpen && (
                         <>
@@ -2810,7 +3191,7 @@ export function Chat({
                         }}
                         title="选择 PPT 模板（共享库只读挂载，不占用工作区空间）"
                       >
-                        {selTemplate ? "🎞✓" : "🎞"}
+                        {selTemplate ? <AppstoreAddOutlined style={{ color: accentIcon }} /> : <AppstoreAddOutlined />}
                       </button>
                       {libMenu === "template" && (
                         <>
@@ -2837,7 +3218,7 @@ export function Chat({
                         }}
                         title="选择预定义风格（调色板 / 组件配方）"
                       >
-                        {selPalette || selRecipe ? "🎨✓" : "🎨"}
+                        {selPalette || selRecipe ? <PictureOutlined style={{ color: accentIcon }} /> : <PictureOutlined />}
                       </button>
                       {libMenu === "style" && (
                         <>
@@ -2868,7 +3249,7 @@ export function Chat({
                       title="附加图片（base64 直传）或上传文件到工作空间"
                       disabled={uploading}
                     >
-                      {uploading ? "⏳" : "📎"}
+                      {uploading ? <LoadingOutlined /> : <PaperClipOutlined />}
                     </button>
                   </div>
 
@@ -2884,8 +3265,8 @@ export function Chat({
                       }}
                       title="选择本条消息使用的 Agent（未选则用会话默认）"
                     >
-                      <span style={styles.chipText}>🤖 {promptAgent ?? agentId}</span>
-                      <span style={styles.ctxChipArrow}>▾</span>
+                      <span style={styles.chipText}><MessageOutlined /> {promptAgent ?? agentId}</span>
+                      <span style={styles.ctxChipArrow}><DownOutlined style={{ fontSize: 10 }} /></span>
                     </button>
                     {agentMenuOpen && (
                       <div className="ps-menu" style={styles.psMenu}>
@@ -2949,7 +3330,7 @@ export function Chat({
                         {modelOptions.find((o) => o.key === modelKey(promptModel ?? model))?.label ??
                           "默认模型"}
                       </span>
-                      <span style={styles.ctxChipArrow}>▾</span>
+                      <span style={styles.ctxChipArrow}><DownOutlined style={{ fontSize: 10 }} /></span>
                     </button>
                     {modelMenuOpen && (
                       <div className="ps-menu" style={styles.psMenu}>
@@ -3006,7 +3387,7 @@ export function Chat({
                       onClick={handleInterrupt}
                       title="停止生成"
                     >
-                      ■
+                      <StopOutlined />
                     </button>
                   ) : (
                     <button
@@ -3016,7 +3397,7 @@ export function Chat({
                       disabled={!input.trim() && attachments.length === 0}
                       title="发送（Enter）"
                     >
-                      ➤
+                      <SendOutlined />
                     </button>
                   )}
                 </div>
@@ -3891,6 +4272,16 @@ function TurnView({
   }
 
   const isUser = turn.role === "user";
+  // 用户消息可能带「请使用 skill: …」/ 约束前缀（见 handleSend），
+  // 展示时解析为技能标签并从正文剥离；无命中标记时原样返回。
+  const firstTextBlock = isUser ? turn.blocks.find((b) => b.kind === "text") : undefined;
+  const skillParsed =
+    firstTextBlock && firstTextBlock.kind === "text" ? splitSkillMarks(firstTextBlock.text) : null;
+  const skillTags = skillParsed?.tags ?? [];
+  const stripped =
+    skillParsed && skillParsed.tags.length > 0 && firstTextBlock
+      ? { id: firstTextBlock.id, text: skillParsed.rest }
+      : { id: "", text: null as string | null };
   return (
     <div style={isUser ? styles.msgUser : styles.msgAssistant}>
       <div style={isUser ? styles.msgAvatarUser : styles.msgAvatarAssistant}>
@@ -3934,9 +4325,24 @@ function TurnView({
           </div>
         )}
 
-        {turn.blocks.map((b) => (
-          <BlockView key={b.id} block={b} streaming={!!turn.streaming} />
-        ))}
+        {/* 技能标签：提交数据（模板/风格/图表类型）隐藏在标签内，界面只展示标签 */}
+        {isUser && skillTags.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "6px", justifyContent: "flex-end" }}>
+            {skillTags.map((t) => (
+              <Tooltip key={`${t.label}:${t.detail}`} title={<span style={{ whiteSpace: "pre-line" }}>{t.detail}</span>}>
+                <span style={styles.agentChip}>⚡ {t.label}</span>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+
+        {turn.blocks.map((b) => {
+          // 用户消息的首个文本块可能被注入过 skill / 约束前缀，展示时剥离。
+          if (isUser && b.kind === "text" && stripped.text !== null && b.id === stripped.id) {
+            return <BlockView key={b.id} block={{ ...b, text: stripped.text }} streaming={!!turn.streaming} />;
+          }
+          return <BlockView key={b.id} block={b} streaming={!!turn.streaming} />;
+        })}
 
         {/* P1-1: per-round file diffs with revert / unrevert */}
         {isUser && turn.diffs && turn.diffs.length > 0 && (

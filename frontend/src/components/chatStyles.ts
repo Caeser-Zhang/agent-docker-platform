@@ -2063,4 +2063,76 @@ export const styles: Record<string, any> = {
     flex: "none",
     border: `1px solid ${border}`,
   },
+
+  // ---------------- 快捷技能（一键启用） ----------------
+  // composer 内、输入卡片上方：按钮行 + 已启用技能标签行。
+  // 配色沿用现有令牌，尺寸与 inputCard 的圆角/间距对齐，避免破坏对话框观感。
+  skillQuickRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
+    marginBottom: "8px",
+  },
+  skillQuickLabel: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    fontSize: "12px",
+    color: textMut,
+    marginRight: "2px",
+  },
+  quickSkillBtn: {
+    borderRadius: "999px",
+    fontSize: "12px",
+    height: "26px",
+    padding: "0 12px",
+  },
+  skillTagRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
+    marginBottom: "8px",
+  },
+  skillTag: {
+    margin: 0,
+    fontSize: "12px",
+    lineHeight: "22px",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  skillTagHint: {
+    fontSize: "11px",
+    color: textMut,
+  },
+  // 技能选择弹窗里的分组单选列表
+  modalPickGroup: { marginBottom: "16px" },
+  modalPickTitle: {
+    fontSize: "12px",
+    color: textSec,
+    marginBottom: "8px",
+    fontWeight: 600,
+    letterSpacing: "0.02em",
+  },
+  modalRadioGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    maxHeight: "220px",
+    overflowY: "auto",
+    paddingRight: "6px",
+  },
+  modalRadio: {
+    display: "flex",
+    alignItems: "flex-start",
+    fontSize: "13px",
+    color: text,
+    lineHeight: "20px",
+  },
+  modalRadioNote: {
+    fontSize: "12px",
+    color: textMut,
+    marginLeft: "4px",
+  },
 };
