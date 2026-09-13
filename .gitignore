@@ -59,3 +59,9 @@ samples/pptx/
 # Ad-hoc diagnostic probes at the repo root: they hardcode a live container id
 # and poke internal opencode endpoints, so they are one-off debugging scratch.
 probe_*.sh
+
+# Local agent-tooling artifacts: .workbuddy (agent memory notes & screenshots),
+# ad-hoc pptx debug output at repo root / scripts. One-off scratch, never commit.
+.workbuddy/
+/pptx-resizable-panels.png
+scripts/pptx_preview_text.txt
