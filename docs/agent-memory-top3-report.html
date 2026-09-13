@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 记忆开源项目 Top3 实现方案 · 深度研究报告</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --bg-card:#ffffff; --bg-soft:#eef1f8; --bg-code:#f1f3f9;
+    --tx:#1a2233; --tx-2:#5a6478; --tx-3:#8a93a6;
+    --bd:#e3e7f0; --bd-2:#cdd4e2;
+    --pri:#4f46e5; --pri-soft:#eef2ff; --pri-2:#7c3aed;
+    --ok:#0d9488; --ok-soft:#ecfdf7; --warn:#d97706; --warn-soft:#fff8ec;
+    --bad:#dc2626; --bad-soft:#fef2f2; --info:#2563eb; --info-soft:#eff6ff;
+    --gold:#b45309; --silver:#57606f; --bronze:#9a5b2d;
+    --shadow:0 1px 3px rgba(26,34,51,.06),0 8px 24px rgba(26,34,51,.07);
+    --radius:14px;
+    --mono:"Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  [data-theme="dark"]{
+    --bg:#0d1117; --bg-card:#161b26; --bg-soft:#1c2333; --bg-code:#11151f;
+    --tx:#e6e9f0; --tx-2:#a8b0c2; --tx-3:#6f7891;
+    --bd:#262e40; --bd-2:#37415a;
+    --pri:#818cf8; --pri-soft:#1e2440; --pri-2:#a78bfa;
+    --ok:#2dd4bf; --ok-soft:#12262a; --warn:#fbbf24; --warn-soft:#262013;
+    --bad:#f87171; --bad-soft:#2a1618; --info:#60a5fa; --info-soft:#152036;
+    --gold:#fbbf24; --silver:#9aa4b8; --bronze:#d69e6b;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;background:var(--bg);color:var(--tx);line-height:1.75;font-size:15px;transition:background .3s,color .3s}
+  a{color:var(--pri);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.86em;background:var(--bg-code);border:1px solid var(--bd);padding:1px 6px;border-radius:6px}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+
+  /* theme toggle */
+  #themeBtn{position:fixed;top:18px;right:22px;z-index:99;width:44px;height:44px;border-radius:50%;border:1px solid var(--bd-2);background:var(--bg-card);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);transition:transform .2s}
+  #themeBtn:hover{transform:scale(1.1)}
+  #themeBtn svg{width:22px;height:22px}
+
+  /* hero */
+  .hero{padding:64px 0 40px;border-bottom:1px solid var(--bd);background:linear-gradient(160deg,var(--pri-soft),transparent 55%)}
+  .hero .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;letter-spacing:.14em;color:var(--pri);font-weight:700;text-transform:uppercase;margin-bottom:14px}
+  .hero h1{font-size:clamp(26px,4vw,40px);line-height:1.3;font-weight:800;letter-spacing:-.01em}
+  .hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--pri),var(--pri-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .sub{margin-top:14px;color:var(--tx-2);font-size:16px;max-width:760px}
+  .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+  .meta span{font-size:12.5px;color:var(--tx-2);background:var(--bg-card);border:1px solid var(--bd);border-radius:999px;padding:4px 14px}
+
+  /* nav */
+  nav.toc{position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--bd);backdrop-filter:blur(8px)}
+  nav.toc .wrap{display:flex;gap:4px;overflow-x:auto;padding:10px 24px}
+  nav.toc a{white-space:nowrap;font-size:13px;color:var(--tx-2);padding:6px 13px;border-radius:999px;font-weight:500}
+  nav.toc a:hover{color:var(--pri);background:var(--pri-soft);text-decoration:none}
+
+  section{padding:52px 0 8px}
+  h2{font-size:24px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:12px}
+  h2 .no{font-family:var(--mono);font-size:15px;color:var(--pri);background:var(--pri-soft);border-radius:8px;padding:2px 10px;font-weight:700}
+  .lede{color:var(--tx-2);margin-bottom:26px;max-width:820px}
+  h3{font-size:17.5px;font-weight:700;margin:26px 0 12px}
+  p{margin-bottom:12px}
+
+  .card{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--radius);padding:22px 24px;box-shadow:var(--shadow);margin-bottom:18px}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:860px){.g2,.g3{grid-template-columns:1fr}}
+
+  /* tldr */
+  .tldr{border-left:4px solid var(--pri);background:linear-gradient(120deg,var(--pri-soft),var(--bg-card) 60%)}
+  .tldr b{color:var(--pri)}
+  .podium{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:8px}
+  @media(max-width:860px){.podium{grid-template-columns:1fr}}
+  .pod{border-radius:var(--radius);padding:20px;border:1px solid var(--bd);background:var(--bg-card);box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .pod::before{content:"";position:absolute;top:0;left:0;right:0;height:4px}
+  .pod.p1::before{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+  .pod.p2::before{background:linear-gradient(90deg,#64748b,#94a3b8)}
+  .pod.p3::before{background:linear-gradient(90deg,#b45309,#d97706)}
+  .pod .rank{font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+  .pod.p1 .rank{color:var(--gold)} .pod.p2 .rank{color:var(--silver)} .pod.p3 .rank{color:var(--bronze)}
+  .pod h4{font-size:19px;margin:4px 0 2px}
+  .pod .tag{font-size:12.5px;color:var(--tx-2)}
+  .pod .stars{margin-top:12px;font-family:var(--mono);font-size:22px;font-weight:700;color:var(--tx)}
+  .pod .stars small{font-size:12px;color:var(--tx-3);font-weight:400;display:block;font-family:inherit}
+
+  /* badges */
+  .b{display:inline-block;font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px;letter-spacing:.02em;vertical-align:middle}
+  .b-a{background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok)}
+  .b-b{background:var(--info-soft);color:var(--info);border:1px solid var(--info)}
+  .b-c{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn)}
+  .b-x{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad)}
+  .b-p{background:var(--pri-soft);color:var(--pri);border:1px solid var(--pri)}
+
+  /* tables */
+  .tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0 18px}
+  .tbl th{background:var(--bg-soft);text-align:left;font-weight:700;padding:10px 12px;border:1px solid var(--bd);white-space:nowrap}
+  .tbl td{padding:9px 12px;border:1px solid var(--bd);vertical-align:top}
+  .tbl tr:hover td{background:var(--bg-soft)}
+  .tbl .hl{font-weight:700;color:var(--pri)}
+  .scroll{overflow-x:auto}
+
+  /* project header */
+  .proj{display:flex;align-items:center;gap:14px;margin-bottom:4px}
+  .proj .logo{width:52px;height:52px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#fff;flex-shrink:0}
+  .proj h3{margin:0;font-size:21px}
+  .proj .st{font-size:12.5px;color:var(--tx-3);font-family:var(--mono)}
+
+  /* svg diagrams */
+  .fig{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--radius);padding:16px;margin:14px 0;box-shadow:var(--shadow)}
+  .fig svg{width:100%;height:auto;display:block}
+  .fig .cap{font-size:12.5px;color:var(--tx-3);text-align:center;margin-top:8px}
+  .dtx{fill:var(--tx);font-size:12px;font-weight:600;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .dtx2{fill:var(--tx-2);font-size:10.5px;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .dmono{fill:var(--tx-2);font-size:10px;font-family:var(--mono)}
+
+  /* pros cons */
+  .pc{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+  @media(max-width:860px){.pc{grid-template-columns:1fr}}
+  .pc .box{border-radius:12px;padding:16px 18px;border:1px solid}
+  .pc .pros{background:var(--ok-soft);border-color:var(--ok)}
+  .pc .cons{background:var(--bad-soft);border-color:var(--bad)}
+  .pc h5{font-size:13.5px;margin-bottom:8px}
+  .pc .pros h5{color:var(--ok)} .pc .cons h5{color:var(--bad)}
+  .pc ul{list-style:none}
+  .pc li{font-size:13px;margin-bottom:6px;padding-left:18px;position:relative;color:var(--tx-2)}
+  .pc .pros li::before{content:"✓";position:absolute;left:0;color:var(--ok);font-weight:700}
+  .pc .cons li::before{content:"✕";position:absolute;left:0;color:var(--bad);font-weight:700}
+
+  pre{background:var(--bg-code);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.65;margin:10px 0 16px;color:var(--tx)}
+  pre .c{color:var(--tx-3)} pre .k{color:var(--pri-2)} pre .s{color:var(--ok)} pre .f{color:var(--info)}
+
+  /* bars */
+  .bars{margin:8px 0 4px}
+  .bar-row{display:grid;grid-template-columns:190px 1fr 64px;gap:10px;align-items:center;margin-bottom:9px;font-size:12.5px}
+  .bar-row .lbl{color:var(--tx-2);text-align:right}
+  .bar-track{background:var(--bg-soft);border-radius:6px;height:18px;overflow:hidden;border:1px solid var(--bd)}
+  .bar-fill{height:100%;border-radius:5px 0 0 5px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:10px;color:#fff;font-weight:700;min-width:28px}
+  .bar-row .val{font-family:var(--mono);font-weight:700;font-size:12.5px}
+  @media(max-width:640px){.bar-row{grid-template-columns:110px 1fr 54px}}
+
+  /* callout */
+  .callout{border-radius:12px;padding:16px 20px;margin:14px 0;border:1px solid;font-size:13.5px}
+  .callout.warn{background:var(--warn-soft);border-color:var(--warn)}
+  .callout.info{background:var(--info-soft);border-color:var(--info)}
+  .callout.bad{background:var(--bad-soft);border-color:var(--bad)}
+  .callout .t{font-weight:800;margin-bottom:6px;display:flex;gap:8px;align-items:center}
+  .callout.warn .t{color:var(--warn)} .callout.info .t{color:var(--info)} .callout.bad .t{color:var(--bad)}
+
+  /* timeline */
+  .tl{position:relative;margin:20px 0 10px;padding-left:26px}
+  .tl::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:var(--bd-2)}
+  .tl .ev{position:relative;margin-bottom:18px}
+  .tl .ev::before{content:"";position:absolute;left:-24px;top:7px;width:10px;height:10px;border-radius:50%;background:var(--pri);border:2px solid var(--bg)}
+  .tl .d{font-family:var(--mono);font-size:12px;color:var(--pri);font-weight:700}
+  .tl .t{font-size:14px;font-weight:600}
+  .tl .x{font-size:12.5px;color:var(--tx-2)}
+
+  /* refs */
+  .refs li{margin-bottom:10px;font-size:13px;color:var(--tx-2);list-style:none;display:flex;gap:10px}
+  .refs .n{font-family:var(--mono);color:var(--tx-3);flex-shrink:0}
+  .refs a{word-break:break-all}
+
+  footer{margin-top:60px;border-top:1px solid var(--bd);padding:28px 0 44px;color:var(--tx-3);font-size:12.5px;text-align:center}
+  .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+  @media(max-width:860px){.kv{grid-template-columns:repeat(2,1fr)}}
+  .kv .k{background:var(--bg-soft);border:1px solid var(--bd);border-radius:12px;padding:14px;text-align:center}
+  .kv .k .v{font-size:21px;font-weight:800;font-family:var(--mono);color:var(--pri)}
+  .kv .k .l{font-size:11.5px;color:var(--tx-3);margin-top:2px}
+</style>
+</head>
+<body>
+
+<button id="themeBtn" aria-label="切换主题">
+  <svg id="iconSun" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+  <svg id="iconMoon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+</button>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">◈ Deep Research · AI Coding 生态追踪</div>
+    <h1>Agent 记忆开源项目 <em>Top 3 实现方案</em><br>深度研究报告</h1>
+    <p class="sub">对 2026 年 Agent Memory 开源赛道进行系统性扫描：以 GitHub API 实测数据为锚点，交叉验证 arXiv 论文、官方文档与独立复现报告，深度拆解 <b>Mem0</b>、<b>Zep / Graphiti</b>、<b>Letta</b> 三大代表性实现方案的架构、机制、性能与适用边界，并对厂商 Benchmark 数据做可信度分级与冲突标注。</p>
+    <div class="meta">
+      <span>📅 报告日期：2026-09-13</span>
+      <span>📊 GitHub 数据：2026-09-13 API 实测</span>
+      <span>🔍 信源：34 个（中英文）</span>
+      <span>🏷️ 可信度分级：A / B / C 三级</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc"><div class="wrap">
+  <a href="#tldr">核心结论</a><a href="#landscape">赛道全景</a><a href="#mem0">① Mem0</a><a href="#zep">② Zep/Graphiti</a><a href="#letta">③ Letta</a><a href="#compare">横向对比</a><a href="#bench">Benchmark 可信度</a><a href="#decision">选型指南</a><a href="#timeline">时间线</a><a href="#refs">参考来源</a>
+</div></nav>
+
+<main class="wrap">
+
+<!-- ============ TLDR ============ -->
+<section id="tldr">
+  <h2><span class="no">TL;DR</span>核心结论</h2>
+  <div class="card tldr">
+    <p>Agent 记忆赛道的 Top3 由三种<b>根本不同的架构哲学</b>各占一席：<b>Mem0</b>（向量+图+KV 混合存储、LLM 自动提取，"记忆即服务"）、<b>Zep/Graphiti</b>（时序知识图谱、双时间轴事实失效，"记忆即图谱"）、<b>Letta</b>（OS 式分层内存、Agent 自编辑，"记忆即运行时"）。三者在 GitHub 星数上均为 2.4 万+ 量级 <span class="b b-a">A级·API实测</span>，同为本赛道事实标准，选择取决于问题形态而非绝对排名。</p>
+    <p style="margin-bottom:0">⚠️ 所有厂商自报 Benchmark（如 Mem0 宣称 LongMemEval 94.4%）与独立复现（同项目实测 57.5%）存在<b>最高 37 个百分点</b>的差距，且 LoCoMo 基准自身存在约 6.4% 的错误答案键——<b>选型切勿以单一 benchmark 分数为准</b>，详见 <a href="#bench">第 06 节</a>。</p>
+  </div>
+  <div class="podium">
+    <div class="pod p1"><div class="rank">Top 1 · 生态之王</div><h4>Mem0</h4><div class="tag">通用记忆层 · 两阶段提取/更新管线</div><div class="stars">65,203 ★<small>mem0ai/mem0 · Apache-2.0 · 2026-09-13 实测</small></div></div>
+    <div class="pod p2"><div class="rank">Top 2 · 时序图谱</div><h4>Zep / Graphiti</h4><div class="tag">时序知识图谱 · 双时间轴事实失效</div><div class="stars">30,837 ★<small>getzep/graphiti · Apache-2.0 · 2026-09-13 实测</small></div></div>
+    <div class="pod p3"><div class="rank">Top 3 · 记忆运行时</div><h4>Letta (MemGPT)</h4><div class="tag">OS 式三层记忆 · Agent 自编辑 + 睡眠计算</div><div class="stars">24,716 ★<small>letta-ai/letta · Apache-2.0 · 2026-09-13 实测</small></div></div>
+  </div>
+</section>
+
+<!-- ============ LANDSCAPE ============ -->
+<section id="landscape">
+  <h2><span class="no">01</span>赛道全景与遴选标准</h2>
+  <p class="lede">"Agent 记忆"并非单一品类。我们按<b>是否为专用 Agent Memory 框架</b>、<b>社区规模（GitHub API 实测星数）</b>、<b>架构代表性</b>、<b>生产采用证据</b>四个维度扫描了 9 个主流开源候选，最终遴选出三个代表三种根本不同实现路线的方案。</p>
+
+  <div class="scroll"><table class="tbl">
+    <thead><tr><th>项目</th><th>GitHub ★（实测）</th><th>许可证</th><th>定位</th><th>是否入选 Top3</th></tr></thead>
+    <tbody>
+      <tr><td class="hl">mem0ai/mem0</td><td>65,203</td><td>Apache-2.0</td><td>通用记忆层 SDK + 托管云</td><td>✅ <b>Top 1</b> — 星数第一、集成生态最广（21+ 框架）</td></tr>
+      <tr><td class="hl">getzep/graphiti</td><td>30,837</td><td>Apache-2.0</td><td>时序知识图谱引擎（Zep 核心）</td><td>✅ <b>Top 2</b> — 时序推理路线的事实标准</td></tr>
+      <tr><td>topoteretes/cognee</td><td>30,656</td><td>Apache-2.0</td><td>ECL 管线 → 类型化知识图谱</td><td>⭕ 候补 — 更偏 graph-RAG/文档管线，而非会话记忆</td></tr>
+      <tr><td>supermemoryai/supermemory</td><td>29,647</td><td>MIT</td><td>记忆 API 服务 + 消费级应用</td><td>⭕ 候补 — 星数含大量应用侧流量，框架属性弱</td></tr>
+      <tr><td class="hl">letta-ai/letta</td><td>24,716</td><td>Apache-2.0</td><td>有状态 Agent 运行时（MemGPT 传承）</td><td>✅ <b>Top 3</b> — "Agent 自管理记忆"路线的开创者与标准</td></tr>
+      <tr><td>MemTensor/MemOS</td><td>11,300</td><td>Apache-2.0</td><td>记忆操作系统（MemCube 抽象）</td><td>✖ 研究级前沿，生态最年轻</td></tr>
+      <tr><td>getzep/zep</td><td>4,911</td><td>Apache-2.0</td><td>Zep 服务旧仓库（核心已迁至 Graphiti）</td><td>— 与 Graphiti 合并计入 Top 2</td></tr>
+      <tr><td>langchain-ai/langmem</td><td>1,661</td><td>MIT</td><td>LangGraph 原生记忆 SDK</td><td>✖ 绑定 LangChain 生态，非独立框架</td></tr>
+      <tr><td>Hindsight 等新锐</td><td>1k~5k</td><td>MIT</td><td>学习层记忆 / 混合路线</td><td>✖ 生产验证不足（观察名单）</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout info"><div class="t">ℹ️ 遴选口径说明（时间线纠偏）</div>
+    多篇 2026 年上半年博客引用 "Mem0 ~48K★ / Zep ~12K★ / Letta ~18-21K★"，为写作时点的旧数据或 Graphiti 与 Zep 仓库口径混淆所致。本报告全部星数统一采用 <b>2026-09-13 GitHub API 实测值</b>：Mem0 已达 65.2K，Graphiti 已达 30.8K（超越 Zep 旧仓库口径 6 倍），Letta 达 24.7K。Cognee（30.7K）与 Supermemory（29.6K）星数虽高，但因定位偏离"Agent 会话记忆"核心场景而列为候补——星数不等于赛道匹配度。
+  </div>
+
+  <h3>三种架构哲学一图看懂</h3>
+  <div class="fig">
+    <svg viewBox="0 0 980 250">
+      <defs>
+        <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--tx-3)"/></marker>
+      </defs>
+      <!-- Mem0 -->
+      <rect x="16" y="20" width="290" height="210" rx="14" fill="var(--pri-soft)" stroke="var(--pri)" stroke-width="1.5"/>
+      <text x="161" y="48" text-anchor="middle" class="dtx" fill="var(--pri)" font-size="14">Mem0 · 记忆即服务</text>
+      <rect x="46" y="64" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="161" y="86" text-anchor="middle" class="dtx2">对话流 → LLM 自动提取事实</text>
+      <line x1="161" y1="98" x2="161" y2="118" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="46" y="120" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="161" y="142" text-anchor="middle" class="dtx2">ADD / UPDATE / DELETE / NOOP 决策</text>
+      <line x1="161" y1="154" x2="161" y2="174" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="46" y="176" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="161" y="198" text-anchor="middle" class="dtx2">向量库 + 实体图 + SQL 历史三层存储</text>
+      <!-- Zep -->
+      <rect x="346" y="20" width="290" height="210" rx="14" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+      <text x="491" y="48" text-anchor="middle" class="dtx" fill="var(--ok)" font-size="14">Zep/Graphiti · 记忆即图谱</text>
+      <rect x="376" y="64" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="491" y="86" text-anchor="middle" class="dtx2">Episode（无损原始数据层）</text>
+      <line x1="491" y1="98" x2="491" y2="118" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="376" y="120" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="491" y="142" text-anchor="middle" class="dtx2">实体 + 事实边（valid_at / invalid_at）</text>
+      <line x1="491" y1="154" x2="491" y2="174" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="376" y="176" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="491" y="198" text-anchor="middle" class="dtx2">社区聚类 + 混合检索（向量/BM25/图遍历）</text>
+      <!-- Letta -->
+      <rect x="676" y="20" width="290" height="210" rx="14" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="821" y="48" text-anchor="middle" class="dtx" fill="var(--warn)" font-size="14">Letta · 记忆即运行时</text>
+      <rect x="706" y="64" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="821" y="86" text-anchor="middle" class="dtx2">Core Memory（RAM·块钉入提示词）</text>
+      <line x1="821" y1="98" x2="821" y2="118" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="706" y="120" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="821" y="142" text-anchor="middle" class="dtx2">Recall（SSD·对话史）/ Archival（磁盘）</text>
+      <line x1="821" y1="154" x2="821" y2="174" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+      <rect x="706" y="176" width="230" height="34" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="821" y="198" text-anchor="middle" class="dtx2">Agent 经工具调用自主分页与自编辑</text>
+    </svg>
+    <div class="cap">图 1 · Top3 方案的三种架构哲学：抽取式记忆层 vs 时序知识图谱 vs OS 式自管理运行时</div>
+  </div>
+</section>
+
+<!-- ============ MEM0 ============ -->
+<section id="mem0">
+  <h2><span class="no">02</span>Top 1 · Mem0 — 通用记忆层的事实标准</h2>
+  <div class="card">
+    <div class="proj">
+      <div class="logo" style="background:linear-gradient(135deg,#4f46e5,#7c3aed)">M0</div>
+      <div><h3>Mem0 <span class="b b-p">Top 1</span></h3><div class="st">mem0ai/mem0 · 65,203★ · 7,632 forks · Apache-2.0 · Python/TS · YC S24</div></div>
+    </div>
+    <div class="kv">
+      <div class="k"><div class="v">65.2K</div><div class="l">GitHub Stars（实测）</div></div>
+      <div class="k"><div class="v">21+</div><div class="l">官方框架集成</div></div>
+      <div class="k"><div class="v">$24M</div><div class="l">A 轮融资（2025-10）</div></div>
+      <div class="k"><div class="v">90%</div><div class="l">论文宣称 Token 节省</div></div>
+    </div>
+    <p><b>定位：</b>"The Memory Layer for your AI Apps"——一个可以五行代码接入任何现有 Agent 的<b>外挂式记忆层</b>，而非重构你的 Agent 运行时。研究论文《Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory》（arXiv:2504.19413，2025-04-28，已被 ECAI 接收）确立了其学术基础。<span class="b b-a">A级·arXiv</span></p>
+  </div>
+
+  <h3>核心机制：两阶段"提取 → 更新"管线</h3>
+  <p>Mem0 的设计哲学是<b>增量处理</b>——每来一轮对话就实时提取和更新记忆，而非批处理整段历史：</p>
+  <div class="fig">
+    <svg viewBox="0 0 980 300">
+      <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--pri)"/></marker></defs>
+      <!-- inputs -->
+      <rect x="16" y="30" width="180" height="34" rx="8" fill="var(--bg-soft)" stroke="var(--bd-2)"/><text x="106" y="52" text-anchor="middle" class="dtx2">最新一轮消息对 (mₜ₋₁, mₜ)</text>
+      <rect x="16" y="80" width="180" height="34" rx="8" fill="var(--bg-soft)" stroke="var(--bd-2)"/><text x="106" y="102" text-anchor="middle" class="dtx2">滚动对话摘要 S（异步刷新）</text>
+      <rect x="16" y="130" width="180" height="34" rx="8" fill="var(--bg-soft)" stroke="var(--bd-2)"/><text x="106" y="152" text-anchor="middle" class="dtx2">最近 m 条消息窗口</text>
+      <line x1="196" y1="47" x2="240" y2="95" stroke="var(--pri)" marker-end="url(#ar2)"/>
+      <line x1="196" y1="97" x2="240" y2="97" stroke="var(--pri)" marker-end="url(#ar2)"/>
+      <line x1="196" y1="147" x2="240" y2="100" stroke="var(--pri)" marker-end="url(#ar2)"/>
+      <!-- extraction -->
+      <rect x="244" y="60" width="190" height="76" rx="12" fill="var(--pri-soft)" stroke="var(--pri)" stroke-width="1.5"/>
+      <text x="339" y="88" text-anchor="middle" class="dtx" fill="var(--pri)">① 提取阶段</text>
+      <text x="339" y="108" text-anchor="middle" class="dtx2">LLM 压缩为候选事实 Ω</text>
+      <text x="339" y="124" text-anchor="middle" class="dmono">"用户是素食主义者"</text>
+      <line x1="434" y1="98" x2="478" y2="98" stroke="var(--pri)" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <!-- top-s -->
+      <rect x="482" y="60" width="180" height="76" rx="12" fill="var(--bg-soft)" stroke="var(--bd-2)"/>
+      <text x="572" y="88" text-anchor="middle" class="dtx2">向量检索 Top-s</text>
+      <text x="572" y="108" text-anchor="middle" class="dtx2">语义相似的既有记忆</text>
+      <text x="572" y="126" text-anchor="middle" class="dmono">embedding similarity</text>
+      <line x1="662" y1="98" x2="706" y2="98" stroke="var(--pri)" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <!-- update -->
+      <rect x="710" y="40" width="250" height="116" rx="12" fill="var(--pri-soft)" stroke="var(--pri)" stroke-width="1.5"/>
+      <text x="835" y="66" text-anchor="middle" class="dtx" fill="var(--pri)">② 更新阶段（LLM Tool Call 决策）</text>
+      <rect x="726" y="78" width="102" height="28" rx="6" fill="var(--ok-soft)" stroke="var(--ok)"/><text x="777" y="97" text-anchor="middle" class="dtx2" fill="var(--ok)">ADD 新增</text>
+      <rect x="842" y="78" width="102" height="28" rx="6" fill="var(--info-soft)" stroke="var(--info)"/><text x="893" y="97" text-anchor="middle" class="dtx2" fill="var(--info)">UPDATE 更新</text>
+      <rect x="726" y="114" width="102" height="28" rx="6" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="777" y="133" text-anchor="middle" class="dtx2" fill="var(--bad)">DELETE 删除</text>
+      <rect x="842" y="114" width="102" height="28" rx="6" fill="var(--bg-card)" stroke="var(--bd-2)"/><text x="893" y="133" text-anchor="middle" class="dtx2">NOOP 不操作</text>
+      <!-- storage -->
+      <line x1="835" y1="156" x2="835" y2="186" stroke="var(--pri)" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <rect x="482" y="190" width="478" height="88" rx="12" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="721" y="214" text-anchor="middle" class="dtx">三层存储</text>
+      <rect x="500" y="226" width="140" height="38" rx="8" fill="var(--pri-soft)"/><text x="570" y="242" text-anchor="middle" class="dtx2">向量数据库</text><text x="570" y="256" text-anchor="middle" class="dmono">Qdrant/Chroma…</text>
+      <rect x="652" y="226" width="140" height="38" rx="8" fill="var(--ok-soft)"/><text x="722" y="242" text-anchor="middle" class="dtx2">图/实体存储（Mem0ᵍ）</text><text x="722" y="256" text-anchor="middle" class="dmono">Neo4j 可选</text>
+      <rect x="804" y="226" width="140" height="38" rx="8" fill="var(--warn-soft)"/><text x="874" y="242" text-anchor="middle" class="dtx2">SQL 历史库</text><text x="874" y="256" text-anchor="middle" class="dmono">SQLite 审计轨迹</text>
+      <!-- retrieval -->
+      <rect x="16" y="190" width="430" height="88" rx="12" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="231" y="214" text-anchor="middle" class="dtx">③ 检索：多信号并行融合（2026 新算法）</text>
+      <rect x="34" y="226" width="122" height="38" rx="8" fill="var(--bg-soft)"/><text x="95" y="242" text-anchor="middle" class="dtx2">语义向量</text><text x="95" y="256" text-anchor="middle" class="dmono">cosine</text>
+      <rect x="170" y="226" width="122" height="38" rx="8" fill="var(--bg-soft)"/><text x="231" y="242" text-anchor="middle" class="dtx2">关键词</text><text x="231" y="256" text-anchor="middle" class="dmono">BM25+词形还原</text>
+      <rect x="306" y="226" width="122" height="38" rx="8" fill="var(--bg-soft)"/><text x="367" y="242" text-anchor="middle" class="dtx2">实体匹配</text><text x="367" y="256" text-anchor="middle" class="dmono">entity boost</text>
+      <line x1="446" y1="234" x2="478" y2="234" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+    </svg>
+    <div class="cap">图 2 · Mem0 两阶段管线：提取（候选事实）→ 更新（四操作决策）→ 三层存储 → 多信号检索融合 <span class="b b-a">A级</span> arXiv:2504.19413 + docs.mem0.ai</div>
+  </div>
+
+  <p><b>图增强变体 Mem0ᵍ：</b>在文本事实记忆之外并行维护一张有向标签图——实体提取器识别节点（人/地点/概念），关系生成器推断带标签的边（住在/喜欢/拥有），冲突检测器识别重叠或矛盾的节点与边。论文报告 Mem0ᵍ 比基础版总分高约 2%。<span class="b b-a">A级·arXiv</span></p>
+  <p><b>2026-04 算法换代：</b>官方将更新策略改为<b>单遍 ADD-only 提取</b>（不再覆盖/删除旧事实，Agent 生成的事实与用户事实同权存储），叠加三信号并行检索融合。这一改动直接针对旧版"时序查询弱"的批评——官方报告 temporal 类问题提升 +29.6 分。<span class="b b-b">B级·官方博客，未经同行评审</span></p>
+
+  <h3>性能数据（论文口径，2025-04）</h3>
+  <div class="bars">
+    <div class="bar-row"><div class="lbl">vs OpenAI Memory（J 分数）</div><div class="bar-track"><div class="bar-fill" style="width:88%;background:linear-gradient(90deg,#4f46e5,#7c3aed)">+26% 相对提升</div></div><div class="val">LOCOMO</div></div>
+    <div class="bar-row"><div class="lbl">p95 延迟 vs 全上下文</div><div class="bar-track"><div class="bar-fill" style="width:91%;background:linear-gradient(90deg,#0d9488,#2dd4bf)">↓ 91%</div></div><div class="val">1.44s</div></div>
+    <div class="bar-row"><div class="lbl">Token 成本 vs 全上下文</div><div class="bar-track"><div class="bar-fill" style="width:90%;background:linear-gradient(90deg,#d97706,#fbbf24)">↓ &gt;90%</div></div><div class="val">~7K/查询</div></div>
+  </div>
+  <p style="font-size:12.5px;color:var(--tx-3)">注：全上下文基线约 26,000 tokens/对话、近 10s 响应；Mem0 生产环境检索到回答全流程 0.71s。2026 新算法厂商自报 LoCoMo 92.5 / LongMemEval 94.4，但独立复现仅 57.5~66.9，详见第 06 节冲突标注。</p>
+
+  <h3>代码示例（自托管）</h3>
+  <pre><span class="k">from</span> mem0 <span class="k">import</span> Memory
+<span class="c"># 初始化：本地 Qdrant 向量库 + OpenAI 抽取模型</span>
+m = Memory.from_config({
+    <span class="s">"vector_store"</span>: {<span class="s">"provider"</span>: <span class="s">"qdrant"</span>, <span class="s">"config"</span>: {<span class="s">"host"</span>: <span class="s">"localhost"</span>, <span class="s">"port"</span>: 6333}},
+    <span class="s">"llm"</span>: {<span class="s">"provider"</span>: <span class="s">"openai"</span>, <span class="s">"config"</span>: {<span class="s">"model"</span>: <span class="s">"gpt-4o-mini"</span>}},
+})
+m.<span class="f">add</span>(<span class="s">"用户后端服务偏好 TypeScript 而非 Python"</span>, user_id=<span class="s">"alice"</span>)   <span class="c"># 写入即触发提取+更新管线</span>
+hits = m.<span class="f">search</span>(<span class="s">"用户偏好什么编程语言？"</span>, user_id=<span class="s">"alice"</span>)          <span class="c"># 多信号融合检索</span></pre>
+
+  <div class="pc">
+    <div class="box pros"><h5>优势</h5><ul>
+      <li>社区与生态最大：21+ 官方集成（LangGraph/CrewAI/AutoGen/OpenAI Agents SDK/Dify/Mastra…）</li>
+      <li>接入成本最低：约 6 行代码，5 分钟完成原型，框架无关</li>
+      <li>自适应更新：修正偏好时更新既有记忆而非重复追加</li>
+      <li>用户/会话/Agent 三级记忆命名空间，天然多租户</li>
+      <li>托管层含 SOC 2 Type II + HIPAA，适配医疗金融合规场景</li>
+      <li>支持 CLI/Harness/Plugin 形态，可接 Claude Code、Cursor 等编码工具</li>
+    </ul></div>
+    <div class="box cons"><h5>劣势</h5><ul>
+      <li>时序推理 historically 偏弱：事实"更新"而非带有效性窗口的"版本化"（2026-05 才推出 Temporal Reasoning）</li>
+      <li>云版定价悬崖：图功能锁在 $249/月 Pro 档，免费/$19 档仅向量检索</li>
+      <li>每次写入含 LLM 调用（提取+决策），高频写入成本不可忽视</li>
+      <li>厂商 Benchmark 与独立复现差距大（37 个百分点），数据需谨慎采信</li>
+      <li>记忆结构相对扁平，复杂关系表达不如图谱路线</li>
+    </ul></div>
+  </div>
+  <p><b>适用：</b>个性化助手、客服 Agent、B2B Copilot 等"记住用户偏好与上下文"为核心诉求、希望快速上线的场景。<b>不适用：</b>重度图查询（付费墙）、强时序推理、气隙环境（需自备 Qdrant+Neo4j）。</p>
+</section>
+
+<!-- ============ ZEP ============ -->
+<section id="zep">
+  <h2><span class="no">03</span>Top 2 · Zep / Graphiti — 时序知识图谱路线</h2>
+  <div class="card">
+    <div class="proj">
+      <div class="logo" style="background:linear-gradient(135deg,#0d9488,#059669)">Z</div>
+      <div><h3>Zep / Graphiti <span class="b b-p">Top 2</span></h3><div class="st">getzep/graphiti · 30,837★ · 3,135 forks · Apache-2.0 · 引擎开源 + Zep Cloud 托管</div></div>
+    </div>
+    <div class="kv">
+      <div class="k"><div class="v">30.8K</div><div class="l">Graphiti Stars（实测）</div></div>
+      <div class="k"><div class="v">94.8%</div><div class="l">DMR 基准（论文自报）</div></div>
+      <div class="k"><div class="v">↓90%</div><div class="l">LongMemEval 延迟</div></div>
+      <div class="k"><div class="v">115K→1.6K</div><div class="l">上下文 Token 压缩</div></div>
+    </div>
+    <p><b>定位：</b>Zep 是记忆服务，<b>Graphiti 是其开源的时序知识图谱引擎</b>——注意两者开源边界不同：Graphiti 完全开源（Apache-2.0），而 Zep 托管服务（多租户/治理/冲突消解）为商业产品。论文《Zep: A Temporal Knowledge Graph Architecture for Agent Memory》（arXiv:2501.13956，2025-01-20）。<span class="b b-a">A级·arXiv</span></p>
+    <p style="margin-bottom:0"><b>核心命题：</b>记忆不只是"存了什么"，更是"<b>什么时候为真、什么时候失效</b>"。每条事实边携带有效性窗口（valid_at / invalid_at），新证据到来时旧事实被<b>标记失效而非删除</b>——赋予 Agent"时间穿越"能力：既能答"现在的事实"，也能答"三个月前你基于什么认知做的决定"。</p>
+  </div>
+
+  <h3>核心机制：三层子图 + 双时间轴</h3>
+  <div class="fig">
+    <svg viewBox="0 0 980 330">
+      <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--ok)"/></marker></defs>
+      <!-- ingest -->
+      <rect x="16" y="120" width="150" height="90" rx="12" fill="var(--bg-soft)" stroke="var(--bd-2)"/>
+      <text x="91" y="148" text-anchor="middle" class="dtx2">对话 / JSON</text>
+      <text x="91" y="166" text-anchor="middle" class="dtx2">业务数据摄入</text>
+      <text x="91" y="190" text-anchor="middle" class="dmono">episode ingest</text>
+      <line x1="166" y1="165" x2="206" y2="165" stroke="var(--ok)" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <!-- L1 episode -->
+      <rect x="210" y="30" width="240" height="86" rx="12" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+      <text x="330" y="54" text-anchor="middle" class="dtx" fill="var(--ok)">L1 · Episode 子图</text>
+      <text x="330" y="74" text-anchor="middle" class="dtx2">无损存储原始消息/文本/JSON</text>
+      <text x="330" y="92" text-anchor="middle" class="dtx2">每条派生事实可溯源至此</text>
+      <text x="330" y="108" text-anchor="middle" class="dmono">ground truth + provenance</text>
+      <!-- L2 entity -->
+      <rect x="210" y="136" width="240" height="86" rx="12" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+      <text x="330" y="160" text-anchor="middle" class="dtx" fill="var(--ok)">L2 · 语义实体子图</text>
+      <text x="330" y="180" text-anchor="middle" class="dtx2">实体节点（4 消息窗口抽取）</text>
+      <text x="330" y="198" text-anchor="middle" class="dtx2">事实边 = 实体间三元组关系</text>
+      <text x="330" y="214" text-anchor="middle" class="dmono">cosine+全文 混合去重</text>
+      <!-- L3 community -->
+      <rect x="210" y="242" width="240" height="70" rx="12" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+      <text x="330" y="266" text-anchor="middle" class="dtx" fill="var(--ok)">L3 · 社区子图</text>
+      <text x="330" y="286" text-anchor="middle" class="dtx2">标签传播聚类 + 社区摘要节点</text>
+      <text x="330" y="302" text-anchor="middle" class="dmono">增量加入，无需全量重算</text>
+      <line x1="330" y1="116" x2="330" y2="132" stroke="var(--ok)" marker-end="url(#ar3)"/>
+      <line x1="330" y1="222" x2="330" y2="238" stroke="var(--ok)" marker-end="url(#ar3)"/>
+      <!-- bitemporal -->
+      <rect x="490" y="136" width="210" height="86" rx="12" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="595" y="160" text-anchor="middle" class="dtx" fill="var(--warn)">双时间轴模型</text>
+      <text x="595" y="180" text-anchor="middle" class="dtx2">T：事实发生的逻辑时间</text>
+      <text x="595" y="196" text-anchor="middle" class="dtx2">T'：系统写入的物理时间</text>
+      <text x="595" y="214" text-anchor="middle" class="dmono">矛盾 → invalid_at 软失效</text>
+      <line x1="450" y1="179" x2="486" y2="179" stroke="var(--warn)" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <!-- retrieval -->
+      <rect x="740" y="30" width="224" height="282" rx="12" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="852" y="56" text-anchor="middle" class="dtx">检索管线 Search→Rerank→Construct</text>
+      <rect x="758" y="70" width="188" height="44" rx="8" fill="var(--bg-soft)"/><text x="852" y="88" text-anchor="middle" class="dtx2">① Search 三路并行</text><text x="852" y="104" text-anchor="middle" class="dmono">cosine + BM25 + BFS图遍历</text>
+      <rect x="758" y="126" width="188" height="44" rx="8" fill="var(--bg-soft)"/><text x="852" y="144" text-anchor="middle" class="dtx2">② Rerank 多策略</text><text x="852" y="160" text-anchor="middle" class="dmono">RRF / MMR / 图距离 / 交叉编码</text>
+      <rect x="758" y="182" width="188" height="44" rx="8" fill="var(--bg-soft)"/><text x="852" y="200" text-anchor="middle" class="dtx2">③ Construct 组装上下文</text><text x="852" y="216" text-anchor="middle" class="dmono">事实边(含有效期)+实体摘要</text>
+      <rect x="758" y="238" width="188" height="56" rx="8" fill="var(--ok-soft)" stroke="var(--ok)"/><text x="852" y="258" text-anchor="middle" class="dtx2" fill="var(--ok)">输出 ~1,600 tokens</text><text x="852" y="276" text-anchor="middle" class="dmono">基线 115,000 tokens</text>
+      <line x1="700" y1="179" x2="736" y2="179" stroke="var(--ok)" stroke-width="1.5" marker-end="url(#ar3)"/>
+    </svg>
+    <div class="cap">图 3 · Graphiti 三层子图 + 双时间轴 + 混合检索管线 <span class="b b-a">A级</span> arXiv:2501.13956 + github.com/getzep/graphiti</div>
+  </div>
+
+  <p><b>与 GraphRAG 的本质区别：</b>GraphRAG 面向<b>静态文档语料</b>批量重算；Graphiti 面向<b>持续演化的数据</b>增量实时更新，且矛盾处理是"自动失效 + 历史保留"而非依赖 LLM 摘要判断。查询延迟亚秒级 vs GraphRAG 秒~十秒级。<span class="b b-a">A级·官方仓库</span></p>
+  <p><b>基础设施：</b>支持 Neo4j 5.26 / FalkorDB 1.1.2（含嵌入式 falkordblite）/ Amazon Neptune；<b>Kuzu 后端已弃用</b>（2026-03 起移出测试基础设施）。自定义本体通过 Pydantic 模型定义实体与边类型（prescribed ontology），也可让系统自动发现（learned ontology）。<span class="b b-a">A级·仓库实测</span></p>
+
+  <h3>性能数据（论文口径，2025-01）</h3>
+  <div class="scroll"><table class="tbl">
+    <thead><tr><th>基准</th><th>模型</th><th>全上下文基线</th><th>Zep</th><th>基线延迟</th><th>Zep 延迟</th></tr></thead>
+    <tbody>
+      <tr><td>DMR</td><td>gpt-4-turbo</td><td>93.4%（MemGPT）</td><td class="hl">94.8%</td><td>—</td><td>—</td></tr>
+      <tr><td>DMR</td><td>gpt-4o-mini</td><td>98.0%</td><td class="hl">98.2%</td><td>—</td><td>—</td></tr>
+      <tr><td>LongMemEval</td><td>gpt-4o-mini</td><td>55.4%</td><td class="hl">63.8%</td><td>31.3s</td><td class="hl">3.20s</td></tr>
+      <tr><td>LongMemEval</td><td>gpt-4o</td><td>60.2%</td><td class="hl">71.2%</td><td>28.9s</td><td class="hl">2.58s</td></tr>
+    </tbody>
+  </table></div>
+  <p style="font-size:12.5px;color:var(--tx-3)">分项增益（gpt-4o）：单会话偏好 20.0%→56.7%（+184%）、时序推理 45.1%→62.4%、多会话 44.3%→57.9%。⚠️ DMR 是 Zep 自己引入的基准，60 条消息对话可整体塞进现代上下文窗口，区分度有限；LongMemEval（115K tokens）更具企业场景代表性。均为厂商自报，AgentOS 审计复现 LongMemEval 为 63.8%（vs 自报 71.2%）。</p>
+
+  <h3>代码示例（Graphiti 开源引擎）</h3>
+  <pre><span class="k">from</span> graphiti_core <span class="k">import</span> Graphiti
+graphiti = <span class="f">Graphiti</span>(neo4j_uri, neo4j_user, neo4j_password)
+<span class="k">await</span> graphiti.<span class="f">build_indices_and_constraints</span>()
+<span class="c"># 摄入一个 episode（对话消息 / JSON / 文本）→ 自动抽取实体与带时间的事实边</span>
+<span class="k">await</span> graphiti.<span class="f">add_episode</span>(name=<span class="s">"chat-001"</span>, episode_body=<span class="s">"Alice 已从公司一离职，加入公司二"</span>, ...)
+results = <span class="k">await</span> graphiti.<span class="f">search</span>(<span class="s">"用户现在在哪家公司工作？"</span>)
+<span class="k">for</span> edge <span class="k">in</span> results:
+    <span class="f">print</span>(edge.fact, edge.valid_at, edge.invalid_at)  <span class="c"># 旧边带 invalid_at，新边带 valid_at，历史全保留</span></pre>
+
+  <div class="pc">
+    <div class="box pros"><h5>优势</h5><ul>
+      <li>时序推理同类最强：事实带有效期窗口，支持"当时 vs 现在"的时间点查询</li>
+      <li>"失效不删除"哲学：完整证据链，适配金融/医疗合规审计</li>
+      <li>融合对话 + 结构化业务数据（CRM/JSON）到同一张演化图谱</li>
+      <li>上下文压缩极致：115K → 1.6K tokens，延迟降 90%</li>
+      <li>引擎完全开源可独立使用，图功能不锁高价档（云版 $25/月起含图）</li>
+      <li>增量实时更新，无需 GraphRAG 式批量重算</li>
+    </ul></div>
+    <div class="box cons"><h5>劣势</h5><ul>
+      <li>自托管需运维图数据库（Neo4j/FalkorDB），基础设施门槛高于向量方案</li>
+      <li>每次摄入含实体抽取+去重+关系更新多次 LLM 调用，写入成本高</li>
+      <li>实体消解需专项评估：同名合并、别名分裂、否定误判为肯定等风险</li>
+      <li>完整 Zep 服务（冲突消解、托管图谱）仅云端，开源边界需注意</li>
+      <li>稳定文档库场景收益有限，时序抽取成本不划算</li>
+    </ul></div>
+  </div>
+  <p><b>适用：</b>CRM/销售 Agent（"谁负责什么、从何时起"）、合规敏感系统、状态随时间演化的企业工作流。<b>不适用：</b>仅需"记住名字和偏好"的轻量个性化（用 Mem0 更划算）、纯静态文档问答（用普通 RAG/GraphRAG）。</p>
+</section>
+
+<!-- ============ LETTA ============ -->
+<section id="letta">
+  <h2><span class="no">04</span>Top 3 · Letta (MemGPT) — OS 式记忆运行时</h2>
+  <div class="card">
+    <div class="proj">
+      <div class="logo" style="background:linear-gradient(135deg,#d97706,#f59e0b)">L</div>
+      <div><h3>Letta <span class="b b-p">Top 3</span></h3><div class="st">letta-ai/letta · 24,716★ · 2,616 forks · Apache-2.0 · 前身 MemGPT（UC Berkeley，2023-10）</div></div>
+    </div>
+    <div class="kv">
+      <div class="k"><div class="v">24.7K</div><div class="l">GitHub Stars（实测）</div></div>
+      <div class="k"><div class="v">3 层</div><div class="l">Core / Recall / Archival</div></div>
+      <div class="k"><div class="v">9 种</div><div class="l">Agent 类型</div></div>
+      <div class="k"><div class="v">2 篇</div><div class="l">核心论文（MemGPT + 睡眠计算）</div></div>
+    </div>
+    <p><b>定位：</b>与前两者根本不同——Letta <b>不是外挂记忆层，而是"记忆优先"的 Agent 运行时</b>。其他框架"发货编排、让你自己装记忆"，Letta"发货记忆、让你往上装编排"。源自 MemGPT 论文（arXiv:2310.08560，Berkeley，Packer/Wooders/Stoica/Gonzalez 等）提出的<b>虚拟上下文管理</b>：把 LLM 上下文窗口当 RAM，外部存储当磁盘，由模型自己通过工具调用决定分页。<span class="b b-a">A级·arXiv</span></p>
+  </div>
+
+  <h3>核心机制：三层记忆层级 + Agent 自编辑</h3>
+  <div class="fig">
+    <svg viewBox="0 0 980 300">
+      <defs><marker id="ar4" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--warn)"/></marker></defs>
+      <!-- RAM tier -->
+      <rect x="30" y="26" width="290" height="110" rx="12" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.5"/>
+      <text x="175" y="50" text-anchor="middle" class="dtx" fill="var(--warn)">🧠 Core Memory（RAM）</text>
+      <text x="175" y="70" text-anchor="middle" class="dtx2">记忆块钉入系统提示词，每轮可见</text>
+      <rect x="52" y="82" width="110" height="40" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/><text x="107" y="99" text-anchor="middle" class="dtx2">human 块</text><text x="107" y="114" text-anchor="middle" class="dmono">用户信息</text>
+      <rect x="176" y="82" width="110" height="40" rx="8" fill="var(--bg-card)" stroke="var(--bd-2)"/><text x="231" y="99" text-anchor="middle" class="dtx2">persona 块</text><text x="231" y="114" text-anchor="middle" class="dmono">Agent 人格</text>
+      <!-- SSD tier -->
+      <rect x="30" y="152" width="290" height="58" rx="12" fill="var(--info-soft)" stroke="var(--info)" stroke-width="1.5"/>
+      <text x="175" y="176" text-anchor="middle" class="dtx" fill="var(--info)">💬 Recall Memory（SSD）</text>
+      <text x="175" y="196" text-anchor="middle" class="dtx2">完整对话历史，可按需搜索；超限自动摘要压缩</text>
+      <!-- Disk tier -->
+      <rect x="30" y="226" width="290" height="58" rx="12" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+      <text x="175" y="250" text-anchor="middle" class="dtx" fill="var(--ok)">🗄️ Archival Memory（磁盘）</text>
+      <text x="175" y="270" text-anchor="middle" class="dtx2">长期向量存储（pgvector/SQLite/Pinecone），容量近乎无限</text>
+      <!-- paging arrows -->
+      <line x1="345" y1="80" x2="345" y2="175" stroke="var(--warn)" stroke-width="1.5" marker-end="url(#ar4)"/>
+      <line x1="365" y1="175" x2="365" y2="80" stroke="var(--warn)" stroke-width="1.5" marker-end="url(#ar4)"/>
+      <text x="410" y="120" class="dtx2">工具调用分页：core_memory_append / replace · archival_memory_insert / search</text>
+      <text x="410" y="142" class="dmono">模型自主决定什么留在热区、什么归档、何时取回（中断/心跳机制管理控制流）</text>
+      <!-- agent loop -->
+      <rect x="400" y="180" width="250" height="104" rx="12" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="525" y="206" text-anchor="middle" class="dtx">Agent 服务化循环</text>
+      <text x="525" y="228" text-anchor="middle" class="dtx2">REST API 寻址 · 状态全量持久化到数据库</text>
+      <text x="525" y="246" text-anchor="middle" class="dtx2">重启/迁移后记忆不丢失</text>
+      <text x="525" y="268" text-anchor="middle" class="dmono">conversation = 同一 Agent 的独立消息线程</text>
+      <!-- sleep-time -->
+      <rect x="690" y="26" width="270" height="130" rx="12" fill="var(--pri-soft)" stroke="var(--pri)" stroke-width="1.5"/>
+      <text x="825" y="50" text-anchor="middle" class="dtx" fill="var(--pri)">🌙 Sleep-time Compute（2025-04）</text>
+      <text x="825" y="72" text-anchor="middle" class="dtx2">双 Agent 架构：primary（对话）+ sleeptime（后台）</text>
+      <text x="825" y="90" text-anchor="middle" class="dtx2">空闲期重组记忆、预计算推理</text>
+      <text x="825" y="108" text-anchor="middle" class="dtx2">"原始上下文" → "学习后上下文"</text>
+      <text x="825" y="130" text-anchor="middle" class="dmono">AIME/GSM 数学基准帕累托改进 · arXiv:2504.13171</text>
+      <!-- shared blocks -->
+      <rect x="690" y="176" width="270" height="108" rx="12" fill="var(--bg-card)" stroke="var(--bd-2)"/>
+      <text x="825" y="200" text-anchor="middle" class="dtx">🔗 共享记忆块（多 Agent 协同）</text>
+      <text x="825" y="222" text-anchor="middle" class="dtx2">同一 memory block 可挂载到多个 Agent</text>
+      <text x="825" y="240" text-anchor="middle" class="dtx2">一处编辑，所有挂载 Agent 即时可见</text>
+      <text x="825" y="262" text-anchor="middle" class="dmono">2026 新动向：Conversations API · Context Repositories(git化记忆)</text>
+      <line x1="670" y1="60" x2="686" y2="60" stroke="var(--tx-3)" marker-end="url(#ar)"/>
+    </svg>
+    <div class="cap">图 4 · Letta 三层记忆层级（MemGPT 虚拟上下文）+ 睡眠计算 + 共享记忆块 <span class="b b-a">A级</span> arXiv:2310.08560 / 2504.13171 + docs.letta.com</div>
+  </div>
+
+  <p><b>自动上下文管理：</b>Agent 循环持续监控 token 用量，当超出上下文窗口时自动触发压缩（滑动窗口保留近期消息，或全量摘要）。开发者无需手写溢出处理器——这是 Letta 与其他框架最大的单点差异。<b>记忆块（Memory Blocks）</b>是承重原语：带标签的持久化字符串，Agent 用 <code>core_memory_append</code> / <code>core_memory_replace</code> 自编辑，新版本已取消块大小限制（随 128K 上下文窗口自由增长）。<span class="b b-a">A级·官方文档</span></p>
+  <p><b>工具治理：</b>九种工具规则类型（InitToolRule / TerminalToolRule / ConditionalToolRule / RequiresApprovalToolRule 等）提供对 Agent 行为的确定性约束，可精确表达"回答用户前必须先查文档；退出前必须记录日志"式协议。<span class="b b-b">B级·第三方深度评测</span></p>
+  <p><b>2026 演进：</b>① Conversations API（2026-01）——同一 Agent 跨并发会话共享记忆；② Letta Code（2025-12）——记忆优先的编码 Agent，自称 Terminal-Bench 上排名第一的模型无关开源编码 Agent <span class="b b-b">B级·官方博客</span>；③ Context Repositories（2026-02）——基于 git 版本化的编码 Agent 记忆。</p>
+
+  <h3>性能数据</h3>
+  <div class="callout warn"><div class="t">⚠️ 数据冲突显式标注</div>
+    Letta 的 LongMemEval 流传数据为 <b>83.2%</b>（源头 Vectorize.io 文章，被多家博客转引 <span class="b b-c">C级·转引</span>），但 Mem0 官方 2026 报告称 Letta "无标准化 LongMemEval 公开结果"，其 LoCoMo 74.0（gpt-4o-mini、文件系统存储、无专用检索工具）<span class="b b-c">C级·竞对转述</span>。第三方独立评测 OmniMemEval 的 BEAM 实测：Letta cloud 100K 规模 nugget 69.22、10M 规模 52.30 <span class="b b-b">B级·独立复现</span>。Letta 团队自己的研究立场是"简单文件存储可与专用检索方案竞争"——其 benchmark 参与度低是<b>路线选择</b>而非能力缺失。
+  </div>
+
+  <h3>代码示例</h3>
+  <pre><span class="c"># pip install letta && letta server  （本地起服务，状态持久化到数据库）</span>
+<span class="k">from</span> letta <span class="k">import</span> create_agent
+agent = <span class="f">create_agent</span>(
+    name=<span class="s">"support_bot"</span>,
+    model=<span class="s">"openai/gpt-4o"</span>,
+    memory_blocks=[                                <span class="c"># 核心记忆块：Agent 可自编辑</span>
+        {<span class="s">"label"</span>: <span class="s">"user_preferences"</span>, <span class="s">"value"</span>: <span class="s">""</span>},
+        {<span class="s">"label"</span>: <span class="s">"order_history"</span>, <span class="s">"value"</span>: <span class="s">""</span>},
+    ],
+)
+<span class="c"># 用户说"我更喜欢邮件联系" → Agent 自主调用 core_memory_replace 更新 user_preferences 块</span>
+<span class="c"># 下次会话自动继承；archival_memory_search 按需从向量库取回长期事实</span></pre>
+
+  <div class="pc">
+    <div class="box pros"><h5>优势</h5><ul>
+      <li>记忆是框架的一等公民：持久化默认开启，"忘记记忆"需要主动不调用工具</li>
+      <li>Agent 真正"有状态"：以服务形式寻址，跨重启/迁移/时间存续</li>
+      <li>睡眠计算把推理负载移到空闲期，帕累托改进成本与延迟</li>
+      <li>共享记忆块是多 Agent 协同的天然基础设施</li>
+      <li>ADE 可视化调试：实时查看上下文窗口、记忆块、归档存储</li>
+      <li>学术传承最正统（MemGPT 原作者团队），持续产出前沿研究</li>
+    </ul></div>
+    <div class="box cons"><h5>劣势</h5><ul>
+      <li>运行时锁定：Letta 拥有 Agent 循环，迁出 = 重建 Agent 而非换记忆后端</li>
+      <li>每轮 token 开销更高、循环更慢（Agent 花推理预算做记忆家务）</li>
+      <li>学习曲线陡于 drop-in 方案，需理解分层记忆与工具治理</li>
+      <li>记忆质量强依赖底层模型的编辑能力</li>
+      <li>公开 benchmark 数据少且互相矛盾，难以横向量化比较</li>
+    </ul></div>
+  </div>
+  <p><b>适用：</b>跨周/月运行的个人助理与研究 Agent、需要"Agent 有身份且持续演化"的产品、多 Agent 共享状态场景。<b>不适用：</b>无状态单轮管线、快速原型（用 Mem0）、只需外挂记忆不想换运行时（用 Mem0/Zep）。</p>
+</section>
+
+<!-- ============ COMPARE ============ -->
+<section id="compare">
+  <h2><span class="no">05</span>横向对比总表</h2>
+  <div class="scroll"><table class="tbl">
+    <thead><tr><th>维度</th><th>Mem0</th><th>Zep / Graphiti</th><th>Letta</th></tr></thead>
+    <tbody>
+      <tr><td><b>架构范式</b></td><td>向量+图+KV 混合存储，LLM 自动提取</td><td>时序知识图谱（三层子图+双时间轴）</td><td>OS 式三层记忆，Agent 工具自编辑</td></tr>
+      <tr><td><b>产品形态</b></td><td>SDK / 记忆层（外挂式）</td><td>开源引擎 Graphiti + 托管 Zep Cloud</td><td>Agent 运行时 + REST 服务（记忆内建）</td></tr>
+      <tr><td><b>GitHub ★（2026-09-13 实测）</b></td><td class="hl">65,203</td><td class="hl">30,837（graphiti）</td><td class="hl">24,716</td></tr>
+      <tr><td><b>许可证</b></td><td>Apache-2.0</td><td>Apache-2.0（引擎）</td><td>Apache-2.0</td></tr>
+      <tr><td><b>论文</b></td><td>arXiv:2504.19413（ECAI 接收）</td><td>arXiv:2501.13956</td><td>arXiv:2310.08560 + 2504.13171（睡眠计算）</td></tr>
+      <tr><td><b>记忆写入</b></td><td>自动提取，ADD/UPDATE/DELETE/NOOP（2026 改为 ADD-only）</td><td>Episode 摄入 → 实体/事实边抽取，矛盾软失效</td><td>Agent 自主决定（工具调用），或开发者 API 直写</td></tr>
+      <tr><td><b>时序推理</b></td><td>较弱（2026-05 起补强）</td><td class="hl">最强：valid_at/invalid_at 一等公民</td><td>依赖 Agent 自身推理，无专用时序索引</td></tr>
+      <tr><td><b>检索方式</b></td><td>语义+BM25+实体三路融合</td><td>cosine+BM25+BFS 图遍历 → RRF/MMR/交叉编码重排</td><td>Agent 主动调用搜索工具（archival/recall）</td></tr>
+      <tr><td><b>依赖基础设施</b></td><td>向量库（Qdrant/Chroma…）+ 可选 Neo4j</td><td>图数据库（Neo4j/FalkorDB/Neptune）</td><td>数据库 + 向量后端（pgvector/SQLite…），服务化部署</td></tr>
+      <tr><td><b>多 Agent 协同</b></td><td>agent_id 命名空间隔离</td><td>共享图谱（group_id）</td><td class="hl">共享记忆块：一处编辑全员可见</td></tr>
+      <tr><td><b>独特能力</b></td><td>最广集成生态（21+ 框架）、CLI/Harness 接入编码工具</td><td>时间穿越查询、合规审计证据链</td><td>睡眠计算、ADE 可视化、Agent 文件(.af)导入导出</td></tr>
+      <tr><td><b>自托管成本</b></td><td>低（一个向量库即可起步）</td><td>中-高（图数据库运维 + 多次 LLM 调用/写入）</td><td>中（跑 Letta server + 数据库）</td></tr>
+      <tr><td><b>厂商云定价（入门）</b></td><td>免费 10K 条 → $19/月 → $249/月（图功能）</td><td>$25/月起含图（Cloud 口径）</td><td>免费 3 Agent → $20/月</td></tr>
+      <tr><td><b>合规认证</b></td><td>SOC 2 Type II + HIPAA（托管层）</td><td>SOC 2（企业口径）</td><td>未强调（自托管自控）</td></tr>
+      <tr><td><b>一句话心智模型</b></td><td>"结构化笔记 + 向量模糊查找"</td><td>"带时间轴的实体关系图谱"</td><td>"Agent 自己管理 RAM 和磁盘"</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============ BENCH ============ -->
+<section id="bench">
+  <h2><span class="no">06</span>Benchmark 可信度分析（冲突信源显式标注）</h2>
+  <p class="lede">这是本报告最重要的一节：Agent 记忆赛道的 benchmark 数据<b>厂商自报与独立复现严重背离</b>，且基准本身存在测量缺陷。以下按可信度分级呈现。</p>
+
+  <div class="callout bad"><div class="t">🚨 核心警示：厂商自报 vs 独立复现</div>
+    唯一的同 harness 多厂商公开复现（Maximem 开放 harness）将 Mem0 的 LongMemEval 从自报 <b>94.4%</b> 拉到 <b>57.5%</b>（差距 36.9 个百分点）；独立 LoCoMo 复现（memnode.dev）为 <b>66.9%</b> vs 自报 92.5。Zep 自报 LongMemEval 71.2%，AgentOS 审计复现为 <b>63.8%</b>。更根本的是：<b>LoCoMo 基准自带约 6.4% 的错误答案键，LLM 裁判会接受约 63% 的错误答案</b>——测量仪器本身是漏的。<span class="b b-b">B级·GenαAI 汇总多方审计</span>
+  </div>
+
+  <div class="scroll"><table class="tbl">
+    <thead><tr><th>数据点</th><th>厂商自报</th><th>独立复现</th><th>差距</th><th>可信度判定</th></tr></thead>
+    <tbody>
+      <tr><td>Mem0 · LongMemEval</td><td>94.4%</td><td>57.5%（Maximem harness）</td><td style="color:var(--bad);font-weight:700">-36.9pp</td><td><span class="b b-x">冲突</span> 自报未经同行评审、无公开 harness；复现值更接近其 2025 论文口径</td></tr>
+      <tr><td>Mem0 · LoCoMo</td><td>92.5</td><td>66.9%（memnode.dev）</td><td style="color:var(--bad);font-weight:700">-25.6pp</td><td><span class="b b-x">冲突</span> 论文原报告单跳 J 分数 67.13，与复现值吻合</td></tr>
+      <tr><td>Mem0 · LOCOMO vs OpenAI</td><td>+26%（J 分数）</td><td>—（论文数据，ECAI 接收）</td><td>—</td><td><span class="b b-a">A级</span> 同行评审论文口径，最可信的 Mem0 数据</td></tr>
+      <tr><td>Zep · LongMemEval (gpt-4o)</td><td>71.2%</td><td>63.8%（AgentOS 审计）</td><td style="color:var(--warn);font-weight:700">-7.4pp</td><td><span class="b b-c">部分可信</span> 论文自报但复现差距相对小</td></tr>
+      <tr><td>Zep · LoCoMo</td><td>75.14（Zep 口径）/ 94.7%（官网 2026）</td><td>65.99（Mem0 报告转述）</td><td style="color:var(--bad);font-weight:700">口径混乱</td><td><span class="b b-x">冲突</span> 双方互报对方低分，典型的厂商互相贬低</td></tr>
+      <tr><td>Zep · DMR 94.8% vs MemGPT 93.4%</td><td>94.8%</td><td>无（Zep 自己引入的基准）</td><td>—</td><td><span class="b b-c">谨慎</span> 既是运动员又是裁判员；且 DMR 区分度有限</td></tr>
+      <tr><td>Letta · LongMemEval</td><td>83.2%（Vectorize 转引）</td><td>Mem0 报告称"未发布标准化结果"</td><td>—</td><td><span class="b b-c">存疑</span> 源头不可考，Letta 官方立场是"文件存储可与专用检索竞争"</td></tr>
+      <tr><td>OmniMemEval · BEAM 100K/10M</td><td colspan="2">Mem0 cloud 70.4/43.3 · graphiti-zep 68.7/56.1 · Letta cloud 69.2/52.3（nugget score）</td><td>—</td><td><span class="b b-b">B级</span> MemTensor 的第三方统一 harness，目前最接近"公平对比"的公开数据</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout info"><div class="t">📌 我们的结论</div>
+    ① <b>任何单一 benchmark 分数都不可作为选型依据</b>——分数是 harness 相对的，不是系统绝对的；② 在第三方统一 harness（OmniMemEval BEAM）下，三家在 100K 规模差距不大（68.7~70.4），在 10M 超长规模下 Graphiti 自托管反而领先（56.1 vs Mem0 43.3）；③ 可信度排序：<b>同行评审论文（A）&gt; 统一 harness 独立复现（B）&gt; 厂商博客自报（C）&gt; 第三方博客转引（C-）</b>；④ 正确做法：用自己的真实对话记录跑自己的召回评测（run your own recall eval）。
+  </div>
+</section>
+
+<!-- ============ DECISION ============ -->
+<section id="decision">
+  <h2><span class="no">07</span>选型决策指南</h2>
+  <div class="scroll"><table class="tbl">
+    <thead><tr><th>如果你的场景是…</th><th>首选</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td>快速给现有 Agent 加个性化记忆（5 分钟原型）</td><td class="hl">Mem0</td><td>drop-in SDK，接入成本最低，免费档足够验证</td></tr>
+      <tr><td>"用户上周二时的状态是什么"式时间点查询</td><td class="hl">Zep / Graphiti</td><td>双时间轴 + 事实失效是独有能力，其他方案无法原生回答</td></tr>
+      <tr><td>CRM/销售 Agent：谁负责什么、从何时起、何时交接</td><td class="hl">Zep / Graphiti</td><td>实体关系 + 有效期窗口天然匹配组织状态演化</td></tr>
+      <tr><td>跨周/月运行的个人助理，Agent 需有持续演化的身份</td><td class="hl">Letta</td><td>记忆即运行时，Agent 自管理 + 睡眠期整理记忆</td></tr>
+      <tr><td>多 Agent 团队共享状态与知识</td><td class="hl">Letta（共享块）/ Graphiti（共享图谱）</td><td>前者即时同步的内存块，后者结构化的共享事实图谱</td></tr>
+      <tr><td>医疗/金融合规：需要完整审计轨迹与证据链</td><td class="hl">Zep（失效不删除）或 Mem0（SOC2+HIPAA 托管）</td><td>前者保留全部历史状态，后者提供合规认证</td></tr>
+      <tr><td>已在 LangGraph 技术栈内</td><td>LangMem（候补）</td><td>零额外基础设施，但非独立框架（1.7K★）</td></tr>
+      <tr><td>从原始文档/代码库构建组织知识图谱（graph-RAG）</td><td>Cognee（候补）</td><td>ECL 管线专长，30.7K★，但会话记忆属性弱</td></tr>
+      <tr><td>给 Claude Code / Cursor 等编码工具装记忆</td><td class="hl">Mem0（CLI/Harness）或 Letta Code</td><td>前者外挂式，后者记忆优先的编码 Agent + git 化上下文仓库</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout info"><div class="t">💡 组合建议（针对 Agent Workspace / 容器化 Agent 场景）</div>
+    三者并非互斥。一个务实的组合：<b>Mem0 做用户偏好层</b>（低成本、快接入）+ <b>Graphiti 做业务事实层</b>（时序敏感数据），通过 MCP 端点统一暴露给容器内 Agent（Graphiti 每服务器内置 MCP 端点，Mem0 有官方 MCP 集成）。若你的平台本身就是 Agent 运行时（如基于 OpenCode serve API 的 Workspace），则 Letta 的"记忆块 + 服务化 Agent"模型更贴近你的架构，可直接借鉴其 core/recall/archival 分层设计而非引入整个运行时。
+  </div>
+</section>
+
+<!-- ============ TIMELINE ============ -->
+<section id="timeline">
+  <h2><span class="no">08</span>关键时间线（含纠偏）</h2>
+  <div class="tl">
+    <div class="ev"><div class="d">2023-06</div><div class="t">Mem0 前身 EmbedChain 记忆项目启动</div><div class="x">仓库创建于 2023-06-20（GitHub API 实测），后转型专用记忆层，YC S24</div></div>
+    <div class="ev"><div class="d">2023-10-12</div><div class="t">MemGPT 论文发布（UC Berkeley）</div><div class="x">arXiv:2310.08560，虚拟上下文管理开山之作；仓库同日创建。⚠️ 纠偏：部分文章称"2023 年发布 v1、2024-02 修订 v2"，v2 修订日期为 2024-02-12，无误</div></div>
+    <div class="ev"><div class="d">2024-08-08</div><div class="t">Graphiti 开源（Zep 核心引擎独立发布）</div><div class="x">Apache-2.0；⚠️ 纠偏：多篇博客将 Zep 旧仓库（4.9K★）与 Graphiti（30.8K★）星数混用，引用"Zep ~12K★"为过时或混淆口径</div></div>
+    <div class="ev"><div class="d">2024-09</div><div class="t">MemGPT 更名 Letta</div><div class="x">从论文实现扩展为通用有状态 Agent 框架与公司</div></div>
+    <div class="ev"><div class="d">2025-01-20</div><div class="t">Zep 论文发布</div><div class="x">arXiv:2501.13956：DMR 94.8% vs MemGPT 93.4%，LongMemEval 准确率 +18.5%、延迟 -90%</div></div>
+    <div class="ev"><div class="d">2025-04-28</div><div class="t">Mem0 论文发布 + Letta 睡眠计算论文</div><div class="x">arXiv:2504.19413（LOCOMO +26% vs OpenAI，p95 -91%，token -90%）；arXiv:2504.13171（Sleep-time Compute，Letta × Berkeley）</div></div>
+    <div class="ev"><div class="d">2025-10</div><div class="t">Mem0 完成 $24M A 轮融资（Basis Set Ventures 领投）</div><div class="x">赛道资本热度峰值信号</div></div>
+    <div class="ev"><div class="d">2025-12 ~ 2026-02</div><div class="t">Letta Code、Conversations API、Context Repositories 连发</div><div class="x">记忆优先编码 Agent + git 化记忆，切入 AI Coding 场景</div></div>
+    <div class="ev"><div class="d">2026-04 ~ 05</div><div class="t">Mem0 新算法换代（ADD-only + 多信号检索）与 Temporal Reasoning 发布</div><div class="x">自报 LoCoMo 92.5 / LongMemEval 94.4；⚠️ 该数据后被独立复现大幅下修（见第 06 节）</div></div>
+    <div class="ev"><div class="d">2026-09-13</div><div class="t">本报告数据截止</div><div class="x">GitHub API 实测：Mem0 65.2K / Graphiti 30.8K / Letta 24.7K；赛道进入"三强分化 + 新锐涌现"（MemOS、Hindsight、TencentDB-Agent-Memory、字节 Context Engine 等）阶段</div></div>
+  </div>
+</section>
+
+<!-- ============ REFS ============ -->
+<section id="refs">
+  <h2><span class="no">09</span>参考来源（按可信度分级）</h2>
+  <p class="lede"><span class="b b-a">A</span> 一手权威（论文/官方文档/GitHub API）　<span class="b b-b">B</span> 独立深度分析/复现　<span class="b b-c">C</span> 博客与自媒体（转引需交叉验证）</p>
+  <div class="card">
+    <h3 style="margin-top:0">A 级 · 一手来源</h3>
+    <ul class="refs">
+      <li><span class="n">A1</span><span>Mem0 论文：Chhikara et al., <i>Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory</i>, arXiv:2504.19413（2025-04-28，ECAI 接收）— arxiv.org/abs/2504.19413</span></li>
+      <li><span class="n">A2</span><span>Zep 论文：Rasmussen et al., <i>Zep: A Temporal Knowledge Graph Architecture for Agent Memory</i>, arXiv:2501.13956（2025-01-20）— arxiv.org/abs/2501.13956</span></li>
+      <li><span class="n">A3</span><span>MemGPT 论文：Packer et al., <i>MemGPT: Towards LLMs as Operating Systems</i>, arXiv:2310.08560（2023-10-12，v2 2024-02-12）— arxiv.org/abs/2310.08560</span></li>
+      <li><span class="n">A4</span><span>睡眠计算论文：<i>Sleep-time Compute: Beyond Inference Scaling at Test-time</i>, arXiv:2504.13171 — github.com/letta-ai/sleep-time-compute</span></li>
+      <li><span class="n">A5</span><span>GitHub API 实测（2026-09-13）：mem0ai/mem0=65,203★；getzep/graphiti=30,837★；letta-ai/letta=24,716★；topoteretes/cognee=30,656★；supermemoryai/supermemory=29,647★；MemTensor/MemOS=11,300★；langchain-ai/langmem=1,661★；getzep/zep=4,911★</span></li>
+      <li><span class="n">A6</span><span>Mem0 官方文档 · Memory Evaluation / Architecture — docs.mem0.ai/core-concepts/memory-evaluation</span></li>
+      <li><span class="n">A7</span><span>Graphiti 官方仓库 README（图数据库支持、Graphiti vs GraphRAG 对比表、混合检索说明）— github.com/getzep/graphiti</span></li>
+      <li><span class="n">A8</span><span>Letta 官方文档 · Stateful Agents / ADE；Letta 官方博客 · Sleep-time Compute（2025-04）、Conversations（2026-01）、Context Repositories（2026-02）— docs.letta.com / letta.com/blog</span></li>
+      <li><span class="n">A9</span><span>Mem0 官方博客 · <i>State of AI Agent Memory 2026</i>（厂商自报口径，用于冲突对照）— mem0.ai/blog/state-of-ai-agent-memory-2026</span></li>
+    </ul>
+    <h3>B 级 · 独立分析与复现</h3>
+    <ul class="refs">
+      <li><span class="n">B1</span><span>GenαAI · <i>AI Agent Memory in 2026: 4 Launches in 7 Weeks, and the Benchmarks Don't Agree</i> — 汇总 Maximem/AgentOS/memnode 独立复现与 LoCoMo 6.4% 错误答案键审计 — genalphai.com</span></li>
+      <li><span class="n">B2</span><span>MemTensor · OmniMemEval 基准结果（统一 harness 第三方复现：BEAM/LongMemEval 族）— github.com/MemTensor/OmniMemEval</span></li>
+      <li><span class="n">B3</span><span>Signals · <i>Zep: A Temporal Knowledge Graph Architecture for Agent Memory</i>（论文技术拆解，2026-07）— signals.aktagon.com</span></li>
+      <li><span class="n">B4</span><span>quidproquo · <i>Zep Complete Guide: Temporal Knowledge Graphs for Agent Memory</i>（2026-08-22，Graphiti/Zep 开源边界与运维成本分析）</span></li>
+      <li><span class="n">B5</span><span>ChatForest · <i>Letta (MemGPT) — The Memory-Native Agent Framework</i>（9 种 Agent 类型、9 种工具规则、v0.16.7 变更）</span></li>
+      <li><span class="n">B6</span><span>Particula · <i>Mem0 vs Zep vs Letta vs Cognee: Which to Use in 2026</i>（2026-06-04，三子问题框架：提取/检索/失效）</span></li>
+      <li><span class="n">B7</span><span>baeseokjae.github.io · <i>Best AI Agent Memory Frameworks in 2026</i>（个性化 vs 组织知识二分法、Snowflake 20%/39% 数据）</span></li>
+      <li><span class="n">B8</span><span>mcp.directory · <i>Best AI Agent Memory 2026</i>（三种架构模式归纳）；DevToolLab · <i>AI Agent Memory Platforms Compared</i>（定价与 Anthropic memory tool 基线）</span></li>
+      <li><span class="n">B9</span><span>S&P Global 对 Zep 的报道（企业记忆需求 46.9% 调研数据）— getzep.com/research</span></li>
+    </ul>
+    <h3>C 级 · 博客/自媒体（已交叉验证后有限采用）</h3>
+    <ul class="refs">
+      <li><span class="n">C1</span><span>微信公众号（经搜狗微信检索）：《Agent 记忆长文》（Mem0 两阶段管线中文拆解）、《开源智能体记忆项目盘点》（2026-08-17，小码AI笔记）、《给 Agent 装记忆》（2026-02-25，三种哲学分类）、《Agent 记忆系统不完全指南》（2026-03-30）、《字节把 Agent 的"记忆层"开源了》（2026-08-31）</span></li>
+      <li><span class="n">C2</span><span>niteagent.com / dev.to / sureprompts.com / nomadx.ae / evermind.ai 等对比文 — 星数与 benchmark 多为转引且部分过时，仅用于观点交叉，不作为数据源；evermind.ai 排名含明显自我营销（自评第一），已降权处理</span></li>
+      <li><span class="n">C3</span><span>BlockBeats · Mem0 论文中文报道（ECAI 接收、0.71s 全流程数据）；CSDN · GraphRAG/Graphiti 技术分析</span></li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Agent 记忆开源项目 Top3 实现方案 · 深度研究报告 — 生成于 2026-09-13 · 数据截止同日</p>
+    <p>方法论：多源并行收集（英文 Web / 中文 Web / 微信公众号 / GitHub API）→ 交叉验证 → 可信度分级（A/B/C）→ 冲突显式标注。星数与许可证以 GitHub API 实测为准。</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var root=document.documentElement, btn=document.getElementById('themeBtn');
+  var sun=document.getElementById('iconSun'), moon=document.getElementById('iconMoon');
+  function apply(t){root.setAttribute('data-theme',t);sun.style.display=t==='light'?'block':'none';moon.style.display=t==='dark'?'block':'none';}
+  var saved=null;try{saved=localStorage.getItem('am-theme')}catch(e){}
+  apply(saved||'light');
+  btn.addEventListener('click',function(){
+    var next=root.getAttribute('data-theme')==='light'?'dark':'light';
+    apply(next);try{localStorage.setItem('am-theme',next)}catch(e){}
+  });
+})();
+</script>
+</body>
+</html>
