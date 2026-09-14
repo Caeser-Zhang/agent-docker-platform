@@ -1166,6 +1166,8 @@ class ContainerManager:
             target = self._workspace_path(rel_path)
         except ValueError:
             return False
+        # 路径来自用户可控的文件树，必须转义：/bin/sh -c 下含空格或元字符
+        # 的文件名会拆词甚至执行注入（running 分支是 argv 数组，无此问题）。
         if container.status == "running":
             try:
                 result = container.exec_run(["rm", "-rf", "--", target], user="1000:1000")
@@ -1175,7 +1177,7 @@ class ContainerManager:
                 return False
         # Stopped container — run a throwaway container on the same volume.
         return self._run_on_workspace_volume(
-            user_id, [f"rm -rf -- {target}"], purpose="workspace-cleanup"
+            user_id, [f"rm -rf -- {shlex.quote(target)}"], purpose="workspace-cleanup"
         )
 
     def workspace_dir_exists(self, user_id: str, rel_dir: str) -> bool:

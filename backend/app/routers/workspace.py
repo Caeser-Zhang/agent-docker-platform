@@ -27,6 +27,8 @@ Endpoints:
   POST   /api/workspace/skills/import     — upload a skill archive (.zip/.rar/
                                             .7z/.tar/.tar.gz/.tar.bz2/.tar.xz),
                                             unpack into .opencode/skills/
+  POST   /api/workspace/files/delete       — delete workspace files / directory
+                                            trees (protected paths need force)
 """
 import asyncio
 import json
@@ -56,6 +58,11 @@ router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 # opencode's project-scope locations, relative to the workspace root.
 PROJECT_CONFIG_REL = "opencode.json"
 PROJECT_SKILLS_REL = ".opencode/skills"
+
+# 平台托管的工作区路径：它们由本平台的其他入口负责维护（项目级配置读写、
+# skill 面板的增删改），从文件浏览器误删会让 Agent 配置静默丢失。默认拒绝，
+# 前端读到 /files 返回的 protected 后弹二次确认，用户确认再带 force=true 重试。
+PROTECTED_WORKSPACE_PATHS = (PROJECT_CONFIG_REL, ".opencode")
 
 # Import limits for uploaded skill archives. The caps on extracted content
 # guard against decompression bombs; MAX_UPLOAD_COMPRESSED caps the raw
@@ -148,6 +155,20 @@ def _safe_upload_name(filename: str) -> str:
     if not name or name in (".", ".."):
         raise HTTPException(status_code=400, detail="无效的文件名")
     return name
+
+
+def _normalise_rel(path: str) -> str:
+    """工作区相对路径归一化（与 container_manager._workspace_path 同规则）。"""
+    return path.replace("\\", "/").strip("/")
+
+
+def _matched_protected(path: str) -> str | None:
+    """命中平台托管路径时返回该托管根，否则返回 None。"""
+    norm = _normalise_rel(path)
+    for root in PROTECTED_WORKSPACE_PATHS:
+        if norm == root or norm.startswith(root + "/"):
+            return root
+    return None
 
 
 async def _read_upload_capped(file: UploadFile, cap: int) -> bytes:
@@ -388,12 +409,15 @@ async def list_workspace_files(user: User = Depends(get_current_user)):
 
     Returns [{path, type, size}] with workspace-relative paths; the frontend
     assembles the tree. Heavy dirs (.git, node_modules, caches) are pruned.
+
+    `protected` 是平台托管路径前缀清单，前端用它判断选中项是否需要弹二次
+    确认（删除接口仍以服务端为准，force 缺失时直接拒绝）。
     """
     await _require_container(user)
     entries = await asyncio.to_thread(container_manager.list_workspace, user.id)
     if entries is None:
         raise HTTPException(status_code=500, detail="无法读取工作空间目录")
-    return {"files": entries}
+    return {"files": entries, "protected": list(PROTECTED_WORKSPACE_PATHS)}
 
 
 @router.get("/file-content")
@@ -574,6 +598,86 @@ async def download_workspace_files(
         media_type="application/zip",
         headers={"Content-Disposition": 'attachment; filename="workspace-files.zip"'},
     )
+
+
+# ------------------------------------------------------------------
+#  Workspace file deletion
+# ------------------------------------------------------------------
+
+# 与下载端点同一个量级的批量上限：删除是逐个路径一次容器操作，路径过多会
+# 让请求长时间占用 Docker API，卡住上限可以及早失败。
+MAX_DELETE_PATHS = 200
+
+
+class WorkspaceDeleteRequest(BaseModel):
+    paths: list[str]   # workspace-relative files or directories
+    # 用户在前端二次确认后才会带 true，用于放行平台托管路径。
+    force: bool = False
+
+
+@router.post("/files/delete")
+async def delete_workspace_files(
+    body: WorkspaceDeleteRequest,
+    user: User = Depends(get_current_user),
+):
+    """删除工作区内的文件或目录（目录连同整棵子树一起删）。
+
+    平台托管路径（项目 opencode.json、.opencode/）默认拒绝，需前端二次确认后
+    带 force=true 重试。逐个路径独立处理并返回成功/失败清单，这样一个坏路径
+    不会让整批操作回滚——删除本身也没有事务语义可言。
+    """
+    await _require_container(user)
+
+    # de-dup while keeping selection order
+    paths = list(dict.fromkeys(p.strip() for p in body.paths if p and p.strip()))
+    if not paths:
+        raise HTTPException(status_code=400, detail="未选择任何删除路径")
+    if len(paths) > MAX_DELETE_PATHS:
+        raise HTTPException(
+            status_code=400, detail=f"一次最多删除 {MAX_DELETE_PATHS} 个路径"
+        )
+    # 归一化后为空即工作区根目录，删掉等于清空整个卷，直接拒绝（force 也不行）。
+    if any(not _normalise_rel(p) for p in paths):
+        raise HTTPException(status_code=400, detail="不能删除工作区根目录")
+
+    if not body.force:
+        blocked = sorted({m for m in (_matched_protected(p) for p in paths) if m})
+        if blocked:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "以下路径由平台托管，删除会影响项目级配置或 skill："
+                    + "、".join(blocked)
+                    + "。确需删除请再次确认。"
+                ),
+            )
+
+    deleted: list[str] = []
+    failed: list[str] = []
+
+    def _delete() -> None:
+        for rel in paths:
+            if container_manager.delete_workspace_path(user.id, rel):
+                deleted.append(rel)
+            else:
+                failed.append(rel)
+
+    await asyncio.to_thread(_delete)
+    logger.info(
+        "Workspace delete: %d/%d path(s) removed for %s%s%s",
+        len(deleted), len(paths), user.username,
+        " (forced)" if body.force else "",
+        f", failed: {failed}" if failed else "",
+    )
+    if failed and not deleted:
+        raise HTTPException(
+            status_code=500, detail=f"删除失败: {'、'.join(failed)}"
+        )
+    return {
+        "status": "ok" if not failed else "partial",
+        "deleted": deleted,
+        "failed": failed,
+    }
 
 
 # ------------------------------------------------------------------

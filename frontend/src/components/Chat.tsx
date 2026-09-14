@@ -551,7 +551,10 @@ export function Chat({
   // the tree is refreshed afterwards. `wsNotice` is a short-lived success hint.
   const [wsUploading, setWsUploading] = useState(false);
   const [wsDownloading, setWsDownloading] = useState(false);
+  const [wsDeleting, setWsDeleting] = useState(false);
   const [wsNotice, setWsNotice] = useState("");
+  // 平台托管路径前缀（随 /workspace/files 一起下发），删除时命中需二次确认。
+  const [wsProtected, setWsProtected] = useState<string[]>([]);
   const wsNoticeTimerRef = useRef<number | null>(null);
 
   const esRef = useRef<EventSource | null>(null);
@@ -1929,6 +1932,7 @@ export function Chat({
     try {
       const r = await api.listWorkspaceFiles();
       setWsFiles(r.files ?? []);
+      setWsProtected(r.protected ?? []);
     } catch (e: any) {
       setError(e.message);
     }
@@ -2068,6 +2072,68 @@ export function Chat({
     } finally {
       setWsDownloading(false);
     }
+  };
+
+  /**
+   * 删除选中的工作区文件/目录（目录连同子树）。两步确认：先常规确认；若选中项
+   * 命中平台托管路径（项目 opencode.json、.opencode/），再追加一次强制确认，
+   * 用户放行后才带 force=true 请求后端。
+   */
+  const handleWsDelete = (paths: string[]) => {
+    if (!paths.length) return;
+    const hit = paths.filter((p) =>
+      wsProtected.some((root) => p === root || p.startsWith(root + "/"))
+    );
+
+    const runDelete = async (force: boolean) => {
+      setWsDeleting(true);
+      setError("");
+      try {
+        const r = await api.deleteWorkspaceFiles(paths, force);
+        await loadWsFiles();
+        showWsNotice(
+          r.failed?.length
+            ? `已删除 ${r.deleted.length} 个路径，${r.failed.length} 个失败`
+            : `已删除 ${r.deleted.length} 个路径`
+        );
+      } catch (e: any) {
+        setError(e.message);
+      } finally {
+        setWsDeleting(false);
+      }
+    };
+
+    modalApi.confirm({
+      title: `删除 ${paths.length} 个路径？`,
+      content: hit.length
+        ? "所选内容将被永久删除（目录连同其中的全部文件），此操作不可恢复。其中包含平台托管路径，下一步需再次确认。"
+        : "所选内容将被永久删除（目录连同其中的全部文件），此操作不可恢复。",
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: () => {
+        if (!hit.length) return runDelete(false);
+        modalApi.confirm({
+          title: "包含平台托管路径",
+          content: (
+            <div style={{ lineHeight: 1.7 }}>
+              <div>以下路径由平台托管，删除会导致项目级配置或 skill 丢失：</div>
+              <div style={{ margin: "6px 0 0", wordBreak: "break-all" }}>
+                {hit.map((p) => (
+                  <div key={p} style={{ fontFamily: "ui-monospace, monospace", fontSize: "12px" }}>
+                    {p}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ),
+          okText: "强制删除",
+          cancelText: "取消",
+          okButtonProps: { danger: true },
+          onOk: () => runDelete(true),
+        });
+      },
+    });
   };
 
   /** Append "@path" to the input (from the file panel), then refocus it. */
@@ -3435,6 +3501,8 @@ export function Chat({
               uploading={wsUploading}
               onDownload={handleWsDownload}
               downloading={wsDownloading}
+              onDelete={handleWsDelete}
+              deleting={wsDeleting}
               notice={wsNotice}
               presentTabs={presentTabs}
               activePresent={activePresent}
@@ -3603,6 +3671,15 @@ function buildTree(files: WsFile[]): TreeNode[] {
   };
   sortRec(root);
   return root.children;
+}
+
+/**
+ * 勾选一个目录即覆盖其整棵子树，因此把已被选中祖先包含的路径剔除，避免同一
+ * 文件在打包下载时被写入两次、或在删除时被重复请求。
+ */
+function pruneCoveredPaths(selected: Set<string>): string[] {
+  const all = Array.from(selected);
+  return all.filter((p) => !all.some((q) => q !== p && p.startsWith(q + "/")));
 }
 
 const fmtSize = (n: number) =>
@@ -3964,7 +4041,7 @@ function PptxSlidePreview({
 
 function FilesPanel({
   files, preview, previewLoading, onOpen, onRefresh, onInsert, onBack, onClose,
-  onUpload, uploading, notice, onDownload, downloading, width,
+  onUpload, uploading, notice, onDownload, downloading, onDelete, deleting, width,
   presentTabs, activePresent, onSelectPresent, onClosePresent,
   autoPresent, onToggleAutoPresent,
 }: {
@@ -3981,6 +4058,9 @@ function FilesPanel({
   notice?: string;
   onDownload: (paths: string[]) => void;
   downloading: boolean;
+  /** 删除选中路径（含目录树）；确认弹窗在父组件里，这里只负责发起。 */
+  onDelete: (paths: string[]) => void;
+  deleting: boolean;
   /** 面板宽度（px）——由父组件的拖拽手柄控制，默认用样式表里的 320px。 */
   width?: number;
   /** present_file 交付的多标签（去重后的产物文件）。 */
@@ -4026,14 +4106,21 @@ function FilesPanel({
   const rootPaths = tree.map((n) => n.path);
   const allSelected =
     rootPaths.length > 0 && rootPaths.every((p) => selected.has(p));
-  const handleDownload = () => {
-    // Drop paths already covered by a selected ancestor to avoid packing
-    // the same file twice inside the zip.
-    const paths = Array.from(selected).filter(
-      (p) => !Array.from(selected).some((q) => q !== p && p.startsWith(q + "/"))
-    );
-    onDownload(paths);
-  };
+
+  // 树刷新后剔除已不存在的选中项：删除完成后原路径已消失，留着会让按钮一直
+  // 显示可点并对着幽灵路径发请求。
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const alive = new Set(files.map((f) => f.path));
+      const next = new Set(Array.from(prev).filter((p) => alive.has(p)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [files]);
+
+  // 下载与删除共用同一份去重后的选中项。
+  const actionPaths = useMemo(() => pruneCoveredPaths(selected), [selected]);
+  const handleDownload = () => onDownload(actionPaths);
 
   const baseName = (p: string) => p.split("/").pop() || p;
 
@@ -4076,12 +4163,20 @@ function FilesPanel({
               {allSelected ? "清空" : "全选"}
             </button>
             <button
-              style={{ ...styles.wsUploadBtn, ...((downloading || selected.size === 0) ? { opacity: 0.6 } : {}) }}
+              style={{ ...styles.wsUploadBtn, ...((downloading || actionPaths.length === 0) ? { opacity: 0.6 } : {}) }}
               onClick={handleDownload}
               title="打包下载选中的文件/目录（zip）"
-              disabled={downloading || selected.size === 0}
+              disabled={downloading || actionPaths.length === 0}
             >
-              {downloading ? "⏳ 打包中…" : `⬇ 下载${selected.size ? `(${selected.size})` : ""}`}
+              {downloading ? "⏳ 打包中…" : `⬇ 下载${actionPaths.length ? `(${actionPaths.length})` : ""}`}
+            </button>
+            <button
+              style={{ ...styles.wsDeleteBtn, ...((deleting || actionPaths.length === 0) ? { opacity: 0.6 } : {}) }}
+              onClick={() => onDelete(actionPaths)}
+              title="删除选中的文件/目录（目录连同其中全部内容，不可恢复）"
+              disabled={deleting || actionPaths.length === 0}
+            >
+              {deleting ? "⏳ 删除中…" : `🗑 删除${actionPaths.length ? `(${actionPaths.length})` : ""}`}
             </button>
             <button
               style={{ ...styles.wsUploadBtn, ...(uploading ? { opacity: 0.6 } : {}) }}

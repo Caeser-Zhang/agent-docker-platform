@@ -1528,7 +1528,14 @@ export const api = {
   },
 
   // --- Workspace file browser -------------------------------------------
-  async listWorkspaceFiles(): Promise<{ files: { path: string; type: "file" | "dir"; size: number }[] }> {
+  /**
+   * `protected` 为平台托管路径前缀（项目 opencode.json、.opencode/），删除
+   * 时命中需弹二次确认并带 force=true。清单由后端下发，避免两端各写一份。
+   */
+  async listWorkspaceFiles(): Promise<{
+    files: { path: string; type: "file" | "dir"; size: number }[];
+    protected?: string[];
+  }> {
     return apiCall("/workspace/files");
   },
 
@@ -1631,6 +1638,20 @@ export const api = {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  },
+
+  /**
+   * 批量删除工作区文件/目录（目录连同子树）。force 仅在用户对平台托管路径
+   * 二次确认后传 true；否则后端命中托管路径会返回 409。
+   */
+  async deleteWorkspaceFiles(
+    paths: string[],
+    force = false
+  ): Promise<{ status: "ok" | "partial"; deleted: string[]; failed: string[] }> {
+    return apiCall("/workspace/files/delete", {
+      method: "POST",
+      body: JSON.stringify({ paths, force }),
+    });
   },
 
   /**

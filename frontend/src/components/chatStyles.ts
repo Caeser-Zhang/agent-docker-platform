@@ -1403,6 +1403,8 @@ export const styles: Record<string, any> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
+    // 窄面板下按钮换行而不是溢出裁切（全选/下载/删除/上传/刷新/关闭 六个）。
+    flexWrap: "wrap",
     padding: "10px 12px",
     borderBottom: `1px solid ${border}`,
     fontSize: "13px",
@@ -1414,6 +1416,17 @@ export const styles: Record<string, any> = {
     border: `1px solid ${border}`,
     background: surface,
     color: text,
+    cursor: "pointer",
+    fontSize: "12px",
+    borderRadius: "6px",
+    padding: "3px 8px",
+    flexShrink: 0,
+  },
+  // 删除是破坏性操作，用红色系与下载/上传区分开。
+  wsDeleteBtn: {
+    border: "1px solid var(--red-border)",
+    background: "var(--red-soft)",
+    color: "var(--red)",
     cursor: "pointer",
     fontSize: "12px",
     borderRadius: "6px",

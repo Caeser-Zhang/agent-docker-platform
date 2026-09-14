@@ -594,11 +594,46 @@ name 非法 → 400；不存在 → 404
     { "path": "tmp",           "type": "dir",  "size": 4096 },
     { "path": "tmp/report.pdf","type": "file", "size": 102400 },
     { "path": "index.html",    "type": "file", "size": 2048 }
-  ]
+  ],
+  "protected": ["opencode.json", ".opencode"]
 }
 ```
 
-`path` 为工作区相对路径，前端自行组装树。读取失败 → 500。
+`path` 为工作区相对路径，前端自行组装树。`protected` 是平台托管路径前缀清单，删除接口用它决定是否需要二次确认（见下）。读取失败 → 500。
+
+#### `POST /api/workspace/files/delete` — 批量删除文件/目录
+
+删除工作区内的文件或目录，目录连同整棵子树一起删（底层 `rm -rf`）。逐个路径独立处理，一个坏路径不会让整批失败。
+
+**请求体**
+
+```json
+{ "paths": ["tmp/report.pdf", "draft"], "force": false }
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `paths` | `string[]` | 工作区相对路径，文件或目录；自动去重 |
+| `force` | `bool` | 默认 `false`；仅在前端对平台托管路径完成二次确认后传 `true` |
+
+**响应**
+
+```json
+{ "status": "ok", "deleted": ["tmp/report.pdf", "draft"], "failed": [] }
+```
+
+`status` 为 `ok`（全部成功）或 `partial`（部分失败）。
+
+**错误**
+
+| 状态码 | 场景 |
+|---|---|
+| 400 | 未选择路径 / 超过 200 个路径 / 试图删除工作区根目录 |
+| 409 | `force=false` 且命中平台托管路径（`opencode.json`、`.opencode/`） |
+| 409 | Agent 容器尚未创建 |
+| 500 | 全部路径删除失败 |
+
+路径安全由 `container_manager._workspace_path()` 把关（拒绝 `..`、绝对路径、盘符），越界路径归入 `failed`。
 
 #### `GET /api/workspace/file-content?path=…` — 单文件预览读取
 
