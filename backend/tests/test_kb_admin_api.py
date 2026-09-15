@@ -5,10 +5,12 @@ Two properties matter here and get their own tests: credentials are write-only
 a credential takes its grants with it — SQLite does not honour the FK's
 ON DELETE CASCADE without foreign_keys=ON, so the route must do it explicitly.
 """
+import httpx
 import pytest
 from sqlalchemy import select
 
 from app import crypto
+from app.config import settings
 from app.models import AuditEvent, KbGrant, KbKey, User
 from app.routers import kb_keys
 from app.services import audit
@@ -286,6 +288,59 @@ async def test_my_databases_lists_only_own_grants(app_client_factory, db_factory
         r = await client.get("/api/kb/my-databases")
     assert r.status_code == 200
     assert r.json() == {"databases": ["fastdb", "vl_test"]}  # names only, sorted
+
+
+CATALOG = [
+    {"name": "fastdb", "description": "源码库", "uri": "/data/fastdb", "dimension": 1024},
+    {"name": "hr_only", "description": "人事", "uri": "/data/hr", "dimension": 1024},
+]
+
+
+async def test_my_catalog_lists_only_granted_databases(
+    app_client_factory, db_factory, mock_httpx, monkeypatch
+):
+    """The panel shows what kb_grants allows — never what the catalog lists.
+
+    ``AGENT_KB_CATALOG_KEY`` can see every database on the server; that must
+    not widen the response. ``uri`` is a host storage path and stays behind.
+    """
+    monkeypatch.setattr(settings, "kb_catalog_key", "sk-admin")
+    async with db_factory() as db:
+        await add_user(db, id="u1", username="alice", uid="0001")
+        db.add_all([
+            KbKey(kb_name="fastdb", api_key_enc=crypto.encrypt_secret("sk1")),
+            KbKey(kb_name="hr_only", api_key_enc=crypto.encrypt_secret("sk2")),
+            KbGrant(user_id="u1", kb_name="fastdb"),
+        ])
+        await db.commit()
+
+    calls = mock_httpx(lambda request: httpx.Response(200, json=CATALOG))
+    client = app_client_factory([kb_keys.user_router], user_id="u1")
+    async with client:
+        r = await client.get("/api/kb/my-catalog")
+    assert r.status_code == 200
+    assert r.json() == {"databases": [{"name": "fastdb", "description": "源码库"}]}
+    # The listing is server-wide, so it is read with the platform catalog key.
+    assert calls[0].headers["x-api-key"] == "sk-admin"
+
+
+async def test_my_catalog_degrades_to_names_when_the_listing_is_denied(
+    app_client_factory, db_factory, mock_httpx, monkeypatch
+):
+    """A missing/stale catalog key blanks the descriptions, not the panel."""
+    monkeypatch.setattr(settings, "kb_catalog_key", "sk-stale")
+    async with db_factory() as db:
+        await add_user(db, id="u1", username="alice", uid="0001")
+        db.add(KbKey(kb_name="fastdb", api_key_enc=crypto.encrypt_secret("sk1")))
+        db.add(KbGrant(user_id="u1", kb_name="fastdb"))
+        await db.commit()
+
+    mock_httpx(lambda request: httpx.Response(401, json={"detail": "invalid api key"}))
+    client = app_client_factory([kb_keys.user_router], user_id="u1")
+    async with client:
+        r = await client.get("/api/kb/my-catalog")
+    assert r.status_code == 200
+    assert r.json() == {"databases": [{"name": "fastdb", "description": ""}]}
 
 
 # ------------------------------------------------------------------------ audit

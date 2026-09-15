@@ -8,7 +8,8 @@ here instead of the fastk server directly. Every request is then:
   1. authenticated by token → user_id
   2. authorised against kb_grants for the target database (the catalog branch
      instead FILTERS the server's listing down to the granted databases)
-  3. forwarded with the platform's real per-database key injected
+  3. forwarded with a platform credential injected — the target database's own
+     key, or the catalog key (``AGENT_KB_CATALOG_KEY``) for the listing
 
 Two invariants matter more than anything else in this file:
 
@@ -105,12 +106,21 @@ async def _filtered_catalog(client: httpx.AsyncClient, allowed: set[str]) -> Res
     needs to pick the right database. ``uri`` is dropped: it is a host-side
     storage path with no meaning inside a container and no business leaking.
 
-    No key is injected: the listing endpoint needs none, and this is a
-    discovery convenience rather than a confidentiality boundary — database
-    names are enumerable from the server by anyone who can reach it.
+    The listing is read with the platform-wide catalog key
+    (``kb_access.catalog_headers``), never with a per-database key and never
+    with the caller's proxy token. Filtering stays a discovery convenience
+    rather than a confidentiality boundary — database names are enumerable
+    from the server by anyone who can reach it.
     """
-    resp = await client.get(f"{settings.fastk_server_url.rstrip('/')}/fastk/api/databases/")
+    resp = await client.get(
+        f"{settings.fastk_server_url.rstrip('/')}/fastk/api/databases/",
+        headers=kb_access.catalog_headers(),
+    )
     if resp.status_code != 200:
+        # Passed through verbatim (the CLI prints it), but logged too: a 401
+        # here means AGENT_KB_CATALOG_KEY is missing or stale, which would
+        # otherwise look exactly like "this user has no databases".
+        logger.warning("kb-proxy: upstream catalog listing returned %d", resp.status_code)
         return Response(content=resp.content, status_code=resp.status_code,
                         media_type=resp.headers.get("content-type", "application/json"))
     entries = resp.json()

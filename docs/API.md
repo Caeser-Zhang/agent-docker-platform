@@ -1109,7 +1109,7 @@ fastk 知识库白名单体系（设计详见 [FASTK_APIKEY_WHITELIST_DESIGN.md]
 - **权限判定**统一走 `services/kb_access.py`，三个消费方共享同一决策路径：Agent 代理（§12.3）、引用角标（§12.4）、管理端点（§12.1），口径永不漂移。
 - 授权/回收**立即生效**（每次请求实时重读白名单），无需重建容器。
 
-相关配置（`backend/.env`）：`AGENT_FASTK_SERVER_URL`（真实 fastk 服务器，仅后端直连）、`AGENT_KB_PROXY_BASE`（注入容器的代理基址，默认 `http://backend:8000`）、`AGENT_KB_ADMIN_CONTACT`（渲染进 403 文案的管理员联系方式）。
+相关配置（`backend/.env`）：`AGENT_FASTK_SERVER_URL`（真实 fastk 服务器，仅后端直连）、`AGENT_KB_PROXY_BASE`（注入容器的代理基址，默认 `http://backend:8000`）、`AGENT_KB_ADMIN_CONTACT`（渲染进 403 文案的管理员联系方式）、`AGENT_KB_CATALOG_KEY`（读取服务器**全局目录** `GET /fastk/api/databases/` 的凭据——该端点是服务器级的，`kb_keys` 的逐库 key 不适用；仅用于取描述，不改变授权边界，留空表示免 key；**绝不注入 agent 容器**，否则容器可绕过白名单直连宿主枚举并读取全部库）。
 
 ### 12.1 管理端点（前缀 `/api/admin`，全部要求 `role=admin`）
 
@@ -1181,7 +1181,7 @@ fastk 知识库白名单体系（设计详见 [FASTK_APIKEY_WHITELIST_DESIGN.md]
 { "databases": [ { "name": "global", "description": "全员通用知识库" } ] }
 ```
 
-名称来自白名单（`kb_grants`），描述取自 fastk 服务器目录（与代理目录同一套过滤，剥离 `uri`）。**软失败**：fastk 不可达时不报错，返回已授权库名 + 空描述，面板仍能展示"能访问什么"。
+名称来自白名单（`kb_grants`），描述取自 fastk 服务器目录（与代理目录同一套过滤，剥离 `uri`；目录端点是服务器级的，用全局 `AGENT_KB_CATALOG_KEY` 读取）。**过滤由白名单驱动**：响应遍历 `granted` 构造，未授权的库即使出现在全局目录里也不会进入响应（连名字都没有），故全局 key 只影响能否拿到描述、不放宽可见范围。**软失败**：fastk 不可达、或目录返回非 200（如 key 失效的 401，会记一条 warning）时，返回已授权库名 + 空描述，面板仍能展示"能访问什么"。
 
 ### 12.3 Agent 容器代理（白名单强制点）
 

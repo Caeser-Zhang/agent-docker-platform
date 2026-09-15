@@ -48,6 +48,24 @@ def verify_proxy_token(token: str | None) -> str | None:
     return user_id or None
 
 
+def catalog_headers() -> dict[str, str]:
+    """Headers for reading the server's GLOBAL database listing.
+
+    ``GET /fastk/api/databases/`` is server-wide, so the per-database keys in
+    kb_keys do not apply to it — ``AGENT_KB_CATALOG_KEY`` is the credential the
+    server accepts there. Empty (the default) means the endpoint needs no key,
+    and no header is sent at all.
+
+    Shared by the only two catalog readers (:mod:`routers.kb_proxy` and
+    ``routers.kb_keys.my_catalog``) so they cannot drift apart. Note what this
+    key does NOT do: it buys descriptions, never access. The list a user or an
+    agent sees is still built from kb_grants, and this key must never reach a
+    container — one that holds it could enumerate and read every database
+    straight off the host gateway, whitelist notwithstanding.
+    """
+    return {"X-API-Key": settings.kb_catalog_key} if settings.kb_catalog_key else {}
+
+
 def denial_message(kb_name: str) -> str:
     """403 text shown by the CLI and read by the agent.
 

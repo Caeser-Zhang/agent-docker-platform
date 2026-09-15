@@ -93,7 +93,10 @@ async def test_write_post_is_refused_before_authorisation(app_client_factory, mo
 # -------------------------------------------------------------------- catalog
 
 
-async def test_catalog_is_filtered_to_grants_and_strips_uri(app_client_factory, mock_httpx, db_factory):
+async def test_catalog_is_filtered_to_grants_and_strips_uri(
+    app_client_factory, mock_httpx, db_factory, monkeypatch
+):
+    monkeypatch.setattr(settings, "kb_catalog_key", "sk-admin")
     async with db_factory() as db:
         await seed(db, grants=[("u1", "fastdb")], keys=[("fastdb", "sk-real"), ("hr_only", "sk-hr")])
     calls = mock_httpx(lambda request: httpx.Response(200, json=CATALOG))
@@ -106,7 +109,24 @@ async def test_catalog_is_filtered_to_grants_and_strips_uri(app_client_factory, 
     assert "uri" not in entries[0]  # host storage path stays on the host
     assert entries[0]["description"] == "源码库"  # server metadata survives filtering
     assert entries[0]["dimension"] == 1024
-    assert "x-api-key" not in calls[0].headers  # listing needs no key, and none is sent
+    # The listing is server-wide: it goes upstream with the platform catalog
+    # key — not a per-database key, and never the caller's own proxy token.
+    assert calls[0].headers["x-api-key"] == "sk-admin"
+
+
+async def test_catalog_sends_no_key_when_none_is_configured(
+    app_client_factory, mock_httpx, db_factory, monkeypatch
+):
+    """Servers that leave the listing open must not be handed a stray header."""
+    monkeypatch.setattr(settings, "kb_catalog_key", "")
+    async with db_factory() as db:
+        await seed(db, grants=[("u1", "fastdb")], keys=[("fastdb", "sk-real")])
+    calls = mock_httpx(lambda request: httpx.Response(200, json=CATALOG))
+    client = app_client_factory([kb_proxy.router])
+    async with client:
+        r = await client.get("/fastk/api/databases/", headers=auth(kb_access.issue_proxy_token("u1")))
+    assert [e["name"] for e in r.json()] == ["fastdb"]
+    assert "x-api-key" not in calls[0].headers
 
 
 async def test_catalog_without_trailing_slash_behaves_the_same(app_client_factory, mock_httpx, db_factory):

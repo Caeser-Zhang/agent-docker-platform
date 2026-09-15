@@ -340,6 +340,11 @@ async def my_catalog(
     :func:`routers.kb_proxy._filtered_catalog`). ``uri`` is dropped: it is a
     host-side storage path with no meaning to the browser.
 
+    The listing is server-wide, so it is read with ``AGENT_KB_CATALOG_KEY``
+    rather than a per-database key. That key buys descriptions only: the
+    response below is built by iterating ``granted``, so an unauthorised
+    database can never reach the browser even though the catalog lists it.
+
     Fails soft: an unreachable fastk server yields the granted names with empty
     descriptions rather than an error, so the panel still shows *what* the user
     can access even when the catalog metadata is temporarily unavailable.
@@ -351,12 +356,21 @@ async def my_catalog(
         try:
             async with httpx.AsyncClient(timeout=_CATALOG_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{settings.fastk_server_url.rstrip('/')}/fastk/api/databases/"
+                    f"{settings.fastk_server_url.rstrip('/')}/fastk/api/databases/",
+                    headers=kb_access.catalog_headers(),
                 )
             if resp.status_code == 200:
                 for entry in resp.json():
                     if isinstance(entry, dict) and entry.get("name") in allowed:
                         descriptions[entry["name"]] = entry.get("description") or ""
+            else:
+                # A 401/403 here means AGENT_KB_CATALOG_KEY is missing or stale.
+                # The panel degrades to names only, which is invisible to the
+                # user — so say so in the log.
+                logger.warning(
+                    "my-catalog: fastk listing returned %d for user=%s (descriptions omitted)",
+                    resp.status_code, user.id,
+                )
         except httpx.HTTPError as exc:
             logger.warning("my-catalog: fastk listing failed for user=%s: %s", user.id, exc)
 
