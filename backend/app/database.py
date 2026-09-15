@@ -43,6 +43,7 @@ async def init_db():
         User,
         AgentContainer,
         UserMcpServer,
+        UserBuiltinMcpToggle,
         UserLLMProvider,
         AuditEvent,
         RequestLog,
@@ -51,6 +52,7 @@ async def init_db():
         MessageFeedback,
         AgentRoundMetrics,
         ToolCallMetrics,
+        LLMProxyMetrics,
     )
 
     async with engine.begin() as conn:
@@ -59,6 +61,29 @@ async def init_db():
         # (created before the field existed) are missing.
         await conn.run_sync(_add_missing_columns)
         await conn.run_sync(_drop_legacy_tables)
+
+
+def _table_columns(sync_conn, table: str) -> set[str]:
+    """Existing column names for ``table`` (empty set if the table is absent)."""
+    if sync_conn.dialect.name == "sqlite":
+        return {row[1] for row in sync_conn.execute(text(f"PRAGMA table_info({table})"))}
+    return {
+        row[0] for row in sync_conn.execute(
+            text("SELECT column_name FROM information_schema.columns WHERE table_name = :t"),
+            {"t": table},
+        )
+    }
+
+
+def _ensure_column(sync_conn, table: str, column: str, ddl: str) -> None:
+    """ALTER TABLE ADD COLUMN if missing; no-op when the table doesn't exist yet.
+
+    An empty introspection result means create_all will build the table with the
+    column already present, so there is nothing to migrate.
+    """
+    cols = _table_columns(sync_conn, table)
+    if cols and column not in cols:
+        sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
 def _add_missing_columns(sync_conn) -> None:
@@ -113,6 +138,16 @@ def _add_missing_columns(sync_conn) -> None:
         # plain TIMESTAMP on SQLite (which stores whatever it is given).
         col_type = "TIMESTAMPTZ" if sync_conn.dialect.name != "sqlite" else "TIMESTAMP"
         sync_conn.execute(text(f"ALTER TABLE kb_grants ADD COLUMN revoked_at {col_type}"))
+
+    # 运维监测增强（P0）：回合错误分类 + token 拆分，工具单次耗时。
+    _ensure_column(sync_conn, "agent_round_metrics", "error_name", "VARCHAR(64)")
+    _ensure_column(sync_conn, "agent_round_metrics", "error_status_code", "INTEGER")
+    for col in (
+        "input_tokens", "output_tokens", "reasoning_tokens",
+        "cache_read_tokens", "cache_write_tokens",
+    ):
+        _ensure_column(sync_conn, "agent_round_metrics", col, "INTEGER")
+    _ensure_column(sync_conn, "tool_call_metrics", "duration_ms", "INTEGER")
 
 
 def _drop_legacy_tables(sync_conn) -> None:

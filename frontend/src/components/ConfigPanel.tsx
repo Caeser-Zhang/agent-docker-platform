@@ -397,9 +397,11 @@ function ProviderTab({ overview, onChange }: { overview: any; onChange: () => vo
 }
 
 // ------------------------------------------------------------------
-//  MCP tab (global only): built-in + host servers. Host servers are
-//  platform-wide (admin-managed); regular users get a read-only view and
-//  are pointed at the user-scope MCP tab for their own servers.
+//  MCP tab (global only): built-in + host servers. Built-in servers can be
+//  toggled per-user by everyone ("我的"); the admin checkbox next to them is
+//  the platform-wide switch. Host servers are platform-wide and can only be
+//  edited by admins — regular users get a read-only view and are pointed at
+//  the user-scope MCP tab for their own servers.
 // ------------------------------------------------------------------
 
 function McpTab({ overview, onChange, isAdmin }: { overview: any; onChange: () => void; isAdmin: boolean }) {
@@ -453,6 +455,17 @@ function McpTab({ overview, onChange, isAdmin }: { overview: any; onChange: () =
     }
   };
 
+  const handleMyToggle = async (name: string, enabled: boolean) => {
+    try {
+      // Personal scope: the backend stores the preference and re-applies this
+      // user's effective visibility set to their own running container only.
+      await api.toggleUserBuiltinMcp(name, enabled);
+      onChange();
+    } catch (e: any) {
+      alert("切换失败: " + e.message);
+    }
+  };
+
   if (editing) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -487,11 +500,11 @@ function McpTab({ overview, onChange, isAdmin }: { overview: any; onChange: () =
 
   return (
     <div>
-      {!isAdmin && (
-        <p style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 6, background: "var(--indigo-soft)", color: "var(--indigo)", fontSize: 12 }}>
-          全局 MCP 由管理员维护并注入所有用户容器，此处仅供查看。个人 MCP 请到「我的配置 → MCP 服务」添加（仅自己可见）。
-        </p>
-      )}
+      <p style={{ margin: "0 0 12px", padding: "8px 12px", borderRadius: 6, background: "var(--indigo-soft)", color: "var(--indigo)", fontSize: 12 }}>
+        {isAdmin
+          ? "内置 MCP 有两个开关：「全局」写宿主机配置并对所有用户生效；「我的」只影响我自己的容器。全局停用时个人无法启用。"
+          : "内置 MCP 的「我的」开关只影响你自己的容器；管理员的全局开关影响所有用户，且全局停用时个人无法启用。个人 MCP 请到「我的配置 → MCP 服务」添加（仅自己可见）。"}
+      </p>
       {Object.entries(mcp).map(([name, data]: [string, any]) => (
         <div key={name} style={{ padding: "12px", marginBottom: 8, border: "1px solid var(--border)", borderRadius: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -509,11 +522,31 @@ function McpTab({ overview, onChange, isAdmin }: { overview: any; onChange: () =
                   管理员添加
                 </span>
               )}
+              {data.builtin && data.enabled === false && (
+                <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11, background: "var(--red-soft)", color: "var(--red)", fontWeight: 500 }}>
+                  全局已停用
+                </span>
+              )}
               {scopeBadge("global")}
             </div>
-            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {isAdmin && (
-                <input type="checkbox" checked={!!data.enabled} title="启用/停用（影响所有用户，运行中的容器约 2 秒生效）" onChange={(e) => handleToggle(name, e.target.checked)} />
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-2)" }}>
+                  <input type="checkbox" checked={!!data.enabled} title="启用/停用（影响所有用户，运行中的容器约 2 秒生效）" onChange={(e) => handleToggle(name, e.target.checked)} />
+                  全局
+                </label>
+              )}
+              {data.builtin && (
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-2)" }}>
+                  <input
+                    type="checkbox"
+                    checked={data.my_enabled !== false}
+                    disabled={data.enabled === false}
+                    title={data.enabled === false ? "已全局停用，个人无法启用" : "启用/停用（仅影响我自己的容器，运行中的容器约 2 秒生效）"}
+                    onChange={(e) => handleMyToggle(name, e.target.checked)}
+                  />
+                  我的
+                </label>
               )}
               {isAdmin && !data.builtin && (
                 <>

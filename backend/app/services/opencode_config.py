@@ -424,7 +424,9 @@ def hidden_builtin_skills(source: dict | None = None) -> set[str]:
     }
 
 
-def hidden_mcp_servers(source: dict | None = None) -> set[str]:
+def hidden_mcp_servers(
+    source: dict | None = None, user_hidden: set[str] | None = None
+) -> set[str]:
     """MCP servers currently hidden from agents.
 
     Built-in servers hide via the ``builtin_mcp`` override (enabled=False);
@@ -433,6 +435,10 @@ def hidden_mcp_servers(source: dict | None = None) -> set[str]:
     on) — hiding is a permission ``deny`` rule on ``<sanitized>_*``, so a
     toggle is a permission flip that PATCH /global/config applies in ~2s
     instead of a 10-20s stop/inject/start cycle.
+
+    ``user_hidden`` layers one user's personal disables on top of the platform
+    set. The result is a union, so an individual can only ever *narrow*
+    visibility — a platform-wide hide is never relaxed by a user preference.
     """
     if source is None:
         source, _ = load_source_config()
@@ -450,7 +456,44 @@ def hidden_mcp_servers(source: dict | None = None) -> set[str]:
                 and cfg.get("enabled") is False
             ):
                 hidden.add(name)
+    if user_hidden:
+        hidden |= set(user_hidden)
     return hidden
+
+
+def hidden_mcps_from_config(doc: dict) -> set[str]:
+    """MCP names hidden by an already-rendered container config.
+
+    The container's opencode.json is the single source of truth for what that
+    container may actually use: a hidden server stays connected (``enabled``
+    forced on) but carries a ``permission["<sanitized>_*"] = "deny"`` rule.
+    Reading the deny rules back gives the *effective* hidden set — platform
+    hides plus whatever user-level overrides were rendered into the document.
+
+    Used by the (synchronous) container manager when writing the plugin config
+    next to the config it just rendered, so both enforcement tracks agree
+    without threading user preferences through every signature. Names are
+    returned in their original (unsanitized) form, as the plugin's ``!name``
+    list semantics require them.
+    """
+    if not isinstance(doc, dict):
+        return set()
+    permission = doc.get("permission")
+    if not isinstance(permission, dict):
+        return set()
+    mcp = doc.get("mcp")
+    if not isinstance(mcp, dict):
+        return set()
+    denied = {
+        key[: -len("_*")]
+        for key, value in permission.items()
+        if isinstance(key, str)
+        and key.endswith("_*")
+        and value == "deny"
+    }
+    if not denied:
+        return set()
+    return {name for name in mcp if _sanitize_mcp_permission_key(name) in denied}
 
 
 def _sanitize_mcp_permission_key(name: str) -> str:
@@ -572,6 +615,7 @@ def build_container_config(
     active_provider_id: str | None = None,
     active_model: str | None = None,
     user_id: str | None = None,
+    user_hidden_mcps: set[str] | None = None,
 ) -> dict:
     """Produce the config document to write into a user's container.
 
@@ -579,7 +623,9 @@ def build_container_config(
     defaults); the three ``user_*`` arguments layer per-user content on top:
     ``user_provider`` / ``user_mcp`` are the decrypted user LLM providers and
     MCP servers, and ``active_provider_id`` / ``active_model`` decide the
-    default ``model``. ``user_id`` scopes user-provider proxy routing.
+    default ``model``. ``user_id`` scopes user-provider proxy routing and
+    ``user_hidden_mcps`` this user's personal built-in MCP disables, which are
+    merged with the platform hides (a user can only narrow visibility).
     """
     source, origin = load_source_config()
 
@@ -714,7 +760,7 @@ def build_container_config(
     # without restarting the container.
     # ------------------------------------------------------------------
     hidden_skills = hidden_builtin_skills(source)
-    hidden_mcps = hidden_mcp_servers(source)
+    hidden_mcps = hidden_mcp_servers(source, user_hidden=user_hidden_mcps)
 
     for entry in (merged.get("mcp") or {}).values():
         if isinstance(entry, dict):
@@ -758,6 +804,7 @@ def build_container_config_json(
     active_provider_id: str | None = None,
     active_model: str | None = None,
     user_id: str | None = None,
+    user_hidden_mcps: set[str] | None = None,
 ) -> str:
     """Serialize :func:`build_container_config` to the injected JSON string."""
     return json.dumps(
@@ -767,6 +814,7 @@ def build_container_config_json(
             active_provider_id=active_provider_id,
             active_model=active_model,
             user_id=user_id,
+            user_hidden_mcps=user_hidden_mcps,
         ),
         ensure_ascii=False,
         indent=2,

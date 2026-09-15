@@ -11,6 +11,8 @@ Endpoints:
   GET    /api/user-config/mcp/{server_id}    — get one MCP server
   PATCH  /api/user-config/mcp/{server_id}    — update one MCP server
   DELETE /api/user-config/mcp/{server_id}    — delete one MCP server
+  GET    /api/user-config/builtin-mcp        — platform MCP servers + my choice
+  PATCH  /api/user-config/builtin-mcp/{name} — enable/disable one for myself only
   GET    /api/user-config/llm                — list my LLM providers
   POST   /api/user-config/llm                — create an LLM provider
   GET    /api/user-config/llm/{config_id}    — get one LLM provider
@@ -27,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import get_current_user
 from ..database import get_db
 from ..models import User
-from ..services import user_config
+from ..services import opencode_config, user_config, visibility
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/user-config", tags=["user-config"])
@@ -82,6 +84,10 @@ class LlmUpdate(BaseModel):
 class ActiveLlmUpdate(BaseModel):
     provider_id: str | None = None
     model: str | None = None
+
+
+class BuiltinMcpToggle(BaseModel):
+    enabled: bool
 
 
 # ------------------------------------------------------------------
@@ -156,6 +162,88 @@ async def delete_mcp(
     if not deleted:
         raise HTTPException(status_code=404, detail="MCP server not found")
     logger.info("User %s deleted MCP server '%s'", user.username, server_id)
+
+
+# ------------------------------------------------------------------
+#  Built-in MCP visibility (per user)
+# ------------------------------------------------------------------
+
+def _builtin_mcp_entry(name: str, cfg: dict, my_enabled: bool) -> dict:
+    """One built-in MCP server as seen by one user.
+
+    ``platform_enabled`` is the admin's platform-wide switch (the same for
+    everyone), ``my_enabled`` this user's own preference, and
+    ``effective_enabled`` what their agent can actually use — a server the
+    platform hid stays off no matter what the user chose.
+    """
+    platform_enabled = bool(cfg.get("enabled", True))
+    return {
+        "name": name,
+        "type": cfg.get("type"),
+        "platform_enabled": platform_enabled,
+        "my_enabled": my_enabled,
+        "effective_enabled": platform_enabled and my_enabled,
+    }
+
+
+@router.get("/builtin-mcp")
+async def list_builtin_mcp(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List the platform's built-in MCP servers with this user's own switches.
+
+    Read-only mirror of the admin view at /api/config/mcp: the connection
+    config is image-side and shared, only the visibility choice is personal.
+    """
+    toggles = await user_config.list_builtin_toggles(db, user.id)
+    servers = opencode_config.builtin_mcp_servers()
+    return {
+        "mcp": [
+            _builtin_mcp_entry(name, cfg, bool(toggles.get(name, True)))
+            for name, cfg in sorted(servers.items())
+        ]
+    }
+
+
+@router.patch("/builtin-mcp/{name}")
+async def toggle_builtin_mcp(
+    name: str,
+    body: BuiltinMcpToggle,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch one built-in MCP server on/off for *this user only*.
+
+    Unlike ``PATCH /api/config/mcp/{name}`` (admin-only, platform-wide), the
+    preference lands on the ``user_builtin_mcp_toggles`` row and is pushed to
+    this user's container alone. A user can only narrow visibility: enabling a
+    server the platform hides is rejected, because the platform deny rule
+    would win anyway and the switch would be a lie.
+    """
+    servers = opencode_config.builtin_mcp_servers()
+    if name not in servers:
+        raise HTTPException(status_code=404, detail=f"Built-in MCP server '{name}' not found")
+    if body.enabled and not servers[name].get("enabled", True):
+        raise HTTPException(
+            status_code=409,
+            detail=f"MCP server '{name}' is disabled platform-wide by an admin",
+        )
+
+    await user_config.set_builtin_toggle(db, user.id, name, body.enabled)
+    # Persist first, then push: the runtime helper re-reads the effective set
+    # from the database, so the container ends up matching the stored row even
+    # if the platform state changed in between. A failed push is not fatal —
+    # the next config injection (start/reload) applies the same rules.
+    applied = await visibility.apply_user_mcp_visibility(user.id, name)
+    logger.info(
+        "User %s %s built-in MCP '%s' (runtime push %s)",
+        user.username, "enabled" if body.enabled else "disabled", name,
+        "applied" if applied else "deferred",
+    )
+    return _builtin_mcp_entry(
+        name, servers[name], body.enabled
+    ) | {"applied": applied}
 
 
 # ------------------------------------------------------------------

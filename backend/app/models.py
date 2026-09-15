@@ -36,6 +36,9 @@ class User(Base):
     mcp_servers: Mapped[list["UserMcpServer"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    builtin_mcp_toggles: Mapped[list["UserBuiltinMcpToggle"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     llm_providers: Mapped[list["UserLLMProvider"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -105,6 +108,42 @@ class UserMcpServer(Base):
     __table_args__ = (
         Index("idx_user_mcp_servers_user", "user_id"),
         UniqueConstraint("user_id", "name", name="uq_user_mcp_server_name"),
+    )
+
+
+class UserBuiltinMcpToggle(Base):
+    """One user's enable/disable choice for one platform built-in MCP server.
+
+    Built-in MCP servers are defined image-side (read-only manifests), so
+    unlike :class:`UserMcpServer` there is no connection config to own here —
+    only a visibility preference keyed by ``(user_id, name)``. No row means
+    "inherit the platform default" (on), which keeps the table empty until a
+    user actually diverges from the platform.
+
+    Enforcement reuses the visibility mechanism already in place for
+    platform-wide hides: a disabled name becomes a
+    ``permission["<sanitized>_*"] = "deny"`` rule in *this user's* rendered
+    opencode.json plus an exclusion in their plugin config preset lists. An
+    admin's platform-wide hide always wins — a user row can only narrow
+    visibility, never widen it (see
+    :func:`opencode_config.hidden_mcp_servers`).
+    """
+
+    __tablename__ = "user_builtin_mcp_toggles"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="builtin_mcp_toggles")
+
+    __table_args__ = (
+        Index("idx_user_builtin_mcp_toggles_user", "user_id"),
     )
 
 
@@ -356,10 +395,21 @@ class AgentRoundMetrics(Base):
     task_success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     errored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 错误分类（A1）：opencode 错误联合的判别名（ProviderAuthError/APIError/
+    # ContextOverflowError/MessageAbortedError/ContentFilterError…），供错误率下钻。
+    error_name: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # APIError 的上游 HTTP 状态码（429/5xx/401…）；非 APIError 时为 None。
+    error_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # --- L2 效率与性能 ---
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON dict 原样
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Token 拆分（A3）：冗余列供 SQL 聚合（缓存命中率 / reasoning 占比 / 成本归因）。
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     # --- L3 过程与轨迹 ---
     tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -397,6 +447,9 @@ class ToolCallMetrics(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)  # completed|error|pending|running
     is_error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 单次工具耗时（A2）：state.time.end - state.time.start。仅实时 tap 可得
+    # （REST 回补的 SessionMessageToolState* 无 time 字段），故回补行为 None。
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="tap")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
@@ -404,4 +457,36 @@ class ToolCallMetrics(Base):
     __table_args__ = (
         Index("idx_tool_user_time", "user_id", "created_at"),
         Index("idx_tool_name_error", "tool_name", "is_error"),
+    )
+
+
+class LLMProxyMetrics(Base):
+    """一次经 ``/llm-proxy`` 转发到上游 provider 的调用指标（B1 状态码 + B2 延迟/TTFT）。
+
+    LLM 代理是所有容器到上游的必经之路，是平台侧唯一能直接观测上游健康度的位置。
+    ``status_code`` 为上游返回码（连接失败/代理错误时为 502，``upstream_error=True``）；
+    ``ttft_ms`` 为发起请求到收到上游**首个响应字节**的耗时（流式即首 chunk），
+    ``duration_ms`` 为到响应体完全消费/关闭为止的总耗时。二者之差≈上游出流时长。
+
+    ``user_id`` 仅用户级代理路由（``/_user/{user_id}/...``）可得，宿主级路由为 None。
+    与 RequestLog 一致：无 FK，度量证据须在用户删除后存活；body 一律不存。
+    """
+
+    __tablename__ = "llm_proxy_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    provider_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    method: Mapped[str] = mapped_column(String(10), nullable=False, default="POST")
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    ttft_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_sse: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    upstream_error: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_llm_user_time", "user_id", "created_at"),
+        Index("idx_llm_provider_time", "provider_id", "created_at"),
     )

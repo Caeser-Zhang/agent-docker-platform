@@ -22,10 +22,12 @@ Enforcement is two-pronged, mirroring build_container_config:
   transformed with :func:`opencode_config.apply_plugin_visibility` and written
   back — an authoritative replace that, unlike a merge, can also *un-hide*.
 
-Visibility toggles are platform-wide admin actions, so a change is broadcast
-to every running agent container. A container that is down picks the change
-up from the injected config on its next start; a runtime push failure is
-therefore non-fatal — the persisted state stays correct and self-heals.
+Visibility toggles come in two scopes. A platform-wide toggle is an admin
+action and is broadcast to every running agent container; a user's personal
+built-in MCP choice (:func:`apply_user_mcp_visibility`) is pushed to that one
+user's container only. Either way a container that is down picks the change up
+from the injected config on its next start, so a runtime push failure is
+non-fatal — the persisted state stays correct and self-heals.
 """
 from __future__ import annotations
 
@@ -33,6 +35,8 @@ import asyncio
 import json
 import logging
 
+from ..database import async_session
+from . import host_config, user_config
 from .agent_controller import agent_controller
 from .container_manager import container_manager
 from .opencode_config import (
@@ -45,7 +49,6 @@ from .opencode_config import (
     hidden_mcp_servers,
 )
 from .tunnel_relay import tunnel_relay
-from . import host_config
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +178,20 @@ def _visibility_patch(kind: str, name: str, hidden: bool) -> dict:
     return {"permission": {f"{_sanitize_mcp_permission_key(name)}_*": action}}
 
 
-async def _sync_plugin_config(user_id: str) -> bool:
+async def _effective_mcp_hidden(user_id: str) -> set[str]:
+    """MCP servers hidden in one user's container: platform hides ∪ personal.
+
+    The database row is the persisted truth for the personal half, so every
+    runtime push derives its rules from here instead of trusting whatever the
+    container currently has — a user who personally disabled a server stays
+    denied even while the platform-wide state says visible.
+    """
+    async with async_session() as db:
+        personal = await user_config.user_hidden_builtin_mcps(db, user_id)
+    return hidden_mcp_servers(user_hidden=personal)
+
+
+async def _sync_plugin_config(user_id: str, hidden_mcps: set[str] | None = None) -> bool:
     """Re-apply the current visibility sets to the container's plugin config.
 
     Read-modify-write: the platform authoritatively owns ``disabled_skills``
@@ -196,24 +212,34 @@ async def _sync_plugin_config(user_id: str) -> bool:
         return False
     if not isinstance(cfg, dict):
         return False
-    updated = apply_plugin_visibility(
-        cfg, hidden_builtin_skills(), hidden_mcp_servers()
-    )
+    if hidden_mcps is None:
+        hidden_mcps = await _effective_mcp_hidden(user_id)
+    updated = apply_plugin_visibility(cfg, hidden_builtin_skills(), hidden_mcps)
     payload = json.dumps(updated, ensure_ascii=False, indent=2).encode("utf-8")
     return await asyncio.to_thread(
         container_manager.write_config_file, user_id, PLUGIN_CONFIG_FILENAME, payload
     )
 
 
-async def _push_to_container(user_id: str, patch: dict) -> bool:
-    """Apply one visibility patch to a single container (file first, PATCH second)."""
+async def _push_to_container(user_id: str, kind: str, name: str, hidden: bool) -> bool:
+    """Apply one visibility patch to a single container (file first, PATCH second).
+
+    ``hidden`` is the platform-wide intent from the caller. For MCP it is a
+    floor, never a ceiling: the effective rule is recomputed against this
+    container's own visibility set, so an admin un-hiding a server does not
+    silently overrule a user who had personally switched it off.
+    """
     running, password = await agent_controller.get_agent_gate(user_id)
     if not running or not password:
         return False
+    hidden_mcps = await _effective_mcp_hidden(user_id)
+    if kind == "mcp":
+        hidden = name in hidden_mcps
+    patch = _visibility_patch(kind, name, hidden)
     # The file must land before the PATCH: the PATCH invalidates every
     # opencode instance, and the rebuilt ones read the freshly written
     # plugin config (disabled_skills / preset mcps lists).
-    if not await _sync_plugin_config(user_id):
+    if not await _sync_plugin_config(user_id, hidden_mcps):
         logger.warning("Plugin config sync failed for agent-%s", user_id)
     try:
         resp = await tunnel_relay.http_request(
@@ -238,20 +264,19 @@ async def _push_to_container(user_id: str, patch: dict) -> bool:
 
 
 async def broadcast_visibility_change(kind: str, name: str, hidden: bool) -> dict:
-    """Push one visibility toggle to every running agent container.
+    """Push one platform-wide visibility toggle to every running agent container.
 
     ``kind`` is "skill" or "mcp". Returns a summary the caller can surface:
     ``applied`` counts containers that took the runtime patch, ``failed``
     lists the ones that did not (down containers included — they pick the
     persisted state up from the injected config on their next start).
     """
-    patch = _visibility_patch(kind, name, hidden)
     user_ids = await _running_agent_user_ids()
     if not user_ids:
         return {"applied": 0, "failed": []}
 
     results = await asyncio.gather(
-        *(_push_to_container(uid, patch) for uid in user_ids)
+        *(_push_to_container(uid, kind, name, hidden) for uid in user_ids)
     )
     failed = [uid for uid, ok in zip(user_ids, results) if not ok]
     if failed:
@@ -261,3 +286,15 @@ async def broadcast_visibility_change(kind: str, name: str, hidden: bool) -> dic
             len(failed), ",".join(failed),
         )
     return {"applied": len(user_ids) - len(failed), "failed": failed}
+
+
+async def apply_user_mcp_visibility(user_id: str, name: str) -> bool:
+    """Push one user's personal built-in MCP choice to that user's container only.
+
+    The caller persists the preference first; the effective rule is read back
+    from the database here, so this stays correct no matter which of the two
+    layers (platform or personal) produced the current state. Nothing is
+    broadcast — this is the user-scoped counterpart of
+    :func:`broadcast_visibility_change`.
+    """
+    return await _push_to_container(user_id, "mcp", name, hidden=False)

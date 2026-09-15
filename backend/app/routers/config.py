@@ -92,7 +92,7 @@ class ReloadResponse(BaseModel):
 #  Overview
 # ------------------------------------------------------------------
 
-def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
+def _safe_mcp_entry(name: str, cfg: dict, builtin: bool, my_enabled: bool = True) -> dict:
     """Serialize an MCP server entry without leaking secrets."""
     entry = {
         "type": cfg.get("type"),
@@ -100,6 +100,11 @@ def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
         "builtin": builtin,
         "source": "builtin" if builtin else "user",
     }
+    if builtin:
+        # This caller's own switch for the server (the platform-wide ``enabled``
+        # above is everybody's). Users toggle it at
+        # /api/user-config/builtin-mcp/{name}; see UserBuiltinMcpToggle.
+        entry["my_enabled"] = my_enabled
     if cfg.get("type") == "remote":
         entry["url"] = cfg.get("url")
         entry["hasHeaders"] = bool(cfg.get("headers"))
@@ -109,22 +114,31 @@ def _safe_mcp_entry(name: str, cfg: dict, builtin: bool) -> dict:
     return entry
 
 
-def _all_mcp(include_host: bool = True) -> dict[str, dict]:
+async def _all_mcp(include_host: bool = True, db: AsyncSession | None = None, user_id: str | None = None) -> dict[str, dict]:
     """Merged view of built-in MCP servers + host-declared MCP servers.
 
     Built-in servers are discovered from /builtin-mcp (with enabled overrides
     from the host config applied); host servers come from the host opencode.json
     ``mcp`` section. Built-in entries are marked ``builtin=True`` so the client
-    can restrict edit/delete while still toggling them.
+    can restrict edit/delete while still toggling them, and carry a
+    ``my_enabled`` flag — the caller's personal switch, which only affects their
+    own container (requires ``db`` + ``user_id``).
 
     ``include_host=False`` hides the host (platform-wide) servers — those are
     injected into EVERY user's container, so they are admin-managed only and
     must not leak to regular users browsing the config panel. Per-user MCP
     servers live in /api/user-config/mcp instead.
     """
+    toggles = (
+        await user_config.list_builtin_toggles(db, user_id)
+        if db is not None and user_id is not None
+        else {}
+    )
     result: dict[str, dict] = {}
     for name, cfg in opencode_config.builtin_mcp_servers().items():
-        result[name] = _safe_mcp_entry(name, cfg, builtin=True)
+        result[name] = _safe_mcp_entry(
+            name, cfg, builtin=True, my_enabled=bool(toggles.get(name, True))
+        )
     if include_host:
         for name, cfg in host_config.list_mcp_servers().items():
             result[name] = _safe_mcp_entry(name, cfg, builtin=False)
@@ -132,7 +146,10 @@ def _all_mcp(include_host: bool = True) -> dict[str, dict]:
 
 
 @router.get("")
-async def config_overview(user: User = Depends(get_current_user)):
+async def config_overview(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Get an overview of all config sections."""
     providers = host_config.list_providers_raw()
     skills = host_config.list_skills()
@@ -153,7 +170,7 @@ async def config_overview(user: User = Depends(get_current_user)):
         # Host MCP servers are platform-wide (admin-managed): regular users
         # only see the built-in ones here, their own servers live under
         # /api/user-config/mcp.
-        "mcp": _all_mcp(include_host=user.role == "admin"),
+        "mcp": await _all_mcp(include_host=user.role == "admin", db=db, user_id=user.id),
         "skills": skills,
     }
 
@@ -212,14 +229,20 @@ async def delete_provider(
 # ------------------------------------------------------------------
 
 @router.get("/mcp")
-async def list_mcp(user: User = Depends(get_current_user)):
+async def list_mcp(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """List MCP servers (secrets masked).
 
     Regular users see only the built-in servers; host-declared servers are
     platform-wide and admin-managed (they would otherwise leak every user's
     additions to everyone). Per-user servers live at /api/user-config/mcp.
+
+    Built-in entries carry ``my_enabled`` — the caller's personal switch, whose
+    counterpart lives at /api/user-config/builtin-mcp.
     """
-    return {"mcp": _all_mcp(include_host=user.role == "admin")}
+    return {"mcp": await _all_mcp(include_host=user.role == "admin", db=db, user_id=user.id)}
 
 
 @router.post("/mcp/{name}")
@@ -259,6 +282,11 @@ async def toggle_mcp(
     including built-in server overrides) and then pushes a runtime
     permission flip to all running agents via PATCH /global/config, so the
     change takes effect in ~2s instead of requiring a container restart.
+
+    This is the *platform-wide* switch. For a change that affects one user
+    only, that user's own switch is PATCH /api/user-config/builtin-mcp/{name};
+    the two layers are unioned when hiding, so a platform-wide disable always
+    wins over a personal enable.
 
     Host-defined local servers (command-based, running on the host) are
     never injected into containers, so there is nothing to push at runtime

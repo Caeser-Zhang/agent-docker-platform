@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import crypto
-from ..models import User, UserLLMProvider, UserMcpServer
+from ..models import User, UserBuiltinMcpToggle, UserLLMProvider, UserMcpServer
 from . import opencode_config
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -430,6 +430,50 @@ async def build_user_mcp_map(db: AsyncSession, user_id: str) -> dict[str, Any]:
     return result
 
 
+async def list_builtin_toggles(db: AsyncSession, user_id: str) -> dict[str, bool]:
+    """One user's personal built-in MCP enable/disable choices.
+
+    Only names the user actually diverged from the platform default appear;
+    a missing key means "inherit the platform setting" (see
+    :class:`~app.models.UserBuiltinMcpToggle`).
+    """
+    result = await db.execute(
+        select(UserBuiltinMcpToggle).where(UserBuiltinMcpToggle.user_id == user_id)
+    )
+    return {row.name: bool(row.enabled) for row in result.scalars().all()}
+
+
+async def set_builtin_toggle(
+    db: AsyncSession, user_id: str, name: str, enabled: bool
+) -> None:
+    """Record (or clear) one user's choice for one built-in MCP server.
+
+    ``enabled=True`` deletes the row instead of storing an allow: switching a
+    server back on means "inherit the platform default" again, and a stored
+    allow would have to be ignored anyway — a user preference can only ever
+    narrow visibility, never widen it.
+    """
+    existing = await db.get(UserBuiltinMcpToggle, {"user_id": user_id, "name": name})
+    if enabled:
+        if existing is not None:
+            await db.delete(existing)
+    elif existing is None:
+        db.add(UserBuiltinMcpToggle(user_id=user_id, name=name, enabled=False))
+    else:
+        existing.enabled = False
+    await db.commit()
+
+
+async def user_hidden_builtin_mcps(db: AsyncSession, user_id: str) -> set[str]:
+    """Built-in MCP names this user personally switched off.
+
+    Names the user switched *on* are not returned — a user preference can only
+    narrow visibility, so an ``enabled=True`` row simply inherits the platform
+    default and is dropped by :func:`opencode_config.hidden_mcp_servers`' union.
+    """
+    return {name for name, enabled in (await list_builtin_toggles(db, user_id)).items() if not enabled}
+
+
 async def build_user_config_json(db: AsyncSession, user_id: str) -> str:
     """Build the container opencode.json for a user from DB-backed content.
 
@@ -444,4 +488,5 @@ async def build_user_config_json(db: AsyncSession, user_id: str) -> str:
         active_provider_id=(active or {}).get("provider_id"),
         active_model=(active or {}).get("model"),
         user_id=user_id,
+        user_hidden_mcps=await user_hidden_builtin_mcps(db, user_id),
     )

@@ -43,7 +43,7 @@ from .opencode_config import (
     PLUGIN_CONFIG_FILENAME,
     build_container_config_json,
     hidden_builtin_skills,
-    hidden_mcp_servers,
+    hidden_mcps_from_config,
     render_plugin_config,
 )
 
@@ -229,7 +229,10 @@ class ContainerManager:
         match the permission deny rules written into opencode.json. Platform
         users have no shell access to the container, so a full re-render
         (instead of a merge) is safe and keeps stale volume content from
-        surviving an image change.
+        surviving an image change. The MCP hidden set is read back out of the
+        config that was just rendered rather than recomputed from the host
+        defaults, so a user's personal built-in MCP disables narrow the plugin
+        lists exactly like they narrow the permission rules.
         """
         try:
             doc = json.loads(config_json)
@@ -239,7 +242,7 @@ class ContainerManager:
         plugin_cfg = render_plugin_config(
             doc.get("model") if isinstance(doc, dict) else None,
             hidden_skills=hidden_builtin_skills(),
-            hidden_mcps=hidden_mcp_servers(),
+            hidden_mcps=hidden_mcps_from_config(doc),
         )
         if plugin_cfg is None:
             logger.info(

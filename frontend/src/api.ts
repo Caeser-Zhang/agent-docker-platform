@@ -146,6 +146,18 @@ export interface UserMcpServer {
   timeout?: number | null;
 }
 
+/** Built-in MCP server as seen through the current user's own toggle. */
+export interface BuiltinMcpItem {
+  name: string;
+  type?: string | null;
+  /** Admin-controlled platform-wide state; a false here wins over `my_enabled`. */
+  platform_enabled: boolean;
+  /** The current user's personal choice (defaults to inherit = true). */
+  my_enabled: boolean;
+  /** What the user's container actually ends up with. */
+  effective_enabled: boolean;
+}
+
 /** Payload for creating/updating a user MCP server. */
 export interface UserMcpInput {
   name?: string;
@@ -720,6 +732,7 @@ export interface UxOverview {
     error_rate: number | null;
     task_rounds: number;
     task_success_rate: number | null;
+    error_breakdown: Record<string, number>;
   };
   l2_efficiency: {
     duration_avg_ms: number | null;
@@ -736,6 +749,13 @@ export interface UxOverview {
     total_tokens: number;
     avg_tokens_per_round: number | null;
     tokens_per_success: number | null;
+    token_split: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cache_read: number;
+      cache_write: number;
+    };
   };
   l4_satisfaction: {
     thumbs_up: number;
@@ -775,9 +795,41 @@ export interface UxTools {
   tools: UxToolRow[];
 }
 
+export interface UxToolCallQuery {
+  days?: number;
+  user_id?: string;
+  session_id?: string;
+  only_failed?: boolean;
+  limit?: number;
+  offset?: number;
+}
+export interface UxToolCallRow {
+  id: number;
+  user_id: string;
+  user_name: string | null;
+  user_uid: string | null;
+  session_id: string;
+  round_seq: number;
+  tool_name: string;
+  status: string | null;
+  is_error: boolean;
+  error_text: string | null;
+  duration_ms: number | null;
+  source: string;
+  created_at: string | null;
+}
+export interface UxToolCalls {
+  total: number;
+  limit: number;
+  offset: number;
+  tool_calls: UxToolCallRow[];
+}
+
 export interface UxRoundRow {
   id: number;
   user_id: string;
+  user_name: string | null;
+  user_uid: string | null;
   session_id: string;
   round_seq: number;
   message_id: string;
@@ -786,8 +838,15 @@ export interface UxRoundRow {
   task_success: boolean | null;
   errored: boolean;
   error_text: string | null;
+  error_name: string | null;
+  error_status_code: number | null;
   duration_ms: number | null;
   total_tokens: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  reasoning_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
   cost: number | null;
   tool_calls: number;
   tool_errors: number;
@@ -802,6 +861,34 @@ export interface UxRounds {
   limit: number;
   offset: number;
   rounds: UxRoundRow[];
+}
+
+export interface UxLlmQuery {
+  days?: number;
+  user_id?: string;
+  provider_id?: string;
+}
+export interface UxLlmProvider {
+  provider_id: string;
+  calls: number;
+  errors: number;
+  error_rate: number | null;
+  sse_calls: number;
+  status_counts: Record<string, number>;
+  ttft_avg_ms: number | null;
+  ttft_p50_ms: number | null;
+  ttft_p90_ms: number | null;
+  ttft_p99_ms: number | null;
+  duration_avg_ms: number | null;
+  duration_p50_ms: number | null;
+  duration_p90_ms: number | null;
+  duration_p99_ms: number | null;
+}
+export interface UxLlm {
+  window_days: number;
+  filters: { user_id: string | null; provider_id: string | null };
+  totals: { calls: number; errors: number; error_rate: number | null };
+  providers: UxLlmProvider[];
 }
 
 export interface UxFeedbackRow {
@@ -932,8 +1019,14 @@ export const api = {
   async uxTools(params: UxQuery = {}): Promise<UxTools> {
     return apiCall(`/admin/ux/tools${uxQuery(params)}`);
   },
+  async uxToolCalls(params: UxToolCallQuery = {}): Promise<UxToolCalls> {
+    return apiCall(`/admin/ux/tool-calls${uxQuery(params)}`);
+  },
   async uxRounds(params: UxRoundsQuery = {}): Promise<UxRounds> {
     return apiCall(`/admin/ux/rounds${uxQuery(params)}`);
+  },
+  async uxLlm(params: UxLlmQuery = {}): Promise<UxLlm> {
+    return apiCall(`/admin/ux/llm${uxQuery(params)}`);
   },
   async uxFeedback(params: UxFeedbackQuery = {}): Promise<UxFeedback> {
     return apiCall(`/admin/ux/feedback${uxQuery(params)}`);
@@ -1358,6 +1451,18 @@ export const api = {
 
   async deleteUserMcp(id: string): Promise<void> {
     return apiCall(`/user-config/mcp/${id}`, { method: "DELETE" });
+  },
+
+  // --- Per-user enable/disable of built-in MCP servers ------------------
+  async listUserBuiltinMcp(): Promise<{ mcp: BuiltinMcpItem[] }> {
+    return apiCall("/user-config/builtin-mcp");
+  },
+
+  async toggleUserBuiltinMcp(name: string, enabled: boolean): Promise<BuiltinMcpItem & { applied: boolean }> {
+    return apiCall(`/user-config/builtin-mcp/${name}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
   },
 
   // --- Config management (host opencode.json) ---------------------------
