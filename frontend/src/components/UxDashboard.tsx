@@ -31,26 +31,42 @@ import {
 import {
   api,
   type UxFeedback,
+  type UxGranularity,
   type UxLlm,
   type UxOverview,
   type UxRounds,
   type UxToolCalls,
   type UxTools,
   type UxTrends,
+  type UxUserActivity,
 } from "../api";
 import { REASON_OPTIONS } from "../oc/feedback";
 import { useTheme } from "../theme";
 import { adminStyles as s } from "./adminStyles";
 
 const PAGE = 20;
-const DAYS_OPTIONS = [1, 7, 14, 30, 90, 365];
+/** 时间维度粒度切换器：粒度自带默认统计范围。 */
+const GRAN_OPTIONS: { v: UxGranularity; label: string; range: string }[] = [
+  { v: "day", label: "日", range: "近 30 天" },
+  { v: "week", label: "周", range: "近 12 周" },
+  { v: "month", label: "月", range: "近 12 月" },
+  { v: "year", label: "年", range: "近 5 年" },
+];
+/** 分桶键 → 图表 X 轴短标签（按粒度裁剪）。 */
+const bucketLabel = (key: string, g: UxGranularity): string => {
+  if (g === "year") return key; // 2026
+  if (g === "month") return key.slice(2); // 26-09
+  if (g === "week") return key.slice(5); // W38
+  return key.slice(5); // 09-15
+};
 const REASON_LABEL: Record<string, string> = Object.fromEntries(
   REASON_OPTIONS.map((o) => [o.code, o.label])
 );
 
 /** 已提交的过滤条件（草稿输入需点「应用」才生效，避免逐字触发请求）。 */
 interface Filters {
-  days: number;
+  granularity: UxGranularity;
+  days?: number;
   user_id?: string;
   model_provider?: string;
 }
@@ -167,7 +183,7 @@ function Card({
 export function UxDashboard() {
   const c = useChartColors();
 
-  const [filters, setFilters] = useState<Filters>({ days: 30 });
+  const [filters, setFilters] = useState<Filters>({ granularity: "day" });
   const [draftUser, setDraftUser] = useState("");
   const [draftProvider, setDraftProvider] = useState("");
 
@@ -175,6 +191,7 @@ export function UxDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<UxOverview | null>(null);
   const [trends, setTrends] = useState<UxTrends | null>(null);
+  const [activity, setActivity] = useState<UxUserActivity | null>(null);
   const [tools, setTools] = useState<UxTools | null>(null);
   const [toolCalls, setToolCalls] = useState<UxToolCalls | null>(null);
   const [llm, setLlm] = useState<UxLlm | null>(null);
@@ -200,15 +217,17 @@ export function UxDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, tr, tl, tc, lm] = await Promise.all([
+      const [ov, tr, ua, tl, tc, lm] = await Promise.all([
         api.uxOverview(filters),
         api.uxTrends(filters),
+        api.uxUserActivity(filters),
         api.uxTools(filters),
-        api.uxToolCalls({ days: filters.days, user_id: filters.user_id, limit: 50 }),
-        api.uxLlm({ days: filters.days, user_id: filters.user_id }),
+        api.uxToolCalls({ ...filters, limit: 50 }),
+        api.uxLlm({ ...filters }),
       ]);
       setOverview(ov);
       setTrends(tr);
+      setActivity(ua);
       setTools(tl);
       setToolCalls(tc);
       setLlm(lm);
@@ -229,6 +248,7 @@ export function UxDashboard() {
     try {
       if (detailTab === "rounds") {
         const r = await api.uxRounds({
+          granularity: filters.granularity,
           days: filters.days,
           user_id: filters.user_id,
           only_failed: onlyFailed,
@@ -238,6 +258,7 @@ export function UxDashboard() {
         setRounds(r);
       } else {
         const f = await api.uxFeedback({
+          granularity: filters.granularity,
           days: filters.days,
           verdict: verdict || undefined,
           limit: PAGE,
@@ -250,7 +271,7 @@ export function UxDashboard() {
     } finally {
       setDetailLoading(false);
     }
-  }, [detailTab, filters.days, filters.user_id, onlyFailed, verdict, page]);
+  }, [detailTab, filters.granularity, filters.days, filters.user_id, onlyFailed, verdict, page]);
 
   useEffect(() => {
     loadDetail();
@@ -263,6 +284,7 @@ export function UxDashboard() {
 
   const applyDraft = () =>
     setFilters((f) => ({
+      granularity: f.granularity,
       days: f.days,
       user_id: draftUser.trim() || undefined,
       model_provider: draftProvider.trim() || undefined,
@@ -289,7 +311,7 @@ export function UxDashboard() {
   const trendRows = useMemo(
     () =>
       (trends?.series ?? []).map((p) => ({
-        date: p.date.slice(5),
+        date: bucketLabel(p.date, filters.granularity),
         rounds: p.rounds,
         success: toPct(p.success_rate),
         tool: toPct(p.tool_accuracy),
@@ -297,7 +319,20 @@ export function UxDashboard() {
         avgSec: p.duration_avg_ms == null ? null : Math.round(p.duration_avg_ms) / 1000,
         p90Sec: p.duration_p90_ms == null ? null : Math.round(p.duration_p90_ms) / 1000,
       })),
-    [trends]
+    [trends, filters.granularity]
+  );
+
+  // 用户视角时序：活跃用户 / 请求数(会话回合) / 会话数 / 新增用户。
+  const activityRows = useMemo(
+    () =>
+      (activity?.series ?? []).map((p) => ({
+        bucket: bucketLabel(p.bucket, filters.granularity),
+        activeUsers: p.active_users,
+        requests: p.requests,
+        sessions: p.sessions,
+        newUsers: p.new_users,
+      })),
+    [activity, filters.granularity]
   );
 
   const toolRows = useMemo(
@@ -330,10 +365,12 @@ export function UxDashboard() {
   const detailTotal = detailTab === "rounds" ? (rounds?.total ?? 0) : (feedback?.total ?? 0);
   const pageCount = Math.max(1, Math.ceil(detailTotal / PAGE));
 
+  const l0 = overview?.l0_user;
   const l1 = overview?.l1_outcome;
   const l2 = overview?.l2_efficiency;
   const l3 = overview?.l3_process;
   const l4 = overview?.l4_satisfaction;
+  const granRange = GRAN_OPTIONS.find((g) => g.v === filters.granularity)?.range ?? "";
 
   return (
     <>
@@ -342,13 +379,15 @@ export function UxDashboard() {
         <select
           className="adm-select"
           style={s.select}
-          value={filters.days}
-          aria-label="统计时间窗"
-          onChange={(e) => setFilters((f) => ({ ...f, days: Number(e.target.value) }))}
+          value={filters.granularity}
+          aria-label="统计时间维度"
+          onChange={(e) =>
+            setFilters((f) => ({ ...f, granularity: e.target.value as UxGranularity }))
+          }
         >
-          {DAYS_OPTIONS.map((d) => (
-            <option key={d} value={d}>
-              最近 {d} 天
+          {GRAN_OPTIONS.map((g) => (
+            <option key={g.v} value={g.v}>
+              按{g.label} · {g.range}
             </option>
           ))}
         </select>
@@ -378,6 +417,7 @@ export function UxDashboard() {
         </button>
         <span style={s.toolbarHint}>
           {updatedAt && `更新于 ${updatedAt.toLocaleTimeString("zh-CN", { hour12: false })}`}
+          {granRange && ` · ${granRange}`}
           {filters.user_id && ` · user=${filters.user_id}`}
           {filters.model_provider && ` · provider=${filters.model_provider}`}
         </span>
@@ -389,6 +429,52 @@ export function UxDashboard() {
 
       {overview && (
         <>
+          {/* --- L0 用户视角 ---------------------------------------------- */}
+          <div style={sectionTitle}>L0 用户视角 · 有多少人在用、用了多少（{granRange}）</div>
+          <div style={s.cardsRow}>
+            <Card
+              label="活跃用户"
+              value={fmtInt(l0?.active_users)}
+              sub="窗口内有会话回合或请求的去重用户"
+              tone="green"
+            />
+            <Card
+              label="用户请求数"
+              value={fmtInt(l0?.requests)}
+              sub="会话回合总数（agent_round_metrics）"
+            />
+            <Card label="会话数" value={fmtInt(l0?.sessions)} sub="去重 session_id" />
+            <Card label="新增用户" value={fmtInt(l0?.new_users)} sub="窗口内注册的账号数" />
+          </div>
+
+          {/* 用户活跃趋势 */}
+          <div style={{ ...panel, marginBottom: "12px" }}>
+            <div style={panelTitle}>
+              用户活跃趋势 · 活跃用户 / 请求数 / 会话数 / 新增用户（按
+              {GRAN_OPTIONS.find((g) => g.v === filters.granularity)?.label ?? "日"}）
+            </div>
+            {activityRows.length === 0 ? (
+              <div style={s.empty}>暂无用户活跃数据</div>
+            ) : (
+              <div style={{ height: "240px" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={activityRows} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
+                    <CartesianGrid stroke={c.border} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="bucket" {...axisProps} />
+                    <YAxis yAxisId="u" allowDecimals={false} {...axisProps} />
+                    <YAxis yAxisId="req" orientation="right" allowDecimals={false} {...axisProps} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Legend wrapperStyle={{ fontSize: "11px", color: c.text2 }} />
+                    <Bar yAxisId="req" dataKey="requests" name="请求数" fill={c.border} radius={[3, 3, 0, 0]} />
+                    <Bar yAxisId="u" dataKey="sessions" name="会话数" fill={c.indigo} radius={[3, 3, 0, 0]} />
+                    <Bar yAxisId="u" dataKey="newUsers" name="新增用户" fill={c.amber} radius={[3, 3, 0, 0]} />
+                    <Line yAxisId="u" type="monotone" dataKey="activeUsers" name="活跃用户" stroke={c.green} strokeWidth={2} dot={false} connectNulls />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
           {/* --- L1 结果层 ------------------------------------------------ */}
           <div style={sectionTitle}>L1 结果层 · 用户拿到了结果吗</div>
           <div style={s.cardsRow}>

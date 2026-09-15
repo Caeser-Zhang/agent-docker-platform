@@ -121,7 +121,7 @@ async def ux_overview(
         rows = (await db.execute(select(*cols).where(*conds))).all()
 
         # L4 主观满意度（反馈表按 created_at 过滤，独立于 round 维度过滤）
-        fb_conds = [MessageFeedback.created_at >= _cutoff(days)]
+        fb_conds = [MessageFeedback.created_at >= _cutoff(wdays)]
         if user_id:
             fb_conds.append(MessageFeedback.user_id == user_id)
         up = (await db.execute(
@@ -134,6 +134,25 @@ async def ux_overview(
         down_rows = (await db.execute(
             select(MessageFeedback.reason_codes).where(*fb_conds, MessageFeedback.verdict == "down")
         )).scalars().all()
+
+        # L0 用户视角：活跃用户去重（会话回合 ∪ tunnel 请求日志）、会话去重、新增用户。
+        req_conds = [RequestLog.created_at >= _cutoff(wdays)]
+        if user_id:
+            req_conds.append(RequestLog.user_id == user_id)
+        round_users = (await db.execute(
+            select(AgentRoundMetrics.user_id).where(*conds).distinct()
+        )).scalars().all()
+        req_users = (await db.execute(
+            select(RequestLog.user_id).where(*req_conds).distinct()
+        )).scalars().all()
+        sessions = (await db.execute(
+            select(func.count(func.distinct(AgentRoundMetrics.session_id))).where(*conds)
+        )).scalar_one()
+        # 新增用户为平台级增长指标，不随 user_id 过滤。
+        new_users = (await db.execute(
+            select(func.count(User.id)).where(User.created_at >= _cutoff(wdays))
+        )).scalar_one()
+        active_users = len({u for u in round_users if u} | {u for u in req_users if u})
 
     total = len(rows)
     succeeded = sum(1 for r in rows if r.succeeded)
@@ -181,8 +200,16 @@ async def ux_overview(
 
     fb_total = up + down
     return {
-        "window_days": days,
+        "granularity": granularity,
+        "window_days": wdays,
         "filters": {"user_id": user_id, "model_provider": model_provider},
+        "l0_user": {
+            "active_users": active_users,
+            # 用户请求数 = 会话回合数（agent_round_metrics 行）。
+            "requests": total,
+            "sessions": int(sessions or 0),
+            "new_users": int(new_users or 0),
+        },
         "l1_outcome": {
             "rounds_total": total,
             "round_success_rate": (succeeded / total) if total else None,
@@ -221,12 +248,15 @@ async def ux_overview(
 
 @router.get("/trends")
 async def ux_trends(
-    days: int = Query(30, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     model_provider: str | None = Query(None),
 ):
-    """按天分桶的时间序列（成功率 / 平均耗时 / 工具准确率 / 满意度）。"""
-    conds = _round_filters(days, user_id, model_provider)
+    """按粒度（日/周/月/年）分桶的时间序列（成功率 / 耗时 / 工具准确率 / 满意度）。"""
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = _round_filters(wdays, user_id, model_provider)
     cols = [
         AgentRoundMetrics.created_at,
         AgentRoundMetrics.succeeded,
@@ -236,7 +266,7 @@ async def ux_trends(
         AgentRoundMetrics.total_tokens,
         AgentRoundMetrics.cost,
     ]
-    fb_conds = [MessageFeedback.created_at >= _cutoff(days)]
+    fb_conds = [MessageFeedback.created_at >= _cutoff(wdays)]
     if user_id:
         fb_conds.append(MessageFeedback.user_id == user_id)
 
@@ -265,8 +295,7 @@ async def ux_trends(
     for r in rows:
         if r.created_at is None:
             continue
-        day = r.created_at.date().isoformat()
-        b = _bucket(day)
+        b = _bucket(_bucket_key(r.created_at, granularity))
         b["rounds"] += 1
         if r.succeeded:
             b["succeeded"] += 1
@@ -280,19 +309,19 @@ async def ux_trends(
     for fr in fb_rows:
         if fr.created_at is None:
             continue
-        b = _bucket(fr.created_at.date().isoformat())
+        b = _bucket(_bucket_key(fr.created_at, granularity))
         if fr.verdict == "up":
             b["up"] += 1
         elif fr.verdict == "down":
             b["down"] += 1
 
     series = []
-    for day in sorted(buckets.keys()):
-        b = buckets[day]
+    for key in sorted(buckets.keys()):
+        b = buckets[key]
         durs = sorted(b["durations"])
         fb_total = b["up"] + b["down"]
         series.append({
-            "date": day,
+            "date": key,
             "rounds": b["rounds"],
             "success_rate": (b["succeeded"] / b["rounds"]) if b["rounds"] else None,
             "duration_avg_ms": (sum(durs) / len(durs)) if durs else None,
@@ -304,17 +333,106 @@ async def ux_trends(
             "thumbs_up": b["up"],
             "thumbs_down": b["down"],
         })
-    return {"window_days": days, "series": series}
+    return {"granularity": granularity, "window_days": wdays, "series": series}
+
+
+@router.get("/user-activity")
+async def ux_user_activity(
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
+    user_id: str | None = Query(None),
+):
+    """用户视角时序：活跃用户去重 / 请求数(会话回合) / 会话数 / 新增用户，按粒度分桶。
+
+    活跃用户 = 该桶内有会话回合或 tunnel 请求的去重 user_id；请求数 = 会话回合数。
+    """
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    cutoff = _cutoff(wdays)
+
+    round_conds = [AgentRoundMetrics.created_at >= cutoff]
+    req_conds = [RequestLog.created_at >= cutoff]
+    if user_id:
+        round_conds.append(AgentRoundMetrics.user_id == user_id)
+        req_conds.append(RequestLog.user_id == user_id)
+
+    async with async_session() as db:
+        round_rows = (await db.execute(
+            select(
+                AgentRoundMetrics.created_at,
+                AgentRoundMetrics.user_id,
+                AgentRoundMetrics.session_id,
+            ).where(*round_conds).order_by(AgentRoundMetrics.created_at)
+        )).all()
+        req_rows = (await db.execute(
+            select(RequestLog.created_at, RequestLog.user_id).where(*req_conds)
+        )).all()
+        new_rows = (await db.execute(
+            select(User.created_at).where(User.created_at >= cutoff)
+        )).scalars().all()
+
+    buckets: dict[str, dict] = {}
+
+    def _b(key: str) -> dict:
+        b = buckets.get(key)
+        if b is None:
+            b = {"rounds": 0, "sessions": set(), "active_users": set(), "new_users": 0}
+            buckets[key] = b
+        return b
+
+    for r in round_rows:
+        if r.created_at is None:
+            continue
+        b = _b(_bucket_key(r.created_at, granularity))
+        b["rounds"] += 1
+        if r.session_id:
+            b["sessions"].add(r.session_id)
+        if r.user_id:
+            b["active_users"].add(r.user_id)
+    for r in req_rows:
+        if r.created_at is None:
+            continue
+        b = _b(_bucket_key(r.created_at, granularity))
+        if r.user_id:
+            b["active_users"].add(r.user_id)
+    for c in new_rows:
+        if c is None:
+            continue
+        _b(_bucket_key(c, granularity))["new_users"] += 1
+
+    series = [
+        {
+            "bucket": key,
+            "active_users": len(b["active_users"]),
+            "requests": b["rounds"],
+            "rounds": b["rounds"],
+            "sessions": len(b["sessions"]),
+            "new_users": b["new_users"],
+        }
+        for key, b in sorted(buckets.items())
+    ]
+    active_set = ({r.user_id for r in round_rows if r.user_id}
+                  | {r.user_id for r in req_rows if r.user_id})
+    totals = {
+        "active_users": len(active_set),
+        "requests": len(round_rows),
+        "sessions": len({r.session_id for r in round_rows if r.session_id}),
+        "new_users": len(new_rows),
+    }
+    return {"granularity": granularity, "window_days": wdays, "series": series, "totals": totals}
 
 
 @router.get("/tools")
 async def ux_tools(
-    days: int = Query(30, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ):
     """工具调用准确率排行（GROUP BY tool_name）。"""
-    conds = [ToolCallMetrics.created_at >= _cutoff(days)]
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = [ToolCallMetrics.created_at >= _cutoff(wdays)]
     if user_id:
         conds.append(ToolCallMetrics.user_id == user_id)
     err_expr = func.sum(case((ToolCallMetrics.is_error.is_(True), 1), else_=0))
@@ -331,7 +449,8 @@ async def ux_tools(
             .limit(limit)
         )).all()
     return {
-        "window_days": days,
+        "granularity": granularity,
+        "window_days": wdays,
         "tools": [
             {
                 "tool_name": r.tool_name,
@@ -346,7 +465,8 @@ async def ux_tools(
 
 @router.get("/tool-calls")
 async def ux_tool_calls(
-    days: int = Query(7, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     session_id: str | None = Query(None),
     only_failed: bool = Query(False),
@@ -354,7 +474,9 @@ async def ux_tool_calls(
     offset: int = Query(0, ge=0),
 ):
     """个体工具调用记录（最新在前），供 L3 过程与轨迹下钻排障。"""
-    conds = [ToolCallMetrics.created_at >= _cutoff(days)]
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = [ToolCallMetrics.created_at >= _cutoff(wdays)]
     if user_id:
         conds.append(ToolCallMetrics.user_id == user_id)
     if session_id:
@@ -405,12 +527,15 @@ async def ux_tool_calls(
 
 @router.get("/llm")
 async def ux_llm(
-    days: int = Query(7, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     provider_id: str | None = Query(None),
 ):
     """LLM 代理上游指标（B1/B2）：按 provider 聚合状态码分布、TTFT/耗时分位、错误率。"""
-    conds = [LLMProxyMetrics.created_at >= _cutoff(days)]
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = [LLMProxyMetrics.created_at >= _cutoff(wdays)]
     if user_id:
         conds.append(LLMProxyMetrics.user_id == user_id)
     if provider_id:
@@ -480,7 +605,8 @@ async def ux_llm(
         })
 
     return {
-        "window_days": days,
+        "granularity": granularity,
+        "window_days": wdays,
         "filters": {"user_id": user_id, "provider_id": provider_id},
         "totals": {
             "calls": total_calls,
@@ -493,7 +619,8 @@ async def ux_llm(
 
 @router.get("/rounds")
 async def ux_rounds(
-    days: int = Query(7, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     session_id: str | None = Query(None),
     only_failed: bool = Query(False),
@@ -501,7 +628,9 @@ async def ux_rounds(
     offset: int = Query(0, ge=0),
 ):
     """回合明细行（最新在前），供下钻排障。"""
-    conds = _round_filters(days, user_id, None)
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = _round_filters(wdays, user_id, None)
     if session_id:
         conds.append(AgentRoundMetrics.session_id == session_id)
     if only_failed:
@@ -566,13 +695,16 @@ async def ux_rounds(
 
 @router.get("/feedback")
 async def ux_feedback(
-    days: int = Query(30, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     verdict: str | None = Query(None, pattern="^(up|down)$"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """反馈明细（只读，含 context 快照），最新在前。"""
-    conds = [MessageFeedback.created_at >= _cutoff(days)]
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = [MessageFeedback.created_at >= _cutoff(wdays)]
     if verdict:
         conds.append(MessageFeedback.verdict == verdict)
     async with async_session() as db:

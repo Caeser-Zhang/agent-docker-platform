@@ -705,7 +705,10 @@ export interface SessionFeedbackItem {
   created_at: string | null;
 }
 
+export type UxGranularity = "day" | "week" | "month" | "year";
+
 export interface UxQuery {
+  granularity?: UxGranularity;
   days?: number;
   user_id?: string;
   model_provider?: string;
@@ -717,6 +720,7 @@ export interface UxRoundsQuery extends UxQuery {
   offset?: number;
 }
 export interface UxFeedbackQuery {
+  granularity?: UxGranularity;
   days?: number;
   verdict?: "up" | "down";
   limit?: number;
@@ -724,8 +728,15 @@ export interface UxFeedbackQuery {
 }
 
 export interface UxOverview {
+  granularity: UxGranularity;
   window_days: number;
   filters: { user_id: string | null; model_provider: string | null };
+  l0_user: {
+    active_users: number;
+    requests: number;
+    sessions: number;
+    new_users: number;
+  };
   l1_outcome: {
     rounds_total: number;
     round_success_rate: number | null;
@@ -780,8 +791,29 @@ export interface UxTrendPoint {
   thumbs_down: number;
 }
 export interface UxTrends {
+  granularity: UxGranularity;
   window_days: number;
   series: UxTrendPoint[];
+}
+
+export interface UxUserActivityPoint {
+  bucket: string;
+  active_users: number;
+  requests: number;
+  rounds: number;
+  sessions: number;
+  new_users: number;
+}
+export interface UxUserActivity {
+  granularity: UxGranularity;
+  window_days: number;
+  series: UxUserActivityPoint[];
+  totals: {
+    active_users: number;
+    requests: number;
+    sessions: number;
+    new_users: number;
+  };
 }
 
 export interface UxToolRow {
@@ -791,11 +823,13 @@ export interface UxToolRow {
   accuracy: number | null;
 }
 export interface UxTools {
+  granularity: UxGranularity;
   window_days: number;
   tools: UxToolRow[];
 }
 
 export interface UxToolCallQuery {
+  granularity?: UxGranularity;
   days?: number;
   user_id?: string;
   session_id?: string;
@@ -864,6 +898,7 @@ export interface UxRounds {
 }
 
 export interface UxLlmQuery {
+  granularity?: UxGranularity;
   days?: number;
   user_id?: string;
   provider_id?: string;
@@ -885,6 +920,7 @@ export interface UxLlmProvider {
   duration_p99_ms: number | null;
 }
 export interface UxLlm {
+  granularity: UxGranularity;
   window_days: number;
   filters: { user_id: string | null; provider_id: string | null };
   totals: { calls: number; errors: number; error_rate: number | null };
@@ -1015,6 +1051,9 @@ export const api = {
   },
   async uxTrends(params: UxQuery = {}): Promise<UxTrends> {
     return apiCall(`/admin/ux/trends${uxQuery(params)}`);
+  },
+  async uxUserActivity(params: UxQuery = {}): Promise<UxUserActivity> {
+    return apiCall(`/admin/ux/user-activity${uxQuery(params)}`);
   },
   async uxTools(params: UxQuery = {}): Promise<UxTools> {
     return apiCall(`/admin/ux/tools${uxQuery(params)}`);

@@ -101,7 +101,8 @@ async def test_every_endpoint_requires_admin(app_client_factory):
     """看板是 admin 专属 —— 普通用户即使带着合法身份也必须 403。"""
     user_client = app_client_factory([ux.router], user_id="u1", role="user")
     async with user_client as c:
-        for path in ("/overview", "/trends", "/tools", "/rounds", "/feedback"):
+        for path in ("/overview", "/trends", "/user-activity", "/tools", "/tool-calls",
+                     "/llm", "/rounds", "/feedback"):
             r = await c.get(f"/api/admin/ux{path}")
             assert r.status_code == 403, path
             assert r.json()["detail"] == "Admin privileges required"
@@ -248,7 +249,9 @@ async def test_trends_buckets_by_day_and_keeps_days_sorted(admin, db_factory):
 
 async def test_trends_is_empty_when_no_data(admin):
     async with admin as c:
-        assert (await c.get("/api/admin/ux/trends")).json() == {"window_days": 30, "series": []}
+        assert (await c.get("/api/admin/ux/trends")).json() == {
+            "granularity": "day", "window_days": 30, "series": [],
+        }
 
 
 # ------------------------------------------------------------------ 工具准确率
