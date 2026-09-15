@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import { ConfigProvider, theme as antdTheme } from "antd";
+import { App as AntdApp, ConfigProvider, theme as antdTheme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { useTheme } from "./theme";
 import { Login } from "./components/Login";
@@ -102,7 +102,13 @@ export default function App() {
         },
       }}
     >
-      <AppRoutes />
+      {/* AntdApp 为 Chat.tsx 的 AntdApp.useApp()（modal.confirm 等）提供上下文；
+          缺少它时 useApp() 返回空壳对象，调用 modal.confirm 会抛
+          "confirm is not a function"。component={false} 不渲染包裹 div，
+          避免 .ant-app 类影响 theme.css 的既有排版。 */}
+      <AntdApp component={false}>
+        <AppRoutes />
+      </AntdApp>
     </ConfigProvider>
   );
 }
