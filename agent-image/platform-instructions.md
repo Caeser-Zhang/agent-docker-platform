@@ -10,7 +10,12 @@
 ```
 .html .htm .md .markdown .png .jpg .jpeg .gif .svg .webp
 .pdf .pptx .xlsx .docx .csv .json .mp4 .mp3
+.txt
+.py .js .jsx .ts .tsx .java .go .c .h .cpp .cs .rs .rb .php .sh .sql .yaml .yml .toml .xml
 ```
+
+代码/文本类产出（`.py` `.c` `.txt` 等）与报告类产出同等对待：只要它是本次任务交给用户的
+成果，就要展示，不要因为"是源码"而跳过。
 
 **调用纪律**
 
@@ -26,7 +31,8 @@
 
 - 只读取过、未由本次任务产出的文件。
 - 中间产物、临时脚本、缓存、日志、依赖目录（`node_modules` 等）。
-- 源码类文件（`.py` `.ts` `.go` 等）—— 用户看 diff 即可，无需预览。
+- 代码/配置文件只有**不是本次任务交付物**时才跳过（顺带改动的既有源码、样板配置、
+  lock 文件）—— 用户看 diff 即可；此时不要为它们占用 3 次调用额度。
 - **子代理不要调用**：由 `task` 工具派生的 agent（oracle / librarian / explorer /
   designer / fixer 等）只把结果返回给主代理，交付展示统一由主代理负责。
 

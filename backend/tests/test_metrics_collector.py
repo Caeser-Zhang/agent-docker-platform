@@ -12,13 +12,16 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
-from app.models import AgentRoundMetrics, ToolCallMetrics
+from app.models import AgentRoundMetrics, LLMProxyMetrics, ToolCallMetrics
 from app.services import metrics_collector as mc
 from app.services.metrics_collector import (
     RoundAggregator,
+    _err_fields,
     _sum_tokens,
+    _token_split,
     backfill_session,
     metrics_collector,
+    record_llm_call,
 )
 
 
@@ -90,6 +93,18 @@ def test_round_settles_on_idle_with_full_dimensions():
     assert sorted(t["tool_name"] for t in tools) == ["bash", "read"]
     err = next(t for t in tools if t["is_error"])
     assert err["status"] == "error" and err["error_text"] == "ENOENT"
+
+
+def test_model_read_from_flat_v1_fields():
+    """opencode v1.18.16 的 assistant info 用扁平 providerID/modelID（无嵌套 model）。"""
+    agg = RoundAggregator("u1", "ses1")
+    _feed(
+        agg,
+        _user(),
+        _assistant(providerID="openai", modelID="gpt-4o", agent="build"),
+    )
+    row, _ = agg.consume("session.idle", {"sessionID": "ses1"})
+    assert (row["model_provider"], row["model_id"], row["agent"]) == ("openai", "gpt-4o", "build")
 
 
 def test_tool_part_updates_replace_rather_than_accumulate():
@@ -274,3 +289,111 @@ async def test_backfill_accepts_envelope_and_tolerates_junk(mock_httpx):
     mock_httpx(lambda req: httpx.Response(200, json=[None, "junk", {"info": "bad"}, {"no_info": 1}]))
     res = await backfill_session("u1", "s3", "http://a", ("o", "p"))
     assert res == {"session_id": "s3", "records": 4, "inserted": 0}
+
+
+# ------------------------------------------------- A1 错误分类 / A3 token 拆分
+
+
+def test_err_fields_extracts_name_message_and_status_code():
+    """opencode 错误联合：name 判别、详情在 data.{message,statusCode}。"""
+    assert _err_fields({"name": "APIError", "data": {"message": "rate limited", "statusCode": 429}}) == (
+        "APIError", "rate limited", 429,
+    )
+    # 纯字符串错误（工具 state.error）→ 只有 message。
+    assert _err_fields("ENOENT") == (None, "ENOENT", None)
+    # 空 / 非 dict。
+    assert _err_fields(None) == (None, None, None)
+    assert _err_fields({}) == (None, None, None)
+
+
+def test_error_classification_flows_into_round_row():
+    agg = RoundAggregator("u1", "ses1")
+    _feed(agg, _user(), _assistant(completed=None))
+    agg.consume("session.error", {"error": {"name": "APIError", "data": {"message": "boom", "statusCode": 500}}})
+    row, _ = agg.consume("session.idle", {})
+    assert row["errored"] is True and row["succeeded"] is False
+    assert row["error_name"] == "APIError"
+    assert row["error_status_code"] == 500
+    assert row["error_text"] == "boom"
+
+
+def test_token_split_extracts_components_and_skips_missing():
+    split = _token_split({"input": 10, "output": 5, "reasoning": 2, "cache": {"read": 3, "write": 1}})
+    assert split == {
+        "input_tokens": 10, "output_tokens": 5, "reasoning_tokens": 2,
+        "cache_read_tokens": 3, "cache_write_tokens": 1,
+    }
+    # 缺失项不出现在结果里（区分「未上报」与「0」）。
+    assert _token_split({"input": 7}) == {"input_tokens": 7}
+    assert _token_split("nope") == {}
+
+
+def test_sum_tokens_prefers_explicit_total_without_double_counting():
+    # 显式 total 存在时直接取用，绝不与分项再累加。
+    assert _sum_tokens({"total": 100, "input": 10, "output": 5}) == 100
+    # total 缺失时求和各分项叶子（含 cache 嵌套），跳过 total 键。
+    assert _sum_tokens({"input": 10, "output": 5, "cache": {"read": 3, "write": 1}}) == 19
+
+
+def test_token_split_columns_populated_on_round_row():
+    agg = RoundAggregator("u1", "ses1")
+    _feed(
+        agg,
+        _user(),
+        _assistant(tokens={"input": 10, "output": 5, "reasoning": 2, "cache": {"read": 3, "write": 1}}),
+    )
+    row, _ = agg.consume("session.idle", {})
+    assert row["total_tokens"] == 21
+    assert row["input_tokens"] == 10 and row["output_tokens"] == 5
+    assert row["reasoning_tokens"] == 2
+    assert row["cache_read_tokens"] == 3 and row["cache_write_tokens"] == 1
+
+
+# ------------------------------------------------- A2 单次工具耗时
+
+
+def test_tool_duration_from_state_time():
+    """completed/error 态的 state.time.{start,end} → duration_ms（仅实时 tap 有）。"""
+    agg = RoundAggregator("u1", "ses1")
+    _feed(agg, _user(), _assistant())
+    agg.consume("message.part.updated", {"part": {
+        "id": "p1", "type": "tool", "tool": "bash",
+        "state": {"status": "completed", "time": {"start": 1_000, "end": 1_750}},
+    }})
+    # 无 time 字段（回补形状）→ duration_ms=None。
+    agg.consume("message.part.updated", {"part": {
+        "id": "p2", "type": "tool", "tool": "read", "state": {"status": "completed"},
+    }})
+    _, tools = agg.consume("session.idle", {})
+    by_name = {t["tool_name"]: t for t in tools}
+    assert by_name["bash"]["duration_ms"] == 750
+    assert by_name["read"]["duration_ms"] is None
+
+
+# ------------------------------------------------- B1/B2 LLM 代理指标
+
+
+async def test_record_llm_call_persists_row(db_factory):
+    record_llm_call(
+        user_id="u1", provider_id="deepseek", method="POST",
+        status_code=200, ttft_ms=120, duration_ms=3_400, is_sse=True, upstream_error=False,
+    )
+    await asyncio.sleep(0.05)
+    async with db_factory() as db:
+        row = (await db.execute(select(LLMProxyMetrics))).scalar_one()
+    assert row.provider_id == "deepseek" and row.user_id == "u1"
+    assert row.status_code == 200 and row.upstream_error is False
+    assert row.ttft_ms == 120 and row.duration_ms == 3_400 and row.is_sse is True
+
+
+async def test_record_llm_call_upstream_error_and_null_ttft(db_factory):
+    """连接失败路径：status=502、upstream_error=True、ttft=None。"""
+    record_llm_call(
+        user_id=None, provider_id="openai", method="POST",
+        status_code=502, ttft_ms=None, duration_ms=15, is_sse=False, upstream_error=True,
+    )
+    await asyncio.sleep(0.05)
+    async with db_factory() as db:
+        row = (await db.execute(select(LLMProxyMetrics))).scalar_one()
+    assert row.user_id is None and row.status_code == 502
+    assert row.upstream_error is True and row.ttft_ms is None

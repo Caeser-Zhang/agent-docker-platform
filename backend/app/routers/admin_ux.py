@@ -22,7 +22,7 @@ from sqlalchemy import case, func, select
 from ..auth import require_admin
 from ..crypto import decrypt_password_compat
 from ..database import async_session
-from ..models import AgentContainer, AgentRoundMetrics, MessageFeedback, ToolCallMetrics
+from ..models import AgentContainer, AgentRoundMetrics, LLMProxyMetrics, MessageFeedback, RequestLog, ToolCallMetrics, User
 from ..services.container_manager import container_manager
 from ..services.metrics_collector import backfill_session
 
@@ -32,6 +32,39 @@ router = APIRouter(prefix="/api/admin/ux", tags=["admin-ux"], dependencies=[Depe
 
 def _cutoff(days: int) -> datetime:
     return datetime.now(timezone.utc) - timedelta(days=days)
+
+
+# 时间维度粒度 → 默认统计窗口（天）。粒度自带默认范围，切换粒度即切换窗口。
+_GRANULARITY_WINDOW = {"day": 30, "week": 84, "month": 365, "year": 1825}
+
+
+def _resolve_granularity(granularity: str) -> str:
+    return granularity if granularity in _GRANULARITY_WINDOW else "day"
+
+
+def _resolve_window(granularity: str, days: int | None) -> int:
+    """显式 days 优先（向后兼容）；否则用粒度自带的默认范围。"""
+    if days is not None:
+        return max(1, min(days, 3650))
+    return _GRANULARITY_WINDOW.get(granularity, 30)
+
+
+def _bucket_key(dt: datetime, granularity: str) -> str:
+    """按粒度生成分桶键（Python 侧，跨 SQLite/Postgres 方言安全）。
+
+    day   -> 2026-09-15    week  -> 2026-W38（ISO 周）
+    month -> 2026-09       year  -> 2026
+    键的字典序即时间序，便于直接 sorted()。
+    """
+    d = dt.date() if isinstance(dt, datetime) else dt
+    if granularity == "week":
+        iso = d.isocalendar()
+        return f"{iso[0]:04d}-W{iso[1]:02d}"
+    if granularity == "month":
+        return f"{d.year:04d}-{d.month:02d}"
+    if granularity == "year":
+        return f"{d.year:04d}"
+    return d.isoformat()
 
 
 def _pct(sorted_vals: list[float], p: float) -> float | None:
@@ -58,19 +91,28 @@ def _round_filters(days: int, user_id: str | None, model_provider: str | None) -
 
 @router.get("/overview")
 async def ux_overview(
-    days: int = Query(30, ge=1, le=365),
+    granularity: str = Query("day"),
+    days: int | None = Query(None, ge=1, le=3650),
     user_id: str | None = Query(None),
     model_provider: str | None = Query(None),
 ):
-    """四层核心指标汇总（时间窗内）。"""
-    conds = _round_filters(days, user_id, model_provider)
+    """四层核心指标 + 用户视角汇总（粒度驱动的窗口内）。"""
+    granularity = _resolve_granularity(granularity)
+    wdays = _resolve_window(granularity, days)
+    conds = _round_filters(wdays, user_id, model_provider)
     cols = [
         AgentRoundMetrics.succeeded,
         AgentRoundMetrics.is_task,
         AgentRoundMetrics.task_success,
         AgentRoundMetrics.errored,
+        AgentRoundMetrics.error_name,
         AgentRoundMetrics.duration_ms,
         AgentRoundMetrics.total_tokens,
+        AgentRoundMetrics.input_tokens,
+        AgentRoundMetrics.output_tokens,
+        AgentRoundMetrics.reasoning_tokens,
+        AgentRoundMetrics.cache_read_tokens,
+        AgentRoundMetrics.cache_write_tokens,
         AgentRoundMetrics.cost,
         AgentRoundMetrics.tool_calls,
         AgentRoundMetrics.tool_errors,
@@ -106,6 +148,25 @@ async def ux_overview(
     tool_calls = sum(r.tool_calls or 0 for r in rows)
     tool_errors = sum(r.tool_errors or 0 for r in rows)
 
+    # 错误分类下钻（A1）：按 error_name 计数，None 归为 "unknown"。
+    error_breakdown: dict[str, int] = {}
+    for r in rows:
+        if r.errored:
+            key = r.error_name or "unknown"
+            error_breakdown[key] = error_breakdown.get(key, 0) + 1
+
+    # Token 拆分（A3）：分项求和，缺失项跳过。
+    def _tok_sum(attr: str) -> int:
+        return sum(getattr(r, attr) for r in rows if getattr(r, attr) is not None)
+
+    token_split = {
+        "input": _tok_sum("input_tokens"),
+        "output": _tok_sum("output_tokens"),
+        "reasoning": _tok_sum("reasoning_tokens"),
+        "cache_read": _tok_sum("cache_read_tokens"),
+        "cache_write": _tok_sum("cache_write_tokens"),
+    }
+
     # 点踩原因码分布
     reason_dist: dict[str, int] = {}
     for raw in down_rows:
@@ -128,6 +189,7 @@ async def ux_overview(
             "error_rate": (errored / total) if total else None,
             "task_rounds": len(task_rows),
             "task_success_rate": (task_success / len(task_rows)) if task_rows else None,
+            "error_breakdown": error_breakdown,
         },
         "l2_efficiency": {
             "duration_avg_ms": (sum(durations) / len(durations)) if durations else None,
@@ -145,6 +207,7 @@ async def ux_overview(
             "avg_tokens_per_round": (total_tokens / total) if total else None,
             # Token 效率：每个成功回合消耗的 token（越低越好）。
             "tokens_per_success": (total_tokens / succeeded) if succeeded else None,
+            "token_split": token_split,
         },
         "l4_satisfaction": {
             "thumbs_up": up,
@@ -281,6 +344,153 @@ async def ux_tools(
     }
 
 
+@router.get("/tool-calls")
+async def ux_tool_calls(
+    days: int = Query(7, ge=1, le=365),
+    user_id: str | None = Query(None),
+    session_id: str | None = Query(None),
+    only_failed: bool = Query(False),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """个体工具调用记录（最新在前），供 L3 过程与轨迹下钻排障。"""
+    conds = [ToolCallMetrics.created_at >= _cutoff(days)]
+    if user_id:
+        conds.append(ToolCallMetrics.user_id == user_id)
+    if session_id:
+        conds.append(ToolCallMetrics.session_id == session_id)
+    if only_failed:
+        conds.append(ToolCallMetrics.is_error.is_(True))
+    async with async_session() as db:
+        total = (await db.execute(
+            select(func.count(ToolCallMetrics.id)).where(*conds)
+        )).scalar_one()
+        rows = (await db.execute(
+            select(ToolCallMetrics).where(*conds)
+            .order_by(ToolCallMetrics.id.desc())
+            .limit(limit).offset(offset)
+        )).scalars().all()
+        # 批量查用户名/工号（避免 N+1）。
+        uids = {r.user_id for r in rows if r.user_id}
+        users_map: dict[str, tuple[str | None, str | None]] = {}
+        if uids:
+            urows = (await db.execute(
+                select(User.id, User.username, User.uid).where(User.id.in_(uids))
+            )).all()
+            users_map = {u.id: (u.username, u.uid) for u in urows}
+    return {
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "tool_calls": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "user_name": users_map.get(r.user_id, (None, None))[0],
+                "user_uid": users_map.get(r.user_id, (None, None))[1],
+                "session_id": r.session_id,
+                "round_seq": r.round_seq,
+                "tool_name": r.tool_name,
+                "status": r.status,
+                "is_error": r.is_error,
+                "error_text": r.error_text,
+                "duration_ms": r.duration_ms,
+                "source": r.source,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/llm")
+async def ux_llm(
+    days: int = Query(7, ge=1, le=365),
+    user_id: str | None = Query(None),
+    provider_id: str | None = Query(None),
+):
+    """LLM 代理上游指标（B1/B2）：按 provider 聚合状态码分布、TTFT/耗时分位、错误率。"""
+    conds = [LLMProxyMetrics.created_at >= _cutoff(days)]
+    if user_id:
+        conds.append(LLMProxyMetrics.user_id == user_id)
+    if provider_id:
+        conds.append(LLMProxyMetrics.provider_id == provider_id)
+    cols = [
+        LLMProxyMetrics.provider_id,
+        LLMProxyMetrics.status_code,
+        LLMProxyMetrics.ttft_ms,
+        LLMProxyMetrics.duration_ms,
+        LLMProxyMetrics.is_sse,
+        LLMProxyMetrics.upstream_error,
+    ]
+    async with async_session() as db:
+        rows = (await db.execute(select(*cols).where(*conds))).all()
+
+    # 按 provider 聚合。
+    by_prov: dict[str, dict] = {}
+
+    def _bucket(pid: str) -> dict:
+        b = by_prov.get(pid)
+        if b is None:
+            b = {
+                "calls": 0, "errors": 0, "status_counts": {},
+                "ttfts": [], "durations": [], "sse_calls": 0,
+            }
+            by_prov[pid] = b
+        return b
+
+    for r in rows:
+        b = _bucket(r.provider_id)
+        b["calls"] += 1
+        if r.upstream_error:
+            b["errors"] += 1
+        sc = str(r.status_code) if r.status_code is not None else "none"
+        b["status_counts"][sc] = b["status_counts"].get(sc, 0) + 1
+        if r.is_sse:
+            b["sse_calls"] += 1
+        if r.ttft_ms is not None:
+            b["ttfts"].append(float(r.ttft_ms))
+        if r.duration_ms is not None:
+            b["durations"].append(float(r.duration_ms))
+
+    providers = []
+    total_calls = 0
+    total_errors = 0
+    for pid in sorted(by_prov.keys()):
+        b = by_prov[pid]
+        ttfts = sorted(b["ttfts"])
+        durs = sorted(b["durations"])
+        total_calls += b["calls"]
+        total_errors += b["errors"]
+        providers.append({
+            "provider_id": pid,
+            "calls": b["calls"],
+            "errors": b["errors"],
+            "error_rate": (b["errors"] / b["calls"]) if b["calls"] else None,
+            "sse_calls": b["sse_calls"],
+            "status_counts": b["status_counts"],
+            "ttft_avg_ms": (sum(ttfts) / len(ttfts)) if ttfts else None,
+            "ttft_p50_ms": _pct(ttfts, 50),
+            "ttft_p90_ms": _pct(ttfts, 90),
+            "ttft_p99_ms": _pct(ttfts, 99),
+            "duration_avg_ms": (sum(durs) / len(durs)) if durs else None,
+            "duration_p50_ms": _pct(durs, 50),
+            "duration_p90_ms": _pct(durs, 90),
+            "duration_p99_ms": _pct(durs, 99),
+        })
+
+    return {
+        "window_days": days,
+        "filters": {"user_id": user_id, "provider_id": provider_id},
+        "totals": {
+            "calls": total_calls,
+            "errors": total_errors,
+            "error_rate": (total_errors / total_calls) if total_calls else None,
+        },
+        "providers": providers,
+    }
+
+
 @router.get("/rounds")
 async def ux_rounds(
     days: int = Query(7, ge=1, le=365),
@@ -305,6 +515,14 @@ async def ux_rounds(
             .order_by(AgentRoundMetrics.id.desc())
             .limit(limit).offset(offset)
         )).scalars().all()
+        # 批量查用户名/工号（避免 N+1）。
+        uids = {r.user_id for r in rows if r.user_id}
+        users_map: dict[str, tuple[str | None, str | None]] = {}
+        if uids:
+            urows = (await db.execute(
+                select(User.id, User.username, User.uid).where(User.id.in_(uids))
+            )).all()
+            users_map = {u.id: (u.username, u.uid) for u in urows}
     return {
         "total": int(total),
         "limit": limit,
@@ -313,6 +531,8 @@ async def ux_rounds(
             {
                 "id": r.id,
                 "user_id": r.user_id,
+                "user_name": users_map.get(r.user_id, (None, None))[0],
+                "user_uid": users_map.get(r.user_id, (None, None))[1],
                 "session_id": r.session_id,
                 "round_seq": r.round_seq,
                 "message_id": r.message_id,
@@ -321,8 +541,15 @@ async def ux_rounds(
                 "task_success": r.task_success,
                 "errored": r.errored,
                 "error_text": r.error_text,
+                "error_name": r.error_name,
+                "error_status_code": r.error_status_code,
                 "duration_ms": r.duration_ms,
                 "total_tokens": r.total_tokens,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "reasoning_tokens": r.reasoning_tokens,
+                "cache_read_tokens": r.cache_read_tokens,
+                "cache_write_tokens": r.cache_write_tokens,
                 "cost": r.cost,
                 "tool_calls": r.tool_calls,
                 "tool_errors": r.tool_errors,

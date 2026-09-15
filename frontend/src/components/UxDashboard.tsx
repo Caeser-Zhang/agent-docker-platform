@@ -31,8 +31,10 @@ import {
 import {
   api,
   type UxFeedback,
+  type UxLlm,
   type UxOverview,
   type UxRounds,
+  type UxToolCalls,
   type UxTools,
   type UxTrends,
 } from "../api";
@@ -74,6 +76,18 @@ const fmtTime = (iso: string | null): string => {
 const clip = (text: string | null | undefined, n: number): string => {
   const t = (text ?? "").trim();
   return t.length > n ? `${t.slice(0, n)}…` : t;
+};
+
+/** 用户展示：name（工号）；缺失时回退到 user_id。 */
+const userLabel = (
+  name: string | null | undefined,
+  uid: string | null | undefined,
+  id: string | null | undefined
+): string => {
+  if (name && uid) return `${name}（${uid}）`;
+  if (name) return name;
+  if (uid) return `（${uid}）`;
+  return id ?? "—";
 };
 
 /** 解析主题 CSS 变量为图表可用的实色（recharts 的 stroke/fill 不吃 var()）。 */
@@ -162,6 +176,8 @@ export function UxDashboard() {
   const [overview, setOverview] = useState<UxOverview | null>(null);
   const [trends, setTrends] = useState<UxTrends | null>(null);
   const [tools, setTools] = useState<UxTools | null>(null);
+  const [toolCalls, setToolCalls] = useState<UxToolCalls | null>(null);
+  const [llm, setLlm] = useState<UxLlm | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   // --- 明细（回合 / 反馈）---------------------------------------------------
@@ -184,14 +200,18 @@ export function UxDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, tr, tl] = await Promise.all([
+      const [ov, tr, tl, tc, lm] = await Promise.all([
         api.uxOverview(filters),
         api.uxTrends(filters),
         api.uxTools(filters),
+        api.uxToolCalls({ days: filters.days, user_id: filters.user_id, limit: 50 }),
+        api.uxLlm({ days: filters.days, user_id: filters.user_id }),
       ]);
       setOverview(ov);
       setTrends(tr);
       setTools(tl);
+      setToolCalls(tc);
+      setLlm(lm);
       setUpdatedAt(new Date());
     } catch (e: any) {
       setError(e?.message || "加载失败");
@@ -392,6 +412,27 @@ export function UxDashboard() {
               tone={(l1?.error_rate ?? 0) > 0.1 ? "red" : undefined}
             />
           </div>
+          {l1 && Object.keys(l1.error_breakdown ?? {}).length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "12px" }}>
+              {Object.entries(l1.error_breakdown)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, n]) => (
+                  <span
+                    key={name}
+                    style={{
+                      ...s.mono,
+                      fontSize: "11px",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-2)",
+                    }}
+                  >
+                    {name}: {n}
+                  </span>
+                ))}
+            </div>
+          )}
 
           {/* --- L2 效率与性能 -------------------------------------------- */}
           <div style={sectionTitle}>L2 效率与性能 · 拿到结果花了多少代价</div>
@@ -465,6 +506,63 @@ export function UxDashboard() {
             <Card label="反馈样本" value={fmtInt(l4?.total)} sub={`👍 ${fmtInt(l4?.thumbs_up)} · 👎 ${fmtInt(l4?.thumbs_down)}`} />
           </div>
 
+          {/* 工具调用记录明细（L3 过程与轨迹下钻） */}
+          <div style={{ ...panel, marginBottom: "12px" }}>
+            <div style={panelTitle}>
+              工具调用记录 · 最近 {(toolCalls?.tool_calls ?? []).length} 条（共 {fmtInt(toolCalls?.total)} 条）
+            </div>
+            {(toolCalls?.tool_calls ?? []).length === 0 ? (
+              <div style={s.empty}>暂无工具调用记录</div>
+            ) : (
+              <div style={{ ...s.tableWrap, border: "none", borderRadius: 0, maxHeight: "360px" }}>
+                <table style={s.table}>
+                  <thead>
+                    <tr>
+                      <th style={s.th}>时间</th>
+                      <th style={s.th}>用户</th>
+                      <th style={s.th}>工具</th>
+                      <th style={s.th}>状态</th>
+                      <th style={s.th}>耗时</th>
+                      <th style={s.th}>会话 / 回合</th>
+                      <th style={s.th}>错误</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(toolCalls?.tool_calls ?? []).map((t) => (
+                      <tr key={t.id}>
+                        <td style={s.td}>{fmtTime(t.created_at)}</td>
+                        <td style={s.td} title={t.user_id}>
+                          {userLabel(t.user_name, t.user_uid, t.user_id)}
+                        </td>
+                        <td style={{ ...s.td, ...s.mono }}>{t.tool_name}</td>
+                        <td style={s.td}>
+                          {t.is_error ? (
+                            <span style={{ color: "var(--red)" }}>{t.status ?? "错误"}</span>
+                          ) : (
+                            <span style={{ color: "var(--green)" }}>{t.status ?? "成功"}</span>
+                          )}
+                        </td>
+                        <td style={s.td}>{fmtMs(t.duration_ms)}</td>
+                        <td style={{ ...s.td, ...s.mono }}>
+                          {clip(t.session_id, 10)} #{t.round_seq}
+                        </td>
+                        <td style={s.td}>
+                          {t.error_text ? (
+                            <span style={{ color: "var(--red)" }} title={t.error_text}>
+                              {clip(t.error_text, 40)}
+                            </span>
+                          ) : (
+                            <span style={s.muted}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div style={grid}>
             <div style={panel}>
               <div style={panelTitle}>工具调用量与失败量（Top 12）</div>
@@ -524,6 +622,71 @@ export function UxDashboard() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* --- LLM 代理上游（B1/B2）------------------------------------ */}
+          <div style={sectionTitle}>LLM 代理上游 · 状态码 / 首字节 / 耗时</div>
+          <div style={s.cardsRow}>
+            <Card label="上游调用数" value={fmtInt(llm?.totals.calls)} sub={`时间窗 ${overview.window_days} 天`} />
+            <Card
+              label="上游错误率"
+              value={pct1(llm?.totals.error_rate)}
+              sub={`失败 ${fmtInt(llm?.totals.errors)} 次（4xx/5xx/连接失败）`}
+              tone={(llm?.totals.error_rate ?? 0) > 0.05 ? "red" : undefined}
+            />
+          </div>
+          <div style={s.tableWrap}>
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Provider</th>
+                  <th style={s.th}>调用</th>
+                  <th style={s.th}>错误率</th>
+                  <th style={s.th}>状态码分布</th>
+                  <th style={s.th}>TTFT p50 / p90</th>
+                  <th style={s.th}>耗时 p50 / p90 / p99</th>
+                  <th style={s.th}>SSE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(llm?.providers ?? []).map((p) => (
+                  <tr key={p.provider_id}>
+                    <td style={{ ...s.td, ...s.mono }}>{p.provider_id}</td>
+                    <td style={s.td}>{fmtInt(p.calls)}</td>
+                    <td style={s.td}>
+                      <span style={{ color: (p.error_rate ?? 0) > 0.05 ? "var(--red)" : "var(--text)" }}>
+                        {pct1(p.error_rate)}
+                      </span>
+                    </td>
+                    <td style={{ ...s.td, ...s.mono, fontSize: "11px" }}>
+                      {Object.entries(p.status_counts)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([code, n]) => (
+                          <span
+                            key={code}
+                            style={{
+                              marginRight: "6px",
+                              color: code !== "none" && Number(code) >= 400 ? "var(--red)" : "var(--text-3)",
+                            }}
+                          >
+                            {code}:{n}
+                          </span>
+                        ))}
+                    </td>
+                    <td style={s.td}>
+                      {fmtMs(p.ttft_p50_ms)} / {fmtMs(p.ttft_p90_ms)}
+                    </td>
+                    <td style={s.td}>
+                      {fmtMs(p.duration_p50_ms)} / {fmtMs(p.duration_p90_ms)} / {fmtMs(p.duration_p99_ms)}
+                    </td>
+                    <td style={s.td}>{fmtInt(p.sse_calls)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(llm?.providers ?? []).length === 0 && (
+              <div style={s.empty}>{loading ? "加载中…" : "暂无 LLM 代理调用记录"}</div>
+            )}
           </div>
 
           {/* --- 明细下钻 ------------------------------------------------- */}
@@ -611,7 +774,9 @@ export function UxDashboard() {
                   {(rounds?.rounds ?? []).map((r) => (
                     <tr key={r.id}>
                       <td style={s.td}>{fmtTime(r.created_at)}</td>
-                      <td style={{ ...s.td, ...s.mono }}>{r.user_id}</td>
+                      <td style={s.td} title={r.user_id}>
+                        {userLabel(r.user_name, r.user_uid, r.user_id)}
+                      </td>
                       <td style={{ ...s.td, ...s.mono }}>
                         {clip(r.session_id, 10)} #{r.round_seq}
                         {r.is_task && <span style={{ color: "var(--indigo)" }}> ·任务</span>}
@@ -619,7 +784,10 @@ export function UxDashboard() {
                       <td style={s.td}>
                         {r.errored ? (
                           <span title={r.error_text ?? ""} style={{ color: "var(--red)" }}>
-                            错误
+                            {r.error_name ?? "错误"}
+                            {r.error_status_code != null && (
+                              <span style={s.muted}> ·{r.error_status_code}</span>
+                            )}
                           </span>
                         ) : r.succeeded ? (
                           <span style={{ color: "var(--green)" }}>成功</span>
@@ -635,7 +803,16 @@ export function UxDashboard() {
                         {r.tool_calls}
                         {r.tool_errors > 0 && <span style={{ color: "var(--red)" }}> /{r.tool_errors}错</span>}
                       </td>
-                      <td style={s.td}>{fmtInt(r.total_tokens)}</td>
+                      <td
+                        style={s.td}
+                        title={
+                          `in ${fmtInt(r.input_tokens)} · out ${fmtInt(r.output_tokens)}` +
+                          ` · reason ${fmtInt(r.reasoning_tokens)}` +
+                          ` · cache r/w ${fmtInt(r.cache_read_tokens)}/${fmtInt(r.cache_write_tokens)}`
+                        }
+                      >
+                        {fmtInt(r.total_tokens)}
+                      </td>
                       <td style={s.td}>{fmtCost(r.cost)}</td>
                       <td style={{ ...s.td, ...s.mono }}>
                         {r.model_provider ? `${r.model_provider}/${r.model_id ?? ""}` : "—"}

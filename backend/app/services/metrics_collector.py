@@ -17,10 +17,15 @@ SSE Pump 在 ``ContainerEventBus.push_event()`` 处订阅并转发容器 ``/even
     只记 warning。
 
 数据可得性约束（已在设计阶段坐实）：
-  * tool part 的 ``state`` 无 ``time`` 字段 —— 单次工具耗时不可得，故不采集，
-    只采集工具调用的成功率/报错。
+  * tool part 的 ``state.time.start/end`` 仅**实时 tap** 可得（ToolStateCompleted/
+    Error 均 required），故采集单次工具耗时 duration_ms；REST 回补的
+    SessionMessageToolState* **无** time 字段，回补行 duration_ms=None。
   * ``tokens`` 原样存整个 dict（防 cache.read/write 等未列字段丢失），另存冗余
-    ``total_tokens`` 供聚合。
+    ``total_tokens`` 供聚合，并拆分出 input/output/reasoning/cache 冗余列。
+    ``total_tokens`` 优先取上游显式 ``total``，缺失时才求和明细叶子，避免把
+    ``total`` 与各分项重复累加。
+  * 错误按 opencode 错误联合的 ``name`` 分类（error_name），并保留 data.message
+    详情与 APIError 的 data.statusCode（error_status_code）供错误率下钻。
   * 回补依赖 REST 消息列表，其中**不含** todo 状态，故回补行的 is_task=False、
     task_success=None（任务轨信号仅实时 tap 可得）。
 """
@@ -37,7 +42,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from ..database import async_session
-from ..models import AgentRoundMetrics, ToolCallMetrics
+from ..models import AgentRoundMetrics, LLMProxyMetrics, ToolCallMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +58,7 @@ _RELEVANT_EVENTS = frozenset({
 # 保留窗口 —— 复用 request_log 的 MAX_ROWS/PRUNE_EVERY 模式，稳态开销近零。
 _MAX_ROUND_ROWS = 200_000
 _MAX_TOOL_ROWS = 1_000_000
+_MAX_LLM_ROWS = 500_000
 _PRUNE_EVERY = 500
 
 
@@ -72,7 +78,7 @@ def _payload(event: dict) -> dict:
 
 
 def _model_parts(model: Any) -> tuple[Optional[str], Optional[str]]:
-    """从 ModelRef 提取 (provider, model_id)。兼容 {providerID,id} 与 {providerID,modelID}。"""
+    """从嵌套 ModelRef 提取 (provider, model_id)。兼容 {providerID,id} 与 {providerID,modelID}。"""
     if not isinstance(model, dict):
         return None, None
     provider = model.get("providerID") or model.get("provider")
@@ -81,14 +87,39 @@ def _model_parts(model: Any) -> tuple[Optional[str], Optional[str]]:
             str(mid)[:128] if mid else None)
 
 
+def _model_from_info(info: dict) -> tuple[Optional[str], Optional[str]]:
+    """从 assistant message ``info`` 提取 (provider, model_id)。
+
+    opencode v1.18.16 的 AssistantMessage 用**扁平** ``providerID`` / ``modelID``
+    字段（见 opencode-api.json 的 AssistantMessage schema：两者均 required，且
+    ``additionalProperties:false`` —— 根本没有嵌套 ``model`` 对象）。只有旧版 /
+    V2 ``session.next.*`` 事件才把模型放在嵌套 ``model`` ModelRef 里。这里优先读
+    扁平字段，读不到再回退嵌套 ModelRef，两代格式都兼容。
+    """
+    prov = info.get("providerID") or info.get("provider")
+    mid = info.get("modelID")
+    if prov or mid:
+        return (str(prov)[:128] if prov else None,
+                str(mid)[:128] if mid else None)
+    return _model_parts(info.get("model"))
+
+
 def _sum_tokens(tokens: Any) -> Optional[int]:
-    """递归求和 tokens dict 的所有数值叶子（含 cache.read/write 等嵌套）。"""
+    """回合总 token 数。
+
+    优先取上游显式 ``total``（opencode tokens schema 里 total 可选）；缺失时才
+    递归求和各分项叶子（input/output/reasoning/cache.read/cache.write）。**不**把
+    total 与分项一起累加，避免重复计数。
+    """
     if not isinstance(tokens, dict):
         return None
+    explicit = tokens.get("total")
+    if isinstance(explicit, (int, float)) and not isinstance(explicit, bool):
+        return int(explicit)
     total = 0
     found = False
-    for v in tokens.values():
-        if isinstance(v, bool):
+    for k, v in tokens.items():
+        if k == "total" or isinstance(v, bool):
             continue
         if isinstance(v, (int, float)):
             total += int(v)
@@ -101,16 +132,55 @@ def _sum_tokens(tokens: Any) -> Optional[int]:
     return total if found else None
 
 
-def _err_text(error: Any) -> Optional[str]:
-    """把 error 规整成截断后的字符串。"""
+def _token_split(tokens: Any) -> dict:
+    """从 tokens dict 抽取 input/output/reasoning/cache.read/cache.write 分项。
+
+    缺失项返回 None（而非 0），以便看板区分「未上报」与「确实为 0」。
+    """
+    if not isinstance(tokens, dict):
+        return {}
+    cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+    out = {
+        "input_tokens": _to_int(tokens.get("input")),
+        "output_tokens": _to_int(tokens.get("output")),
+        "reasoning_tokens": _to_int(tokens.get("reasoning")),
+        "cache_read_tokens": _to_int(cache.get("read")),
+        "cache_write_tokens": _to_int(cache.get("write")),
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def _err_fields(error: Any) -> tuple[Optional[str], Optional[str], Optional[int]]:
+    """把 opencode 错误联合规整成 (name, message, status_code)。
+
+    错误形如 ``{"name": "APIError", "data": {"message": ..., "statusCode": 429,
+    "isRetryable": true}}``（见 opencode-api.json 错误 schema：``name`` 判别、详情在
+    ``data``）。旧代码只取 ``error.get("message")``（顶层无此键）→ 只落到 name，
+    丢了 data.message 与 statusCode。这里三者都抽出。工具错误的 ``state.error``
+    是纯字符串，走字符串分支。
+    """
     if not error:
-        return None
+        return None, None, None
     if isinstance(error, str):
-        return error[:2000]
+        return None, error[:2000], None
     if isinstance(error, dict):
-        msg = error.get("message") or error.get("text") or error.get("name")
-        return str(msg)[:2000] if msg else json.dumps(error, ensure_ascii=False)[:2000]
-    return str(error)[:2000]
+        name = error.get("name")
+        data = error.get("data") if isinstance(error.get("data"), dict) else {}
+        msg = data.get("message") or error.get("message") or error.get("text")
+        status = _to_int(data.get("statusCode")) or _to_int(error.get("statusCode"))
+        if msg:
+            text = str(msg)[:2000]
+        elif name:
+            text = str(name)[:2000]
+        else:
+            text = json.dumps(error, ensure_ascii=False)[:2000]
+        return (str(name)[:64] if name else None, text, status)
+    return None, str(error)[:2000], None
+
+
+def _err_text(error: Any) -> Optional[str]:
+    """把 error 规整成截断后的字符串（保留 data.message 详情）。"""
+    return _err_fields(error)[1]
 
 
 def _to_float(v: Any) -> Optional[float]:
@@ -154,12 +224,15 @@ class RoundAggregator:
             "completed_ms": None,
             "errored": False,
             "error_text": None,
+            "error_name": None,
+            "error_status_code": None,
             "agent": None,
             "model_provider": None,
             "model_id": None,
             "cost": None,
             "tokens": None,
             "total_tokens": None,
+            "token_split": {},
             "tools": {},          # part_id -> tool 记录（full-replace）
             "is_task": False,
             "task_success": None,
@@ -177,9 +250,13 @@ class RoundAggregator:
         if type_ == "session.error":
             if self._round is not None:
                 self._round["errored"] = True
-                self._round["error_text"] = (
-                    self._round["error_text"] or _err_text(data.get("error")) or "session error"
-                )
+                name, msg, status = _err_fields(data.get("error"))
+                if not self._round["error_text"]:
+                    self._round["error_text"] = msg or "session error"
+                if not self._round["error_name"]:
+                    self._round["error_name"] = name
+                if self._round["error_status_code"] is None:
+                    self._round["error_status_code"] = status
             return None
         if type_ == "session.idle":
             return self._settle()
@@ -211,10 +288,13 @@ class RoundAggregator:
                 r["completed_ms"] = _to_int(t.get("completed"))
             if info.get("error"):
                 r["errored"] = True
-                r["error_text"] = _err_text(info.get("error"))
+                name, msg, status = _err_fields(info.get("error"))
+                r["error_text"] = msg
+                r["error_name"] = name
+                r["error_status_code"] = status
             if info.get("agent"):
                 r["agent"] = str(info.get("agent"))[:128]
-            prov, mid = _model_parts(info.get("model"))
+            prov, mid = _model_from_info(info)
             if prov:
                 r["model_provider"] = prov
             if mid:
@@ -226,6 +306,7 @@ class RoundAggregator:
             if isinstance(toks, dict):
                 r["tokens"] = toks
                 r["total_tokens"] = _sum_tokens(toks)
+                r["token_split"] = _token_split(toks)
         return None
 
     def _on_part(self, data: dict) -> None:
@@ -240,12 +321,18 @@ class RoundAggregator:
         st = part.get("state") or {}
         status = str(st.get("status") or "pending")[:32]
         is_error = status == "error"
+        # 单次工具耗时（A2）：completed/error 态的 state.time.{start,end}（tap 才有）。
+        t = st.get("time") if isinstance(st.get("time"), dict) else {}
+        start = _to_int(t.get("start"))
+        end = _to_int(t.get("end"))
+        tool_ms = (end - start) if (start is not None and end is not None and end >= start) else None
         # full-replace：同一 part 多次 updated 只保留最新状态。
         self._round["tools"][str(pid)] = {
             "tool_name": str(part.get("tool") or "tool")[:128],
             "status": status,
             "is_error": is_error,
             "error_text": _err_text(st.get("error")) if is_error else None,
+            "duration_ms": tool_ms,
         }
 
     def _on_todo(self, data: dict) -> None:
@@ -289,6 +376,8 @@ class RoundAggregator:
             "task_success": r["task_success"] if r["is_task"] else None,
             "errored": r["errored"],
             "error_text": r["error_text"],
+            "error_name": r["error_name"],
+            "error_status_code": r["error_status_code"],
             "duration_ms": duration,
             "tokens": json.dumps(r["tokens"], ensure_ascii=False) if r["tokens"] else None,
             "total_tokens": r["total_tokens"],
@@ -299,6 +388,7 @@ class RoundAggregator:
             "model_id": r["model_id"],
             "agent": r["agent"],
         }
+        round_dict.update(r["token_split"])
         tool_dicts = [
             {
                 "user_id": self.user_id,
@@ -308,6 +398,7 @@ class RoundAggregator:
                 "status": t["status"],
                 "is_error": t["is_error"],
                 "error_text": t["error_text"],
+                "duration_ms": t.get("duration_ms"),
             }
             for t in tools
         ]
@@ -461,13 +552,70 @@ class MetricsCollector:
                 await db.execute(
                     delete(ToolCallMetrics).where(ToolCallMetrics.id.not_in(keep_tools))
                 )
+                keep_llm = select(LLMProxyMetrics.id).order_by(
+                    LLMProxyMetrics.id.desc()
+                ).limit(_MAX_LLM_ROWS).scalar_subquery()
+                await db.execute(
+                    delete(LLMProxyMetrics).where(LLMProxyMetrics.id.not_in(keep_llm))
+                )
                 await db.commit()
         except Exception:  # noqa: BLE001
             logger.warning("metrics prune failed", exc_info=True)
 
+    # -- LLM 代理上游指标（B1/B2）-------------------------------------------
+
+    async def persist_llm_call(self, row: dict) -> bool:
+        """幂等写一行 LLM 代理上游指标。异常只记 warning，绝不向上抛。"""
+        try:
+            async with async_session() as db:
+                db.add(LLMProxyMetrics(**row))
+                await db.commit()
+            self._writes_since_prune += 1
+            if self._writes_since_prune >= _PRUNE_EVERY:
+                self._writes_since_prune = 0
+                await self.prune()
+            return True
+        except Exception:  # noqa: BLE001
+            logger.warning("llm proxy metrics persist failed", exc_info=True)
+            return False
+
 
 # 全局单例
 metrics_collector = MetricsCollector()
+
+
+def record_llm_call(
+    *,
+    user_id: Optional[str],
+    provider_id: str,
+    method: str = "POST",
+    status_code: Optional[int],
+    ttft_ms: Optional[int],
+    duration_ms: Optional[int],
+    is_sse: bool,
+    upstream_error: bool,
+) -> None:
+    """火忘记录一次 LLM 代理转发（B1 状态码 + B2 TTFT/耗时）。
+
+    遵循「绝不拖垮被观测调用」：无运行循环时静默丢弃，持久化异常只记 warning。
+    """
+    row = {
+        "user_id": str(user_id)[:36] if user_id else None,
+        "provider_id": str(provider_id)[:128],
+        "method": str(method)[:10],
+        "status_code": status_code,
+        "ttft_ms": ttft_ms,
+        "duration_ms": duration_ms,
+        "is_sse": bool(is_sse),
+        "upstream_error": bool(upstream_error),
+    }
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(metrics_collector.persist_llm_call(row))
+    except RuntimeError:
+        logger.debug("no running loop to record llm call; skipping")
+    except Exception:  # noqa: BLE001
+        logger.warning("record_llm_call failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

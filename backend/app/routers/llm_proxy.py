@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -45,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..database import get_db
 from ..services import user_config
+from ..services.metrics_collector import record_llm_call
 from ..services.opencode_config import _rewrite_loopback, load_source_config
 
 logger = logging.getLogger(__name__)
@@ -170,11 +173,30 @@ class _SSERewriter:
         return _rewrite_sse_line(line)
 
 
-async def _stream(upstream: httpx.Response, client: httpx.AsyncClient, rewrite: bool):
+async def _stream(
+    upstream: httpx.Response,
+    client: httpx.AsyncClient,
+    rewrite: bool,
+    *,
+    t0: float,
+    provider_id: str,
+    user_id: Optional[str],
+    method: str,
+):
+    """Stream upstream body to client, measuring TTFT + total duration (B2).
+
+    Metrics are recorded exactly once — when the generator completes or is
+    closed (client disconnect). Follows the "never break the observed call"
+    rule: record_llm_call swallows its own errors.
+    """
+    ttft_ms: Optional[int] = None
+    status = upstream.status_code
     try:
         if rewrite:
             rewriter = _SSERewriter()
             async for chunk in upstream.aiter_raw():
+                if ttft_ms is None:
+                    ttft_ms = int((time.perf_counter() - t0) * 1000)
                 out = rewriter.feed(chunk)
                 if out:
                     yield out
@@ -183,13 +205,33 @@ async def _stream(upstream: httpx.Response, client: httpx.AsyncClient, rewrite: 
                 yield tail
         else:
             async for chunk in upstream.aiter_raw():
+                if ttft_ms is None:
+                    ttft_ms = int((time.perf_counter() - t0) * 1000)
                 yield chunk
     finally:
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        record_llm_call(
+            user_id=user_id,
+            provider_id=provider_id,
+            method=method,
+            status_code=status,
+            ttft_ms=ttft_ms,
+            duration_ms=duration_ms,
+            is_sse=rewrite,
+            upstream_error=status >= 400,
+        )
         await upstream.aclose()
         await client.aclose()
 
 
-async def _forward(request: Request, upstream_base: str, path: str):
+async def _forward(
+    request: Request,
+    upstream_base: str,
+    path: str,
+    *,
+    provider_id: str,
+    user_id: Optional[str] = None,
+):
     """Forward one request to ``upstream_base/{path}`` with SSE normalization."""
     url = f"{upstream_base.rstrip('/')}/{path}"
     if request.url.query:
@@ -204,12 +246,24 @@ async def _forward(request: Request, upstream_base: str, path: str):
     # read=None: an LLM stream may idle between chunks for minutes.
     timeout = httpx.Timeout(connect=15.0, read=None, write=60.0, pool=15.0)
     client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
+    t0 = time.perf_counter()
     try:
         req = client.build_request(request.method, url, headers=headers, content=body)
         upstream = await client.send(req, stream=True)
     except httpx.HTTPError as exc:
         await client.aclose()
         logger.warning("LLM proxy upstream %s failed: %s", url, exc)
+        # Connection-level failure (B1): no status/TTFT, mark as upstream error.
+        record_llm_call(
+            user_id=user_id,
+            provider_id=provider_id,
+            method=request.method,
+            status_code=502,
+            ttft_ms=None,
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            is_sse=False,
+            upstream_error=True,
+        )
         return JSONResponse(
             status_code=502,
             content={"error": {"message": f"Upstream request failed: {exc}", "type": "proxy_error"}},
@@ -220,7 +274,15 @@ async def _forward(request: Request, upstream_base: str, path: str):
     }
     is_sse = "text/event-stream" in (upstream.headers.get("content-type") or "")
     return StreamingResponse(
-        _stream(upstream, client, rewrite=is_sse),
+        _stream(
+            upstream,
+            client,
+            rewrite=is_sse,
+            t0=t0,
+            provider_id=provider_id,
+            user_id=user_id,
+            method=request.method,
+        ),
         status_code=upstream.status_code,
         headers=passthrough,
     )
@@ -253,7 +315,9 @@ async def proxy_user(
             content={"error": {"message": f"Unknown user provider '{provider_id}' for user '{user_id}'"}},
         )
     upstream_base = _rewrite_loopback(base, settings.container_host_alias)
-    return await _forward(request, upstream_base, path)
+    return await _forward(
+        request, upstream_base, path, provider_id=provider_id, user_id=user_id
+    )
 
 
 @router.api_route("/{provider_id}/{path:path}", methods=["GET", "POST"])
@@ -264,4 +328,4 @@ async def proxy(provider_id: str, path: str, request: Request):
             status_code=404,
             content={"error": {"message": f"Unknown provider '{provider_id}' — no baseURL in host config"}},
         )
-    return await _forward(request, upstream_base, path)
+    return await _forward(request, upstream_base, path, provider_id=provider_id)

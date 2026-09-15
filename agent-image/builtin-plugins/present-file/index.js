@@ -36,6 +36,49 @@ import { basename, extname, isAbsolute, relative, resolve } from "node:path"
 // 分类表：kind 由工具侧判定，前端路由表只认 kind —— 新增类型只改这里不改前端。
 // ---------------------------------------------------------------------------
 
+// 常见代码/脚本/配置文件：kind 统一为 code，前端按纯文本渲染（无高亮）。
+// 单一事实来源 —— 同时喂给下面两张表，避免加后缀时只改一处。
+// 未列出的后缀不报错，仍发信令，kind=unknown。
+const CODE_MIME_BY_EXT = {
+  ".py": "text/x-python",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".cjs": "text/javascript",
+  ".jsx": "text/jsx",
+  ".ts": "text/typescript",
+  ".tsx": "text/tsx",
+  ".java": "text/x-java",
+  ".go": "text/x-go",
+  ".c": "text/x-c",
+  ".h": "text/x-c",
+  ".cpp": "text/x-c++",
+  ".cc": "text/x-c++",
+  ".hpp": "text/x-c++",
+  ".cs": "text/x-csharp",
+  ".rs": "text/rust",
+  ".rb": "text/x-ruby",
+  ".php": "text/x-php",
+  ".swift": "text/x-swift",
+  ".kt": "text/x-kotlin",
+  ".lua": "text/x-lua",
+  ".r": "text/x-r",
+  ".sql": "text/sql",
+  ".sh": "text/x-sh",
+  ".bash": "text/x-sh",
+  ".ps1": "text/x-powershell",
+  ".bat": "text/x-batch",
+  ".css": "text/css",
+  ".scss": "text/x-scss",
+  ".vue": "text/x-vue",
+  ".yaml": "text/yaml",
+  ".yml": "text/yaml",
+  ".toml": "text/toml",
+  ".ini": "text/plain",
+  ".cfg": "text/plain",
+  ".xml": "text/xml",
+  ".env": "text/plain",
+}
+
 const KIND_BY_EXT = {
   ".html": "webpage",
   ".htm": "webpage",
@@ -74,6 +117,7 @@ const KIND_BY_EXT = {
   ".ndjson": "data",
   ".txt": "text",
   ".log": "text",
+  ...Object.fromEntries(Object.keys(CODE_MIME_BY_EXT).map((ext) => [ext, "code"])),
 }
 
 const MIME_BY_EXT = {
@@ -88,6 +132,7 @@ const MIME_BY_EXT = {
   ".tsv": "text/tab-separated-values",
   ".json": "application/json",
   ".ndjson": "application/x-ndjson",
+  ...CODE_MIME_BY_EXT,
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",

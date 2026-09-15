@@ -114,11 +114,14 @@ async def test_every_endpoint_requires_admin(app_client_factory):
 
 async def test_overview_aggregates_all_four_layers(admin, db_factory):
     await seed_round(db_factory, succeeded=True, is_task=True, task_success=True,
-                     duration_ms=1000, total_tokens=100, cost=0.01, tool_calls=2, tool_errors=1)
+                     duration_ms=1000, total_tokens=100, cost=0.01, tool_calls=2, tool_errors=1,
+                     input_tokens=40, output_tokens=60)
     await seed_round(db_factory, round_seq=1, succeeded=True, is_task=True, task_success=False,
-                     duration_ms=3000, total_tokens=300, cost=0.03, tool_calls=1, tool_errors=0)
+                     duration_ms=3000, total_tokens=300, cost=0.03, tool_calls=1, tool_errors=0,
+                     reasoning_tokens=20, cache_read_tokens=10, cache_write_tokens=5)
     await seed_round(db_factory, round_seq=2, succeeded=False, errored=True, error_text="boom",
-                     duration_ms=None, total_tokens=50, cost=None, tool_calls=0, tool_errors=0)
+                     error_name="api_error", duration_ms=None, total_tokens=50, cost=None,
+                     tool_calls=0, tool_errors=0)
     await seed_round(db_factory, round_seq=3, succeeded=True, is_task=False,
                      duration_ms=2000, total_tokens=200, cost=0.02, tool_calls=3, tool_errors=0)
 
@@ -136,9 +139,11 @@ async def test_overview_aggregates_all_four_layers(admin, db_factory):
     assert d["filters"] == {"user_id": None, "model_provider": None}
 
     # L1 结果层：回合成功率 3/4、错误率 1/4、任务轨只看 is_task 的两条
+    # error_breakdown 按 error_name 计数，未命名错误归 unknown
     assert d["l1_outcome"] == {
         "rounds_total": 4, "round_success_rate": 0.75, "error_rate": 0.25,
         "task_rounds": 2, "task_success_rate": 0.5,
+        "error_breakdown": {"api_error": 1},
     }
 
     # L2：duration_ms 为 None 的错误回合不进分位数样本（[1000,2000,3000]）
@@ -151,10 +156,13 @@ async def test_overview_aggregates_all_four_layers(admin, db_factory):
     assert l2["avg_cost"] == pytest.approx(0.015)
 
     # L3：工具准确率 = 1 - errors/calls；token 效率按成功回合摊
+    # token_split 分项求和，与 total_tokens 各列独立
     assert d["l3_process"] == {
         "tool_calls": 6, "tool_errors": 1, "tool_accuracy": pytest.approx(5 / 6),
         "total_tokens": 650, "avg_tokens_per_round": 162.5,
         "tokens_per_success": pytest.approx(650 / 3),
+        "token_split": {"input": 40, "output": 60, "reasoning": 20,
+                        "cache_read": 10, "cache_write": 5},
     }
 
     # L4：满意度 + 点踩原因码多码计数
@@ -171,7 +179,7 @@ async def test_overview_on_empty_window_returns_none_instead_of_zero_division(ad
 
     assert d["l1_outcome"] == {
         "rounds_total": 0, "round_success_rate": None, "error_rate": None,
-        "task_rounds": 0, "task_success_rate": None,
+        "task_rounds": 0, "task_success_rate": None, "error_breakdown": {},
     }
     assert d["l2_efficiency"]["duration_p50_ms"] is None
     assert d["l2_efficiency"]["avg_cost"] is None
