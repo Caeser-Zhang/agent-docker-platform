@@ -30,7 +30,7 @@ import {
   type AgentStatus,
   type FeedbackReasonCode,
   type FeedbackSubmit,
-  type KbCatalogEntry,
+  type KbDomainEntry,
   type LibraryTemplateCard,
   type ModelRef,
   type OcAgent,
@@ -57,6 +57,23 @@ import {
   StylePickerMenu,
   TemplatePickerMenu,
 } from "./PptxLibrary";
+
+// 知识领域卡片的局部样式（chatStyles 未覆盖领域分组维度，这里补三个小样式，
+// 颜色跟随 chatStyles 的暗色主题变量风格）。
+const kbDomainStyles = {
+  cardTitle: { display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 600, color: "#e6edf3" },
+  typeBadge: (isPublic: boolean): CSSProperties => ({
+    fontSize: "10px",
+    fontWeight: 500,
+    lineHeight: "16px",
+    padding: "0 6px",
+    borderRadius: "8px",
+    border: `1px solid ${isPublic ? "rgba(63,185,80,0.4)" : "rgba(210,153,34,0.4)"}`,
+    color: isPublic ? "#3fb950" : "#d29922",
+    background: isPublic ? "rgba(63,185,80,0.1)" : "rgba(210,153,34,0.1)",
+  }),
+  dbRow: { marginTop: "6px", paddingLeft: "8px", borderLeft: "2px solid rgba(255,255,255,0.08)" },
+};
 
 // ---------------------------------------------------------------------------
 // 快捷技能（一键启用）
@@ -445,9 +462,10 @@ export function Chat({
   const [permissions, setPermissions] = useState<OcPermissionRequest[]>([]);
   const [questions, setQuestions] = useState<OcQuestionRequest[]>([]);
 
-  // 已授权知识库展示区：名称 + 描述。数据由后端 /api/kb/my-catalog 提供——
-  // 后端拉取 fastk 目录并按白名单过滤，前端不做任何鉴权，只负责展示。
-  const [kbCatalog, setKbCatalog] = useState<KbCatalogEntry[]>([]);
+  // 知识领域展示区：领域名 + 领域描述 + 其下知识库列表。数据由后端
+  // /api/kb/my-domains 提供——后端按用户权限（公共隐式放行 / 私有名册）
+  // 聚合领域及其下 fastk 知识库，前端不做任何鉴权，只负责展示。
+  const [kbDomains, setKbDomains] = useState<KbDomainEntry[]>([]);
 
   // Chat attach: skill picker + file uploads.
   const [allSkills, setAllSkills] = useState<{ name: string; description: string; dir: string; scope: string }[]>([]);
@@ -630,16 +648,16 @@ export function Chat({
     if (qs.status === "fulfilled") setQuestions(qs.value);
   }, []);
 
-  // 已授权知识库：登录后即可加载，与容器是否运行无关。后端已按白名单过滤，
+  // 知识领域：登录后即可加载，与容器是否运行无关。后端已按用户权限过滤，
   // 失败时静默保留空列表（展示区显示"暂无"），不打断主流程。
-  const loadKbCatalog = useCallback(async () => {
-    const r = await api.myKbCatalog().catch(() => null);
-    if (r) setKbCatalog(r.databases ?? []);
+  const loadKbDomains = useCallback(async () => {
+    const r = await api.myKbDomains().catch(() => null);
+    if (r) setKbDomains(r.domains ?? []);
   }, []);
 
   useEffect(() => {
-    loadKbCatalog();
-  }, [loadKbCatalog]);
+    loadKbDomains();
+  }, [loadKbDomains]);
 
   // Skill 列表：优先平台侧 /workspace/skills/all（后端已合并 global/project/
   // builtin 插件 skill，scope 由后端直接标注），失败时回退 opencode 原生
@@ -2488,29 +2506,40 @@ export function Chat({
           </div>
         </div>
 
-        {/* 知识库展示区：紧邻上方的"工作区"运行时信息，列出当前用户已被授权的
-            fastk 知识库（名称 + 描述）。数据来自后端 /api/kb/my-catalog，后端已
-            按白名单过滤，前端不做鉴权。 */}
+        {/* 知识领域展示区：紧邻上方的"工作区"运行时信息，按领域聚合展示当前
+            用户有权访问的知识库。数据来自后端 /api/kb/my-domains，后端已按
+            权限（公共隐式放行 / 私有名册）过滤，前端不做鉴权。 */}
         <div style={styles.kbPanel}>
           <div style={styles.kbPanelHeader}>
-            <span style={styles.kbPanelTitle}><InboxOutlined /> 知识库</span>
-            <span style={styles.kbCount}>{kbCatalog.length}</span>
+            <span style={styles.kbPanelTitle}><InboxOutlined /> 知识领域</span>
+            <span style={styles.kbCount}>{kbDomains.length}</span>
             <button
               style={styles.kbRefresh}
-              title="刷新知识库列表"
-              onClick={loadKbCatalog}
+              title="刷新知识领域列表"
+              onClick={loadKbDomains}
             >
               <ReloadOutlined />
             </button>
           </div>
-          {kbCatalog.length === 0 ? (
-            <div style={styles.kbEmpty}>暂无已授权知识库</div>
+          {kbDomains.length === 0 ? (
+            <div style={styles.kbEmpty}>暂无可访问的知识领域</div>
           ) : (
             <div style={styles.kbList}>
-              {kbCatalog.map((kb) => (
-                <div key={kb.name} style={styles.kbItem}>
-                  <div style={styles.kbName}>{kb.name}</div>
-                  {kb.description && <div style={styles.kbDesc}>{kb.description}</div>}
+              {kbDomains.map((d) => (
+                <div key={d.id} style={styles.kbItem}>
+                  <div style={kbDomainStyles.cardTitle}>
+                    {d.name}
+                    <span style={kbDomainStyles.typeBadge(d.key_type === "public")}>
+                      {d.key_type === "public" ? "公共" : "私有"}
+                    </span>
+                  </div>
+                  {d.description && <div style={styles.kbDesc}>{d.description}</div>}
+                  {d.databases.map((kb) => (
+                    <div key={kb.name} style={kbDomainStyles.dbRow}>
+                      <div style={styles.kbName}>{kb.name}</div>
+                      {kb.description && <div style={styles.kbDesc}>{kb.description}</div>}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>

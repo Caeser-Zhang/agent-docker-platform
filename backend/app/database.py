@@ -47,8 +47,9 @@ async def init_db():
         UserLLMProvider,
         AuditEvent,
         RequestLog,
-        KbKey,
-        KbGrant,
+        KbDomain,
+        KbDomainDb,
+        KbDomainGrant,
         MessageFeedback,
         AgentRoundMetrics,
         ToolCallMetrics,
@@ -60,6 +61,8 @@ async def init_db():
         # No Alembic in this project — add columns that older databases
         # (created before the field existed) are missing.
         await conn.run_sync(_add_missing_columns)
+        # One-shot reshape: per-database credentials → knowledge domains.
+        await conn.run_sync(_migrate_kb_domains)
         await conn.run_sync(_drop_legacy_tables)
 
 
@@ -119,26 +122,6 @@ def _add_missing_columns(sync_conn) -> None:
             text("ALTER TABLE users ADD COLUMN active_model VARCHAR(100)")
         )
 
-    # kb_grants.revoked_at — soft-delete stamp added after the whitelist shipped.
-    if sync_conn.dialect.name == "sqlite":
-        grant_cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(kb_grants)"))}
-    else:
-        grant_cols = {
-            row[0] for row in sync_conn.execute(
-                text(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'kb_grants'"
-                )
-            )
-        }
-    # An empty introspection result means the table does not exist yet (create_all
-    # will build it with revoked_at already present) — nothing to migrate.
-    if grant_cols and "revoked_at" not in grant_cols:
-        # Match the model's DateTime(timezone=True): TIMESTAMPTZ on PostgreSQL,
-        # plain TIMESTAMP on SQLite (which stores whatever it is given).
-        col_type = "TIMESTAMPTZ" if sync_conn.dialect.name != "sqlite" else "TIMESTAMP"
-        sync_conn.execute(text(f"ALTER TABLE kb_grants ADD COLUMN revoked_at {col_type}"))
-
     # 运维监测增强（P0）：回合错误分类 + token 拆分，工具单次耗时。
     _ensure_column(sync_conn, "agent_round_metrics", "error_name", "VARCHAR(64)")
     _ensure_column(sync_conn, "agent_round_metrics", "error_status_code", "INTEGER")
@@ -148,6 +131,68 @@ def _add_missing_columns(sync_conn) -> None:
     ):
         _ensure_column(sync_conn, "agent_round_metrics", col, "INTEGER")
     _ensure_column(sync_conn, "tool_call_metrics", "duration_ms", "INTEGER")
+
+
+def _migrate_kb_domains(sync_conn) -> None:
+    """One-shot migration: kb_keys/kb_grants → kb_domains/kb_domain_dbs/kb_domain_grants.
+
+    Runs only when the legacy ``kb_keys`` table still exists; a fresh database
+    (or a second startup after migration) skips it entirely, which makes the
+    whole function idempotent. Each legacy credential becomes one PRIVATE
+    domain named after its database, holding exactly that database — so the
+    effective whitelist is bit-for-bit the old one on the first boot after
+    upgrade, and admins then merge/rename/switch types from the UI.
+
+    Timestamps are not carried over: raw SQLite storage can come back as a
+    string, and only ``revoked_at``'s NULL/not-NULL state carries meaning
+    (active vs. revoked). ``created_at`` is reset to now; the soft-delete
+    stamp is re-derived from the old row's state.
+
+    The legacy tables are dropped child-first in the same transaction — the
+    migration must never leave a half-migrated state behind.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    if not _table_columns(sync_conn, "kb_keys"):
+        return
+
+    now = datetime.now(timezone.utc)
+    keys = sync_conn.execute(text("SELECT kb_name, api_key_enc FROM kb_keys")).fetchall()
+    domain_of: dict[str, str] = {}
+    for kb_name, api_key_enc in keys:
+        domain_id = str(uuid.uuid4())
+        domain_of[kb_name] = domain_id
+        sync_conn.execute(
+            text(
+                "INSERT INTO kb_domains (id, name, description, key_type, api_key_enc, created_at, updated_at) "
+                "VALUES (:id, :name, '', 'private', :enc, :ts, :ts)"
+            ),
+            {"id": domain_id, "name": kb_name, "enc": api_key_enc or "", "ts": now},
+        )
+        sync_conn.execute(
+            text("INSERT INTO kb_domain_dbs (domain_id, kb_name, created_at) VALUES (:d, :k, :ts)"),
+            {"d": domain_id, "k": kb_name, "ts": now},
+        )
+
+    grants = sync_conn.execute(
+        text("SELECT user_id, kb_name, revoked_at FROM kb_grants")
+    ).fetchall() if _table_columns(sync_conn, "kb_grants") else []
+    for user_id, kb_name, revoked_at in grants:
+        domain_id = domain_of.get(kb_name)
+        if domain_id is None:
+            continue  # orphan grant (shouldn't exist — FK) — nothing to point at
+        sync_conn.execute(
+            text(
+                "INSERT INTO kb_domain_grants (user_id, domain_id, created_at, revoked_at) "
+                "VALUES (:u, :d, :ts, :rev)"
+            ),
+            {"u": user_id, "d": domain_id, "ts": now,
+             "rev": None if revoked_at is None else now},
+        )
+
+    sync_conn.execute(text("DROP TABLE IF EXISTS kb_grants"))
+    sync_conn.execute(text("DROP TABLE IF EXISTS kb_keys"))
 
 
 def _drop_legacy_tables(sync_conn) -> None:

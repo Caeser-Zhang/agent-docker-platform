@@ -6,10 +6,11 @@ Fernet token encoding their own user id (see :mod:`app.services.kb_access`) and
 here instead of the fastk server directly. Every request is then:
 
   1. authenticated by token → user_id
-  2. authorised against kb_grants for the target database (the catalog branch
-     instead FILTERS the server's listing down to the granted databases)
-  3. forwarded with a platform credential injected — the target database's own
-     key, or the catalog key (``AGENT_KB_CATALOG_KEY``) for the listing
+  2. authorised against the knowledge-domain model for the target database
+     (the catalog branch instead FILTERS the server's listing down to the
+     databases the user's domains cover)
+  3. forwarded with a platform credential injected — the owning domain's key,
+     or the catalog key (``AGENT_KB_CATALOG_KEY``) for the listing
 
 Two invariants matter more than anything else in this file:
 

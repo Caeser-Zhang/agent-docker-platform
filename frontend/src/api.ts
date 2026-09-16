@@ -595,7 +595,10 @@ export interface LibrarySeedResult {
   samples_skipped: number;
 }
 
-// --- Knowledge-base whitelist / permission matrix (admin) ------------------
+// --- Knowledge domains (admin) ---------------------------------------------
+// A DOMAIN is one API key covering one-or-more fastk databases; it is the unit
+// of authorisation. key_type "public" grants every user implicitly, "private"
+// requires a roster entry. See docs/KB_DOMAIN_DESIGN.md.
 export interface KbUser {
   user_id: string;
   username: string;
@@ -603,32 +606,65 @@ export interface KbUser {
   role: string;
 }
 
-export interface KbKeyInfo {
-  kb_name: string;
+export type KbKeyType = "public" | "private";
+
+export interface KbDomainInfo {
+  id: string;
+  name: string;
+  description: string;
+  key_type: KbKeyType;
   has_api_key: boolean;
+  db_count: number;
+  member_count: number;
   created_at: string | null;
   updated_at: string | null;
 }
 
-export interface KbGrantInfo {
-  kb_name: string;
+export interface KbDomainMember {
   user_id: string;
   username: string;
   uid: string | null;
   created_at: string | null;
 }
 
-export interface KbUserAccess {
-  user_id: string;
-  username: string;
-  granted: { kb_name: string; created_at: string | null }[];
-  available: { kb_name: string; has_api_key: boolean }[];
-}
-
-/** One authorised knowledge base as shown to the user — name + description. */
-export interface KbCatalogEntry {
+export interface KbDomainDetail {
+  id: string;
   name: string;
   description: string;
+  key_type: KbKeyType;
+  has_api_key: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  databases: { kb_name: string }[];
+  members: KbDomainMember[];
+  total_users: number;
+  active_member_count: number;
+}
+
+/** Import preview — nothing is written until the admin commits the token. */
+export interface KbImportPreview {
+  preview_token: string;
+  source: "text" | "csv" | "xlsx";
+  source_meta: {
+    filename?: string;
+    header_detected?: boolean;
+    column_index?: number;
+    columns?: { index: number; label: string }[];
+  };
+  matched: { user_id: string; username: string; uid: string | null }[];
+  already: { user_id: string; username: string; uid: string | null }[];
+  unmatched: string[];
+  domain_id: string;
+  domain_name: string;
+}
+
+/** One accessible domain as shown to the user — card header + its databases. */
+export interface KbDomainEntry {
+  id: string;
+  name: string;
+  description: string;
+  key_type: KbKeyType;
+  databases: { name: string; description: string }[];
 }
 
 async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -1078,72 +1114,156 @@ export const api = {
     });
   },
 
-  // --- Admin — knowledge-base whitelist / permission matrix ---------------
-  /** Every user, for the matrix row selector. */
+  // --- Admin — knowledge domains (one key covering many databases) ---------
+  /** Every user, for the roster picker. */
   async adminListKbUsers(): Promise<{ items: KbUser[] }> {
     return apiCall("/admin/kb-users");
   },
 
-  /** All recorded credentials (names + presence, never the key). */
-  async adminListKbKeys(): Promise<{ items: KbKeyInfo[] }> {
-    return apiCall("/admin/kb-keys");
+  /** All domains with db/member counts (names + presence flags, never the key). */
+  async adminListKbDomains(): Promise<{ items: KbDomainInfo[] }> {
+    return apiCall("/admin/kb-domains");
+  },
+
+  /** Create an empty domain; databases and roster are attached afterwards. */
+  async adminCreateKbDomain(body: {
+    name: string;
+    description?: string;
+    key_type?: KbKeyType;
+    api_key?: string;
+  }): Promise<{ id: string; name: string; key_type: KbKeyType }> {
+    return apiCall("/admin/kb-domains", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** One domain in full: metadata, attached databases, active roster. */
+  async adminGetKbDomain(id: string): Promise<KbDomainDetail> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}`);
   },
 
   /**
-   * Record or rotate a database's API Key (idempotent upsert). The key is
-   * Fernet-encrypted server-side and never echoed back by any endpoint.
+   * Rename / re-describe / rotate the key / flip key_type. Flipping the type
+   * additionally requires `confirm_name` to equal the current domain name, so
+   * a stray toggle cannot silently open or close a domain.
    */
-  async adminPutKbKey(
-    kbName: string,
-    apiKey: string
-  ): Promise<{ kb_name: string; has_api_key: boolean }> {
-    return apiCall(`/admin/kb-keys/${encodeURIComponent(kbName)}`, {
+  async adminUpdateKbDomain(
+    id: string,
+    body: {
+      name?: string;
+      description?: string;
+      key_type?: KbKeyType;
+      confirm_name?: string;
+      api_key?: string;
+    }
+  ): Promise<{ id: string; name: string; key_type: KbKeyType }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: JSON.stringify({ api_key: apiKey }),
+      body: JSON.stringify(body),
     });
   },
 
-  /** Delete a recorded credential (also revokes every grant for that database). */
-  async adminDeleteKbKey(kbName: string): Promise<{ kb_name: string }> {
-    return apiCall(`/admin/kb-keys/${encodeURIComponent(kbName)}`, {
-      method: "DELETE",
-    });
+  /** Delete a domain together with its database links and roster. */
+  async adminDeleteKbDomain(id: string): Promise<{ id: string; affected_members: number }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 
-  /** The full active whitelist (user × database pairs). */
-  async adminListKbGrants(): Promise<{ items: KbGrantInfo[] }> {
-    return apiCall("/admin/kb-grants");
+  // --- Domain databases ----------------------------------------------------
+  async adminListKbDomainDbs(id: string): Promise<{ items: { kb_name: string }[] }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/dbs`);
   },
 
-  /** One user's authorised vs. still-unauthorised databases, split in two. */
-  async adminKbUserAccess(userId: string): Promise<KbUserAccess> {
-    return apiCall(`/admin/kb-user-access?user_id=${encodeURIComponent(userId)}`);
-  },
-
-  /** Grant a database to a user (revives a soft-deleted row if present). */
-  async adminGrantKb(username: string, kbName: string): Promise<{ kb_name: string; user_id: string }> {
-    return apiCall("/admin/kb-grants", {
+  /**
+   * Attach a physical database. `added: false` means it was already in this
+   * domain; a database claimed by another domain fails with 409.
+   */
+  async adminAddKbDomainDb(
+    id: string,
+    kbName: string
+  ): Promise<{ domain_id: string; kb_name: string; added: boolean }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/dbs`, {
       method: "POST",
-      body: JSON.stringify({ kb_name: kbName, username }),
+      body: JSON.stringify({ kb_name: kbName }),
     });
   },
 
-  /** Revoke a database from a user (soft delete — stamps revoked_at). */
-  async adminRevokeKb(userId: string, kbName: string): Promise<{ kb_name: string; user_id: string }> {
+  /** Detach a database — access through this domain stops on the next request. */
+  async adminRemoveKbDomainDb(
+    id: string,
+    kbName: string
+  ): Promise<{ domain_id: string; kb_name: string }> {
     return apiCall(
-      `/admin/kb-grants/${encodeURIComponent(userId)}/${encodeURIComponent(kbName)}`,
+      `/admin/kb-domains/${encodeURIComponent(id)}/dbs/${encodeURIComponent(kbName)}`,
       { method: "DELETE" }
     );
   },
 
-  // --- User — knowledge bases authorised for the caller -------------------
+  // --- Domain roster (private domains only) --------------------------------
+  async adminListKbDomainMembers(id: string): Promise<{ items: KbDomainMember[] }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/members`);
+  },
+
+  /** Whitelist one user by username or 工号 (revives a soft-deleted row). */
+  async adminGrantKbDomainMember(
+    id: string,
+    ident: { username?: string; uid?: string }
+  ): Promise<{ domain_id: string; user_id: string; username: string }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/members`, {
+      method: "POST",
+      body: JSON.stringify(ident),
+    });
+  },
+
+  /** Revoke a user (soft delete — stamps revoked_at). */
+  async adminRevokeKbDomainMember(
+    id: string,
+    userId: string
+  ): Promise<{ domain_id: string; user_id: string }> {
+    return apiCall(
+      `/admin/kb-domains/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE" }
+    );
+  },
+
   /**
-   * The caller's authorised knowledge bases with descriptions. The backend
-   * fetches the fastk catalog and filters it by the whitelist, so the frontend
-   * never touches /databases directly nor performs any authorisation itself.
+   * Parse a roster source WITHOUT writing anything — pasted text, a .csv or an
+   * .xlsx. For files the 工号 column is auto-detected from header keywords;
+   * pass `column` to re-pick one. Nothing is granted until `adminKbImportCommit`.
    */
-  async myKbCatalog(): Promise<{ databases: KbCatalogEntry[] }> {
-    return apiCall("/kb/my-catalog");
+  async adminKbImportPreview(
+    id: string,
+    source: { text?: string; file?: File; column?: number }
+  ): Promise<KbImportPreview> {
+    const form = new FormData();
+    if (source.file) form.append("file", source.file);
+    if (source.text != null && source.text !== "") form.append("text", source.text);
+    if (source.column != null) form.append("column", String(source.column));
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/import/preview`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  /** Commit a preview token (single-use, domain-bound, 10-minute TTL). */
+  async adminKbImportCommit(
+    id: string,
+    previewToken: string
+  ): Promise<{ domain_id: string; granted: number; skipped: number }> {
+    return apiCall(`/admin/kb-domains/${encodeURIComponent(id)}/import/commit`, {
+      method: "POST",
+      body: JSON.stringify({ preview_token: previewToken }),
+    });
+  },
+
+  // --- User — domains accessible to the caller ------------------------------
+  /**
+   * The caller's accessible domains, each aggregating the databases they may
+   * reach. The backend resolves permissions and filters the fastk catalog, so
+   * the frontend never touches /databases directly nor authorises anything.
+   */
+  async myKbDomains(): Promise<{ domains: KbDomainEntry[] }> {
+    return apiCall("/kb/my-domains");
   },
 
   // --- LLM configuration (read from opencode's own /config) -------------

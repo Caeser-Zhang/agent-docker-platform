@@ -78,10 +78,10 @@ class Settings(BaseSettings):
 
     # Credential for the fastk server's GLOBAL database listing
     # (GET /fastk/api/databases/). That endpoint is server-wide, so the
-    # per-database keys in kb_keys do not apply to it. Used by exactly two
-    # readers — the agent proxy's catalog branch and /api/kb/my-catalog — and
-    # it only ever buys *descriptions*: the authorization boundary stays
-    # kb_grants, so holding this key does not widen what any user may read.
+    # per-domain keys in kb_domains do not apply to it. Used by the catalog
+    # readers — the agent proxy's catalog branch and /api/kb/my-domains — and
+    # it only ever buys *descriptions*: the authorization boundary stays the
+    # domain model, so holding this key does not widen what any user may read.
     # Empty means "the server needs no key here" and no header is sent.
     # BACKEND ONLY — never injected into an agent container, which would let
     # it enumerate and read every database straight off the host gateway.

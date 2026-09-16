@@ -496,8 +496,8 @@ class ContainerManager:
 
         Containers created before the proxy provisioning landed point
         ``FASTDB_BASE_URL`` straight at the fastk server and carry no proxy
-        token, so the built-in CLI reaches EVERY database regardless of
-        kb_grants — a live access-control bypass. Docker never refreshes the
+        token, so the built-in CLI reaches EVERY database regardless of the
+        whitelist — a live access-control bypass. Docker never refreshes the
         env of an existing container (``start``/``restart`` reuse creation-time
         env), so such containers must be recreated to pick up the proxy base +
         per-user token.
@@ -611,7 +611,7 @@ class ContainerManager:
             if container.status == "running":
                 # A running container is normally reused as-is, but a stale
                 # fastk env is a live access-control bypass (the CLI would reach
-                # the fastk server directly, ignoring kb_grants). Security wins
+                # the fastk server directly, ignoring the whitelist). Security wins
                 # over session continuity: recreate it now. User data survives
                 # in the named workspace/data volumes.
                 if self._fastk_env_stale(container):

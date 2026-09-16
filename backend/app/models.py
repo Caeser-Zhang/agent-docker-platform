@@ -239,58 +239,99 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
 
 
-class KbKey(Base):
-    """A knowledge base's API credential — the minimal copy the proxy needs.
+class KbDomain(Base):
+    """A knowledge domain: one API key covering one-or-more fastk databases.
 
-    The fastk server owns the authoritative key↔database mapping; the platform
-    only stores what it must inject when forwarding a read request on a user's
-    behalf. ``kb_name`` is the server's PHYSICAL database name (the CLI's
-    logical→physical mapping is a container-side concern, see FASTK_DB_MAP).
+    The unit of authorisation is the DOMAIN, not the database — fastk keys are
+    not scoped per database upstream (verified by probing: the server neither
+    validates keys nor restricts their reach), so the platform maintains the
+    domain↔database mapping itself (see :class:`KbDomainDb`) and injects the
+    domain's key when proxying a read for any of its databases.
+
+    ``key_type`` splits the access story in two:
+      * ``public``  — every user is implicitly granted; no grant rows are
+        consulted or written.
+      * ``private`` — access requires an active :class:`KbDomainGrant` row.
+
+    Switching type takes effect on the next request (enforcement re-reads the
+    DB every time) and preserves existing grant rows in both directions.
     The key itself is Fernet-encrypted (see :mod:`app.crypto`) and is never
     returned by any API.
     """
 
-    __tablename__ = "kb_keys"
+    __tablename__ = "kb_domains"
 
-    kb_name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Display name — required, globally unique, 1-50 chars (Chinese allowed).
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    # Optional blurb shown on the user-side domain card; capped at 500 chars.
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    key_type: Mapped[str] = mapped_column(String(10), nullable=False, default="private")
     api_key_enc: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
-class KbGrant(Base):
-    """Whitelist entry: one user may read one knowledge base.
+class KbDomainDb(Base):
+    """Domain membership for one PHYSICAL fastk database name.
 
-    The unit of authorisation is the DATABASE, not the key — that matches both
-    the server's per-database key scoping and how admins think about access.
-    A credential can never be deleted while leaving grants behind: the admin
-    route removes them in the same transaction (the FK's ON DELETE CASCADE only
-    fires on PostgreSQL — SQLite needs foreign_keys=ON, which this project does
-    not set).
+    ``kb_name`` carries a UNIQUE constraint: a database belongs to exactly one
+    domain, which is what lets ``resolve_access`` reverse-look-up the single
+    authoritative domain (and key) for any database name. Attaching a database
+    that already belongs to another domain is a 409 at the API layer.
 
-    ``user_id`` has a real FK (unlike AuditEvent/RequestLog): grants are live
-    access control, not evidence, so they must disappear with the user.
+    ``kb_name`` is the server's physical database name (the CLI's
+    logical→physical mapping is a container-side concern, see FASTK_DB_MAP).
     """
 
-    __tablename__ = "kb_grants"
+    __tablename__ = "kb_domain_dbs"
+
+    domain_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kb_domains.id", ondelete="CASCADE"), primary_key=True
+    )
+    kb_name: Mapped[str] = mapped_column(String(100), primary_key=True, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        Index("idx_kb_domain_dbs_domain", "domain_id"),
+    )
+
+
+class KbDomainGrant(Base):
+    """Private-domain whitelist entry: one user may read one domain.
+
+    Only ``private`` domains are decided by this roster — public domains grant
+    everyone implicitly and never consult it. Rows written while a domain was
+    private survive a switch to public and back, so the roster is durable
+    across type flips.
+
+    Soft delete: revoking stamps ``revoked_at`` instead of dropping the row;
+    re-granting clears the stamp and resets ``created_at`` (the composite PK
+    forbids a second INSERT for the same pair). Every enforcement query
+    filters on ``revoked_at IS NULL``.
+
+    ``user_id`` has a real FK (unlike AuditEvent/RequestLog): grants are live
+    access control, not evidence, so they must disappear with the user. The
+    domain FK's ON DELETE CASCADE only fires on PostgreSQL — SQLite needs
+    foreign_keys=ON, which this project does not set — so the admin route
+    deletes grant rows explicitly when dropping a domain.
+    """
+
+    __tablename__ = "kb_domain_grants"
 
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    kb_name: Mapped[str] = mapped_column(
-        String(100), ForeignKey("kb_keys.kb_name", ondelete="CASCADE"), primary_key=True
+    domain_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kb_domains.id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    # Soft delete: revoking stamps this instead of dropping the row, so the
-    # (user_id, kb_name) history survives and re-granting is an UPDATE that
-    # clears it — the composite PK forbids a second INSERT for the same pair.
-    # Every enforcement query filters on ``revoked_at IS NULL``.
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
 
     __table_args__ = (
-        Index("idx_kb_grants_kb", "kb_name"),
+        Index("idx_kb_domain_grants_domain", "domain_id"),
     )
 
 

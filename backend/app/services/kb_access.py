@@ -4,15 +4,18 @@ Three consumers share this module so the permission decision can never fork:
 
   * ``routers/kb_proxy.py``   — agent containers reaching the fastk server
   * ``routers/fastk.py``      — the browser's citation-badge chunk/image lookup
-  * ``routers/kb_keys.py``    — the admin management surface
+  * ``routers/kb_domains.py`` — the admin management surface + user-side catalog
 
-Two orthogonal questions are answered here, and callers must not conflate them:
+The unit of authorisation is the DOMAIN (one key, many databases — see
+:class:`app.models.KbDomain`). A database name is reverse-looked-up to its
+unique domain (``kb_domain_dbs.kb_name`` is UNIQUE), then:
 
-  1. **granted** — is this user on the whitelist for this database? (kb_grants)
+  1. **granted** — public domains grant every user implicitly (no roster is
+     consulted); private domains require an active ``kb_domain_grants`` row.
      This is the enforcement point. Denial is a 403 with guidance.
-  2. **api_key** — which credential does the platform inject when forwarding?
-     (kb_keys, Fernet-decrypted) A missing credential is an operator error,
-     not a user error, and surfaces as a 500.
+  2. **api_key** — the domain's credential, Fernet-decrypted, injected when
+     forwarding. A missing credential is an operator error, not a user error,
+     and surfaces as a 500.
 
 The proxy token handed to agent containers is ``encrypt_secret("kbproxy:<uid>")``
 — stateless, unforgeable without ``AGENT_SECRET_KEY``, and worth nothing beyond
@@ -27,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..crypto import decrypt_secret, encrypt_secret
-from ..models import KbGrant, KbKey
+from ..models import KbDomain, KbDomainDb, KbDomainGrant
 
 PROXY_TOKEN_PREFIX = "kbproxy:"
 
@@ -51,17 +54,17 @@ def verify_proxy_token(token: str | None) -> str | None:
 def catalog_headers() -> dict[str, str]:
     """Headers for reading the server's GLOBAL database listing.
 
-    ``GET /fastk/api/databases/`` is server-wide, so the per-database keys in
-    kb_keys do not apply to it — ``AGENT_KB_CATALOG_KEY`` is the credential the
-    server accepts there. Empty (the default) means the endpoint needs no key,
-    and no header is sent at all.
+    ``GET /fastk/api/databases/`` is server-wide, so the per-domain keys in
+    kb_domains do not apply to it — ``AGENT_KB_CATALOG_KEY`` is the credential
+    the server accepts there. Empty (the default) means the endpoint needs no
+    key, and no header is sent at all.
 
-    Shared by the only two catalog readers (:mod:`routers.kb_proxy` and
-    ``routers.kb_keys.my_catalog``) so they cannot drift apart. Note what this
-    key does NOT do: it buys descriptions, never access. The list a user or an
-    agent sees is still built from kb_grants, and this key must never reach a
-    container — one that holds it could enumerate and read every database
-    straight off the host gateway, whitelist notwithstanding.
+    Shared by the catalog readers (:mod:`routers.kb_proxy` and
+    ``routers.kb_domains.my_domains``) so they cannot drift apart. Note what
+    this key does NOT do: it buys descriptions, never access. The list a user
+    or an agent sees is still built from the domain model, and this key must
+    never reach a container — one that holds it could enumerate and read every
+    database straight off the host gateway, whitelist notwithstanding.
     """
     return {"X-API-Key": settings.kb_catalog_key} if settings.kb_catalog_key else {}
 
@@ -88,30 +91,68 @@ class KbAccess:
     api_key: str | None  # decrypted; None when absent or undecryptable
 
 
-async def resolve_access(db: AsyncSession, kb_name: str, user_id: str) -> KbAccess:
-    """Look up (grant, credential) for one user + physical database name."""
-    grant = (
+async def _domain_for_kb(db: AsyncSession, kb_name: str) -> KbDomain | None:
+    """The unique domain a physical database belongs to, or None if unmanaged."""
+    row = (
         await db.execute(
-            select(KbGrant).where(
-                KbGrant.user_id == user_id,
-                KbGrant.kb_name == kb_name,
-                KbGrant.revoked_at.is_(None),
-            )
+            select(KbDomain)
+            .join(KbDomainDb, KbDomainDb.domain_id == KbDomain.id)
+            .where(KbDomainDb.kb_name == kb_name)
         )
     ).scalar_one_or_none()
-    if grant is None:
+    return row
+
+
+async def resolve_access(db: AsyncSession, kb_name: str, user_id: str) -> KbAccess:
+    """Look up (grant, credential) for one user + physical database name.
+
+    Reverse path: database → its unique domain → public (implicit grant) or
+    private (roster check). A database that belongs to no domain is denied:
+    only platform-managed databases are reachable through the proxy.
+    """
+    domain = await _domain_for_kb(db, kb_name)
+    if domain is None:
         return KbAccess(granted=False, api_key=None)
 
-    row = (await db.execute(select(KbKey).where(KbKey.kb_name == kb_name))).scalar_one_or_none()
-    api_key = decrypt_secret(row.api_key_enc) if row else ""
-    return KbAccess(granted=True, api_key=api_key or None)
+    if domain.key_type == "public":
+        granted = True
+    else:
+        grant = (
+            await db.execute(
+                select(KbDomainGrant).where(
+                    KbDomainGrant.user_id == user_id,
+                    KbDomainGrant.domain_id == domain.id,
+                    KbDomainGrant.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        granted = grant is not None
+
+    api_key = decrypt_secret(domain.api_key_enc) if granted else None
+    return KbAccess(granted=granted, api_key=api_key or None)
 
 
 async def granted_kbs(db: AsyncSession, user_id: str) -> list[str]:
-    """Physical database names this user may read (used to filter the catalog)."""
-    rows = await db.execute(
-        select(KbGrant.kb_name).where(
-            KbGrant.user_id == user_id, KbGrant.revoked_at.is_(None)
-        )
+    """Physical database names this user may read (used to filter the catalog).
+
+    Union of: every database in every PUBLIC domain (implicit grant) and the
+    databases of private domains where the user holds an active grant row.
+    """
+    public_rows = await db.execute(
+        select(KbDomainDb.kb_name)
+        .join(KbDomain, KbDomain.id == KbDomainDb.domain_id)
+        .where(KbDomain.key_type == "public")
     )
-    return sorted(rows.scalars().all())
+    private_rows = await db.execute(
+        select(KbDomainDb.kb_name)
+        .join(KbDomain, KbDomain.id == KbDomainDb.domain_id)
+        .join(
+            KbDomainGrant,
+            (KbDomainGrant.domain_id == KbDomain.id)
+            & (KbDomainGrant.user_id == user_id)
+            & (KbDomainGrant.revoked_at.is_(None)),
+        )
+        .where(KbDomain.key_type == "private")
+    )
+    names = set(public_rows.scalars().all()) | set(private_rows.scalars().all())
+    return sorted(names)
