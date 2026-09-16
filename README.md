@@ -4,7 +4,7 @@
 
 每个用户拥有独立的 Docker 容器，容器内唯一的进程是 [opencode](https://opencode.ai) `serve`（headless agent runtime）。平台不实现任何 agent 逻辑，只负责容器生命周期管理、配置注入和透明反向代理。
 
-> 完整的接口契约见 **[docs/API.md](docs/API.md)**。
+> 用户侧功能清单（普通用户 / 管理员）见 **[docs/USER_FEATURES.md](docs/USER_FEATURES.md)**，完整的接口契约见 **[docs/API.md](docs/API.md)**。
 
 ## 核心原则：平台不实现任何 Agent 能力
 
@@ -24,7 +24,7 @@
 ```mermaid
 flowchart TB
     subgraph Browser["浏览器层 · Browser Layer"]
-        SPA["React SPA<br/>(Chat / ConfigPanel / AdminPanel / Login)"]
+        SPA["React SPA<br/>(Chat / ConfigPanel / AdminPanel<br/>UxDashboard / PptxLibrary / KbAccessAdmin)"]
         NGINX["nginx<br/>:3000 · SPA 路由 + API 代理"]
         SPA --> NGINX
     end
@@ -107,46 +107,70 @@ sequenceDiagram
 
 ## 功能特性
 
+> 按角色展开的完整清单见 **[docs/USER_FEATURES.md](docs/USER_FEATURES.md)**。
+
 ### 容器生命周期
 - 每用户独立 Docker 容器，非 root + cap-drop ALL + 只读根文件系统
 - 双层健康检查（Dockerfile HEALTHCHECK + 平台探测）
 - 崩溃自愈 + restart policy + `/workspace` 与 `/data` 卷持久化
-- 空闲回收（默认 30 分钟无活动自动停止）
+- 空闲回收（默认 30 分钟无活动自动停止）；阶段化启动进度 `creating → starting → warming → running`
 
-### 两级配置管理（CRUD + Web UI）
-| | 全局级 `/api/config/*` | 项目级 `/api/workspace/*` |
-|---|---|---|
-| 存储位置 | 宿主机 `opencode.json` + `~/.config/opencode/skills/` | 容器卷 `/workspace/opencode.json` + `/workspace/.opencode/skills/` |
-| 作用范围 | 所有用户容器共享 | 仅该用户本工作区 |
-| 生效方式 | 注入时消毒（MCP 过滤 / 内置 MCP·插件注入 / LLM Proxy 改写 / 模型覆盖） | opencode 启动时原生合并 |
-| Skill 导入 | 单个 SKILL.md 编辑 | **zip 批量导入**（三种布局自适应，500 文件/单文件 5MB/总量 20MB 上限） |
+### 三级配置管理（CRUD + Web UI）
 
-- **LLM Provider** — 增删改查，支持 OpenAI-compatible / 自定义 baseURL
-- **MCP 服务** — 增删改查，Remote (URL) 与 Local (Command) 两种类型，含启用/禁用开关
-- **Skills** — 增删改查 + zip 导入，直接编辑 `SKILL.md`（YAML frontmatter + Markdown）
-- **一键重载** — 将宿主配置重新注入运行中的容器
+| | 全局级 `/api/config/*` | 项目级 `/api/workspace/*` | 用户级 `/api/user-config/*` |
+|---|---|---|---|
+| 存储位置 | 宿主机 `opencode.json` + `~/.config/opencode/skills/` | 容器卷 `/workspace/opencode.json` + `/workspace/.opencode/skills/` | 平台数据库（密钥加密存储） |
+| 作用范围 | 所有用户容器共享 | 仅该用户本工作区 | 仅该用户容器 |
+| 可编辑者 | **管理员** | 用户本人 | 用户本人 |
+| 生效方式 | 注入时消毒（MCP 过滤 / 内置 MCP·插件注入 / LLM Proxy 改写 / 模型覆盖） | opencode 启动时原生合并 | 注入时与全局配置合并 |
+| Skill 导入 | 单个 SKILL.md 编辑 | **zip 批量导入**（三种布局自适应，500 文件/单文件 5MB/总量 20MB 上限） | — |
 
-### AI 对话
-- 流式渲染（SSE）opencode 的实时输出，工具调用可折叠展开
-- 多会话管理：创建 / 重命名 / 删除，切换会话自动恢复消息
-- 运行时模型切换 + Agent 模式切换（build / plan 等 primary agents，自动过滤 subagent）
-- 工具权限审批卡片：允许一次 / 总是允许 / 拒绝，SSE 事件驱动实时出现
-- Agent 提问应答卡片：单选 / 多选 / 自定义输入，支持一次多问
-- **Skill 显式指定** — 输入框下拉多选（全局 + 项目级合并展示），随 prompt 一并下发
-- **文件上传** — 输入框上传按钮，附件进入容器工作区 `tmp/` 隔离目录（≤10MB），不污染工作区根目录
-- **`@` 文件引用** — 输入 `@` 触发工作区文件模糊搜索自动补全（opencode `/find/file`），选中后转换为 FilePart 随 prompt 发送；上传成功后自动在输入框追加 `@tmp/…` 引用
-- **工作区文件树** — 侧栏树状浏览目录与文件（自动剪除 `.git` / `node_modules` 等重目录），支持折叠 / 刷新
-- **前端预览** — HTML（iframe 沙箱渲染）、Markdown（标题/列表/代码块/加粗）、图片（base64）、纯文本；一键 `@ 引用` 插入输入框
+- **LLM Provider** — 平台级（管理员）与个人级（用户）双层增删改查，支持 OpenAI-compatible / 自定义 baseURL，用户可选「激活 LLM」
+- **MCP 服务** — Remote (URL) 与 Local (Command) 两种类型，含启用/禁用开关；平台内置 MCP（`web_search` 等）由**管理员总闸 + 用户个人开关**双级控制（只能收窄不能放开），运行时推送约 2 秒生效
+- **Skills** — 全局 / 项目级增删改查 + zip 导入，直接编辑 `SKILL.md`（YAML frontmatter + Markdown）；管理员可控制内置 Skill 可见性
+- **一键重载** — 将合并后的配置重新注入运行中的容器
 
-### 管理员 Docker 管理（Admin Panel）
-- **仅 admin 角色可进入**（Chat 顶部「管理」按钮）；后端每个端点都实时回读数据库角色，降权即时生效
+### AI 对话（普通用户）
+- 流式渲染（SSE）opencode 的实时输出，工具调用可折叠展开；**4 秒静默自动轮询兜底**，支持 `lastEventId` 断线重放
+- 多会话管理：创建 / 重命名 / 删除 / 总结，切换会话自动恢复消息；消息级重新生成 / 分叉 / 回退（含文件改动恢复）
+- **项目空间** — 新建 `projects/{名称}` 目录或绑定已有目录，会话按项目分组；删除项目只删会话、保留目录
+- 运行时模型切换 + Agent 模式切换（build / plan 等 primary agents，自动过滤 subagent），支持**单条消息级覆盖**并设为会话默认
+- 工具权限审批卡片（允许一次 / 总是允许 / 拒绝）与 Agent 提问应答卡片（单选 / 多选 / 自定义输入，一次多问），均由 SSE 事件驱动实时出现
+- **`/` 斜杠命令**与 **`@` 引用**（工作区文件模糊搜索 + subagent），选中转为 FilePart 随 prompt 发送
+- **快捷技能** — PPT 生成（模板 / 配色 / 版式配方三组单选，启用 `pptx-generator`）、流程图生成（plantuml，只交付 `.puml` 源码）
+- **Skill 显式指定** — 输入框下拉多选（全局 + 项目级合并展示）
+- **文件上传** — 图片 base64 内联，其它附件进入容器工作区 `tmp/` 隔离目录（≤10MB），上传后自动追加 `@tmp/…` 引用
+- **工作区文件面板** — 树状浏览（剪除 `.git` / `node_modules` 等）、多选、zip 打包下载、批量删除；预览覆盖 HTML（iframe 沙箱）/ Markdown / 图片 / 文本代码 / **PPTX（`pptx-wasm` 浏览器端高保真渲染，缩略图导航 + 缩放）**；一键 `@ 引用`（PPTX 可引用当前页）
+- **交付预览** — Agent 通过 `present_file` 主动交付产物时自动弹出标签页（按路径去重、关闭记忆、可全局开关）
+- **知识库（fastk）** — 侧栏只读目录展示已授权库；容器内检索工具经平台白名单代理（凭据由平台注入，仅只读接口放行）；回复中的 `[[chunk:db/id]]` 渲染为引用徽章，弹窗展示片段正文与鉴权附图，撤销授权后同步 403
+- **体验反馈** — 每条回复点赞 / 点踩（提交后锁定、幂等），点踩含 7 类原因码 + 补充文本（≤500 字）+ 上下文快照，数据汇入管理员 UX 看板
+
+### 管理员能力（Admin）
+- **仅 admin 角色可进入**（Chat 顶部「模板库」/「权限」/「管理」按钮）；后端每个端点都实时回读数据库角色，降权即时生效
 - 管理员来源：**首个注册用户自动成为 admin**；或 `AGENT_ADMIN_USERNAMES` 环境变量（逗号分隔，登录时自动提升）
+
+**容器管理**
 - **平台总览** — 用户数 / 容器记录数 / Docker 运行中容器数 / 单容器资源限额
-- **全用户容器列表** — Docker 状态 / 台账状态 / 健康探测 / 重启次数 / 启动时间 / 最近活动；台账有记录但容器不存在时显式标注
+- **全用户容器列表** — 用户名 + 工号 / Docker 状态 / 台账状态 / 健康探测 / 重启次数 / 启动时间 / 最近活动；台账有记录但容器不存在时显式标注；支持搜索筛选与 5 秒自动刷新
 - **实时资源采样**（可开关）— 各容器 CPU 占用率 + 内存用量/限额（并行 `docker stats` 采样）
-- **容器操作** — 重启（保留数据卷，自动重建 SSE Pump）、停止、销毁（删容器 + 卷，需输入容器名二次确认防误删）
-- **日志查看** — 模态窗口 mono 渲染，tail 100–2000 行可选，自动滚底
-- 5 秒自动刷新、操作串行锁定 + toast 反馈
+- **容器操作** — 重启（保留数据卷，自动重建 SSE Pump）、**更新镜像**（recreate，保留卷）、停止、销毁（删容器 + 卷，需输入容器名二次确认）；支持**批量重启 / 停止 / 销毁**
+- **日志查看** — 双 Tab 模态窗口：容器日志（tail 100–2000 行，mono 渲染自动滚底）+ **请求日志**（该用户经平台的 API 调用记录）
+- **生命周期审计** — 容器创建/启动/停止/销毁操作轨迹
+- 操作串行锁定 + toast 反馈
+
+**用户体验看板**
+- 粒度日/周/月/年（驱动默认窗口），按工号 / 模型厂商过滤
+- **L0 用户 · L1 结果 · L2 效率 · L3 过程 · L4 满意度** 分层指标 + 趋势图
+- 工具排行与调用明细下钻、LLM 上游 TTFT 与状态码分布、回合明细、反馈明细（原因码 / 补充文本 / 上下文快照）、历史回补
+
+**PPTX 共享模板库**
+- 单物理副本存于 `agent-pptx-lib` 卷，用户容器**只读挂载**，作为用户侧模板选择器数据源
+- 导入入库（≤25MB，走规范化流水线并返回规范化报告）、种子重跑（按内容去重）、缩略图手动上传或浏览器端自动补齐
+- 元数据编辑、**上架 / 下架**、删除、详情弹窗与统计卡
+
+**知识库权限**
+- 凭据录入 / 轮换 / 删除（连带撤销授权），接口永不返回密钥明文
+- 用户授权双列表 + **用户 × 知识库点击矩阵**，授权即时生效于容器侧白名单代理
 
 ## 快速启动
 
@@ -365,7 +389,7 @@ docker logs --tail=200 <agent-container-name>
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/auth/register` | 注册（用户名 + 密码），注册即返回 JWT；首个用户自动成为 admin |
+| POST | `/api/auth/register` | 注册（用户名 + 密码，可选工号 `uid`，缺省自动分配 10001+），注册即返回 JWT；首个用户自动成为 admin |
 | POST | `/api/auth/login` | 登录，返回 JWT（有效期 24h）；响应含 `role` 字段 |
 
 ### 容器生命周期
@@ -385,9 +409,16 @@ docker logs --tail=200 <agent-container-name>
 | GET | `/api/admin/overview` | 平台总览：用户数 / 容器记录数 / 运行中容器数 / 资源限额 |
 | GET | `/api/admin/containers` | 全部用户的容器状态（`?stats=1` 附带 CPU/内存实时采样） |
 | GET | `/api/admin/containers/{user_id}/logs` | 指定用户容器日志（`?tail=` 可选 100–2000） |
+| GET | `/api/admin/request-logs` | 平台请求日志（按用户/时间过滤） |
 | POST | `/api/admin/containers/{user_id}/restart` | 重启容器（等待健康探测通过后重建 SSE Pump） |
+| POST | `/api/admin/containers/{user_id}/recreate` | 用最新镜像重建容器（保留数据卷） |
 | POST | `/api/admin/containers/{user_id}/stop` | 停止指定用户的容器 |
 | POST | `/api/admin/containers/{user_id}/destroy` | 销毁容器 + 数据卷（台账记录保留，状态置 destroyed） |
+| GET | `/api/admin/audit` | 容器生命周期审计轨迹 |
+| GET | `/api/admin/ux/*` | 用户体验看板：`overview` / `trends` / `user-activity` / `tools` / `tool-calls` / `llm` / `rounds` / `feedback`（+ `backfill` 历史回补） |
+| GET/POST | `/api/admin/kb-keys`、`/api/admin/kb-grants` | 知识库凭据录入/轮换/删除、用户授权/撤销 |
+| GET | `/api/admin/kb-users`、`/api/admin/kb-user-access` | 授权用户列表、用户 × 知识库矩阵 |
+| GET/POST | `/api/admin/library/*` | PPTX 模板库：统计 / 列表 / 导入入库 / 元数据与上下架 / 缩略图 / 删除 / 种子重跑 |
 
 ### 透明代理
 
@@ -410,6 +441,8 @@ docker logs --tail=200 <agent-container-name>
 | GET/POST/DELETE | `/api/config/skills/{name}` | 全局 Skill 增删改查（SKILL.md） |
 | POST | `/api/config/reload` | 将宿主配置重新注入运行中的容器 |
 
+> 读接口对所有登录用户开放，但**全局 MCP 列表仅 admin 可见**；MCP 写入/启停/删除与内置 Skill 可见性为 `require_admin`。前端只给管理员渲染全局编辑入口。
+
 ### 工作区（项目级配置 + 文件服务）
 
 | 方法 | 路径 | 说明 |
@@ -420,9 +453,53 @@ docker logs --tail=200 <agent-container-name>
 | POST | `/api/workspace/skills/import` | **压缩包批量导入**项目级 skills（zip/rar/7z/tar.gz 等） |
 | POST | `/api/workspace/files/upload` | 聊天附件上传（`tmp/` 目录，≤10MB） |
 | GET | `/api/workspace/files` | 工作区文件树（扁平列表，剪除 .git/node_modules 等） |
-| GET | `/api/workspace/file-content?path=` | 单文件预览读取（text/image/binary，≤2MB） |
+| GET | `/api/workspace/file-content?path=` | 单文件预览读取（text/image/pptx 大纲，≤2MB） |
+| GET | `/api/workspace/file-raw?path=` | 原始字节读取（PPTX 高保真渲染等） |
+| POST | `/api/workspace/files/download` | 多文件 zip 打包下载 |
+| POST | `/api/workspace/files/delete` | 批量删除 |
 
 代理黑名单：`global/dispose`、`instance/dispose`、`global/upgrade`、`global/config`、`auth/` — 防止沙箱内的用户改写注入的凭据或关掉服务。
+
+### 用户级配置（仅本人，密钥加密存储）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/POST/DELETE | `/api/user-config/llm/{id}` | 个人 LLM Provider / 模型 CRUD（响应脱敏） |
+| PUT | `/api/user-config/active-llm` | 选择激活的 LLM |
+| GET/POST/DELETE | `/api/user-config/mcp/{name}` | 个人 MCP Server CRUD + 启停 |
+| GET/PUT | `/api/user-config/builtin-mcp` | 平台内置 MCP 的个人开关（只能收窄，管理员全局停用时不可开启） |
+
+### 项目空间
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/projects` | 项目列表（会话按项目目录分组） |
+| POST | `/api/projects` | 新建（`mode=create`，创建 `projects/{名称}`）或绑定已有目录（`mode=bind`） |
+| DELETE | `/api/projects/{id}` | 删除项目（删会话记录，保留目录文件） |
+
+### 体验反馈
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/feedback` | 提交点赞/点踩（`verdict` ∈ up/down，按 message_id 幂等锁定；点踩含 7 类原因码 + 补充文本 ≤500 字 + 上下文快照 ≤60000 字符；限流 30 次/60s） |
+| GET | `/api/feedback/session/{session_id}` | 某会话下当前用户已提交的反馈（回填锁定态） |
+
+### 知识库（fastk）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/kb/my-databases` | 当前用户被授权的知识库列表 |
+| GET | `/api/kb/my-catalog` | 只读目录 + 描述（后端不可达时软降级） |
+| GET | `/api/fastk/chunk` | 引用徽章 `[[chunk:db/id]]` 的片段正文（撤销授权后 403） |
+| GET | `/api/fastk/chunk-image` | 片段附图的鉴权中继 |
+| ANY | `/fastk/api/{path}` | **容器侧白名单代理**：剥离调用方凭据、按 `kb_grants` 过滤目标库并注入真实密钥，仅放行只读接口 |
+
+### PPTX 模板库（用户侧只读）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/library/templates`、`/api/library/styles` | 已上架模板与样式列表（样例库受 `pptx_library_allow_samples` 门控） |
+| GET | `/api/library/{id}`、`/file`、`/thumb` | 模板详情、文件与缩略图（容器只读挂载同一物理副本） |
 
 ## 项目结构
 
@@ -450,12 +527,20 @@ agent-docker-demo/
 │       ├── models.py                  # 容器台账等 ORM 模型
 │       ├── schemas.py                 # Pydantic 请求/响应模型
 │       ├── routers/
-│       │   ├── auth.py                # 注册 / 登录
+│       │   ├── auth.py                # 注册 / 登录（限流 + 管理员自动提升）
 │       │   ├── agent.py               # 容器生命周期 + /runtime 自省
-│       │   ├── admin.py               # 管理员 API：总览 / 容器列表 / 日志 / 重启 / 停止 / 销毁
+│       │   ├── admin.py               # 管理员 API：总览 / 容器列表 / 日志 / 请求日志 / 重启 / 更新镜像 / 停止 / 销毁 / 审计
+│       │   ├── admin_ux.py            # 用户体验看板：L0–L4 指标 / 趋势 / 工具 / LLM / 回合 / 反馈 / 回补
+│       │   ├── projects.py            # 项目空间：新建 / 绑定已有目录 / 删除
+│       │   ├── feedback.py            # 点赞点踩采集（原因码 + 上下文快照）
+│       │   ├── user_config.py         # 用户级配置：个人 LLM / MCP / 内置 MCP 开关
+│       │   ├── config.py              # 全局配置：Provider/MCP/Skill CRUD（写入受角色门控）
+│       │   ├── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览/打包下载/删除
+│       │   ├── library.py             # PPTX 模板库：用户只读 + 管理员入库/上下架/缩略图
+│       │   ├── kb_keys.py             # 知识库凭据与授权（管理员）+ 用户可见目录
+│       │   ├── kb_proxy.py            # /fastk/api 容器侧白名单代理（只读 + 凭据注入）
+│       │   ├── fastk.py               # 引用徽章内容查询与附图鉴权中继
 │       │   ├── tunnel.py              # 透明反向代理 + SSE + /providers
-│       │   ├── config.py              # 全局配置：Provider/MCP/Skill CRUD
-│       │   ├── workspace.py           # 项目级配置 + Skill zip 导入 + 文件上传/树/预览
 │       │   └── llm_proxy.py           # OpenAI 兼容 LLM 反向代理（SSE tool-call delta 归一化）
 │       └── services/
 │           ├── container_manager.py   # Docker SDK、加固参数、配置注入、卷读写
@@ -468,16 +553,25 @@ agent-docker-demo/
 │   ├── Dockerfile                     # Vite 构建 → nginx 部署
 │   ├── nginx.conf                     # SPA 路由 + API 代理 + SSE 支持
 │   └── src/
+│       ├── App.tsx                    # 页面路由与角色门控（chat / admin / library / kbaccess）
 │       ├── api.ts                     # 平台调用（含 admin API）+ /tunnel/oc 直通 opencode
 │       ├── oc/messages.ts             # SessionMessage 归一化 + SSE 归约器
+│       ├── oc/feedback.ts             # 反馈上下文快照采集
 │       └── components/
-│           ├── Chat.tsx               # 会话、流式渲染、@引用、文件树/预览、上传
-│           ├── AdminPanel.tsx         # 管理员 Docker 面板：总览 / 容器表格 / 资源采样 / 日志 / 操作
-│           ├── ConfigPanel.tsx        # 全局/项目级 Provider/MCP/Skill 配置 UI
+│           ├── Chat.tsx               # 会话、流式渲染、@引用、项目空间、文件面板/预览、上传、快捷技能
+│           ├── ChunkRef.tsx           # 知识库引用徽章 [[chunk:db/id]] 弹窗
+│           ├── FeedbackBar.tsx        # 点赞/点踩条（锁定态回填）
+│           ├── FeedbackModal.tsx      # 点踩原因码 + 补充说明
+│           ├── AdminPanel.tsx         # 管理员面板：容器管理 + 用户体验看板
+│           ├── UxDashboard.tsx        # L0–L4 指标、趋势图与明细下钻
+│           ├── PptxLibrary.tsx        # PPTX 模板库管理（入库/上下架/缩略图）
+│           ├── KbAccessAdmin.tsx      # 知识库凭据与用户授权矩阵
+│           ├── ConfigPanel.tsx        # 全局/项目级/用户级 Provider/MCP/Skill 配置 UI
 │           ├── Login.tsx              # 登录/注册
 │           ├── chatStyles.ts          # 内联样式
 │           └── adminStyles.ts         # 管理面板内联样式
 ├── docs/
+│   ├── USER_FEATURES.md               # 用户侧功能特性（普通用户 / 管理员）
 │   ├── REQUIREMENTS.md                # 需求分解（R1-R16）
 │   └── API.md                         # API 完整文档
 └── scripts/
