@@ -90,6 +90,37 @@ const FLOW_SKILL: Record<FlowDialect, string> = {
   mermaid: "pretty-mermaid",
   plantuml: "plantuml",
 };
+
+/**
+ * pretty-mermaid 的内置主题（渲染时作为 `--theme` 传入）。id 必须与 skill 的
+ * `scripts/themes.mjs` 输出一致，否则渲染器会报 unknown theme。
+ * bg/fg 仅用于界面上的色卡预览；标注「自动推导」的主题取其文档示例色。
+ */
+export interface MermaidTheme {
+  id: string;
+  name_zh: string;
+  mode: "dark" | "light";
+  bg: string;
+  fg: string;
+  note: string;
+}
+const MERMAID_THEMES: MermaidTheme[] = [
+  { id: "tokyo-night", name_zh: "东京夜", mode: "dark", bg: "#1a1b26", fg: "#a9b1d6", note: "推荐 · 柔和深蓝，现代开发文档" },
+  { id: "dracula", name_zh: "德古拉", mode: "dark", bg: "#282a36", fg: "#f8f8f2", note: "推荐 · 经典高对比暗色" },
+  { id: "github-dark", name_zh: "GitHub 暗色", mode: "dark", bg: "#0d1117", fg: "#4493f8", note: "开源项目 / GitHub 文档" },
+  { id: "nord", name_zh: "北欧", mode: "dark", bg: "#2e3440", fg: "#d8dee9", note: "冷调专业，企业架构图" },
+  { id: "catppuccin-mocha", name_zh: "卡布奇诺·摩卡", mode: "dark", bg: "#1e1e2e", fg: "#cba6f7", note: "温暖暗色，长时间阅读" },
+  { id: "one-dark", name_zh: "One Dark", mode: "dark", bg: "#282c34", fg: "#abb2bf", note: "Atom 编辑器风格" },
+  { id: "tokyo-night-storm", name_zh: "东京夜·风暴", mode: "dark", bg: "#24283b", fg: "#a9b1d6", note: "更深背景，OLED 友好" },
+  { id: "solarized-dark", name_zh: "Solarized 暗色", mode: "dark", bg: "#002b36", fg: "#268bd2", note: "学术 / 长篇阅读" },
+  { id: "zinc-dark", name_zh: "极简暗色", mode: "dark", bg: "#18181b", fg: "#e4e4e7", note: "终端与暗色 UI" },
+  { id: "zinc-light", name_zh: "极简亮色", mode: "light", bg: "#ffffff", fg: "#27272a", note: "打印 / 演示幻灯片" },
+  { id: "github-light", name_zh: "GitHub 亮色", mode: "light", bg: "#ffffff", fg: "#0969da", note: "README / Web 文档" },
+  { id: "nord-light", name_zh: "北欧亮色", mode: "light", bg: "#eceff4", fg: "#5e81ac", note: "冰蓝亮色，印刷品" },
+  { id: "catppuccin-latte", name_zh: "卡布奇诺·拿铁", mode: "light", bg: "#eff1f5", fg: "#8839ef", note: "清爽紫色亮色" },
+  { id: "tokyo-night-light", name_zh: "东京夜·亮色", mode: "light", bg: "#d5d6db", fg: "#34548a", note: "柔和日式亮色" },
+  { id: "solarized-light", name_zh: "Solarized 亮色", mode: "light", bg: "#fdf6e3", fg: "#268bd2", note: "论文 / 精确色彩" },
+];
 const PPT_SKILL = "pptx-generator";
 /** 图标按钮「已选中」态的强调色（primary 变量，双主题自适应）。 */
 const accentIcon = "var(--primary)";
@@ -158,13 +189,17 @@ export function splitSkillMarks(text: string): { tags: SkillTag[]; rest: string 
 }
 
 /** 流程图技能的 prompt 约束块（与 PPTX 制作约束同一范式）。 */
-function buildFlowPrompt(dialect: FlowDialect): string {
+function buildFlowPrompt(dialect: FlowDialect, themeId?: string | null): string {
   if (dialect === "mermaid") {
+    const theme = MERMAID_THEMES.find((t) => t.id === themeId);
     return [
       "流程图生成约束：",
       "- 图表类型：Mermaid。请使用 pretty-mermaid skill 生成，产出美化后的 Mermaid 源码",
       "- 落盘为 /workspace 下的 .mmd 文件，同时把源码贴在回答里便于预览",
       "- 语法保持标准 Mermaid，不要引入 HTML 或外部图片引用",
+      theme
+        ? `- 渲染主题：${theme.id}（${theme.name_zh}）。渲染时用 --theme ${theme.id}，不要改用其它主题`
+        : "- 渲染主题：不指定，由你按用途从内置主题中选一个（如 tokyo-night / zinc-light）并说明理由",
     ].join("\n");
   }
   return [
@@ -494,10 +529,11 @@ export function Chat({
   const selPalette = libCatalog.styles?.palettes.find((p) => p.id === selPaletteId) ?? null;
   const selRecipe = libCatalog.recipes.find((r) => r.id === selRecipeId) ?? null;
 
-  // 快捷技能一键启用：PPT 复用上面的模板库选择，流程图只需选方言。
+  // 快捷技能一键启用：PPT 复用上面的模板库选择，流程图选方言 + Mermaid 主题。
   const [pptOn, setPptOn] = useState(false);
   const [flowOn, setFlowOn] = useState(false);
   const [flowDialect, setFlowDialect] = useState<FlowDialect>("mermaid");
+  const [flowThemeId, setFlowThemeId] = useState<string | null>("tokyo-night");
   const [pptModalOpen, setPptModalOpen] = useState(false);
   const [flowModalOpen, setFlowModalOpen] = useState(false);
   // 标签 Tooltip 里的参数摘要（界面上不直接展开，属于「隐藏在标签内部」的提交数据）。
@@ -508,7 +544,14 @@ export function Chat({
     if (selRecipe) parts.push(`版式：${selRecipe.name_zh || selRecipe.name}`);
     return parts.length ? parts.join("\n") : "模板 / 风格：不指定";
   })();
-  const flowDetail = `图表类型：${flowDialect === "mermaid" ? "Mermaid" : "PlantUML"}`;
+  const flowTheme = MERMAID_THEMES.find((t) => t.id === flowThemeId) ?? null;
+  const flowDetail = [
+    `图表类型：${flowDialect === "mermaid" ? "Mermaid" : "PlantUML"}`,
+    // 主题只对 Mermaid 生效：PlantUML 在平台内不渲染图片，风格无从体现。
+    flowDialect === "mermaid" ? `主题风格：${flowTheme ? `${flowTheme.name_zh}（${flowTheme.id}）` : "不指定"}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   // 会话重命名：受控 antd Modal + Input 替代 window.prompt（样式随主题）。
   const [renameTarget, setRenameTarget] = useState<OcSession | null>(null);
@@ -1724,7 +1767,7 @@ export function Chat({
       libCatalog.styles
     );
     if (libPrompt) prefixes.push(libPrompt);
-    if (flowOn) prefixes.push(buildFlowPrompt(flowDialect));
+    if (flowOn) prefixes.push(buildFlowPrompt(flowDialect, flowThemeId));
     const finalText = prefixes.length ? `${prefixes.join("\n\n")}\n\n${text}` : text;
 
     setInput("");
@@ -3024,11 +3067,11 @@ export function Chat({
                   </div>
                 </Modal>
 
-                {/* 流程图生成：mermaid / plantuml 单选 */}
+                {/* 流程图生成：mermaid / plantuml 单选 + Mermaid 主题风格单选 */}
                 <Modal
                   open={flowModalOpen}
-                  title="流程图生成 · 选择图表语法"
-                  width={460}
+                  title="流程图生成 · 选择图表语法与风格"
+                  width={520}
                   okText={flowOn ? "保存" : "启用技能"}
                   cancelText="取消"
                   onOk={() => {
@@ -3038,22 +3081,52 @@ export function Chat({
                   onCancel={() => setFlowModalOpen(false)}
                   okButtonProps={{ icon: <ThunderboltFilled /> }}
                 >
-                  <Radio.Group
-                    value={flowDialect}
-                    onChange={(e) => setFlowDialect(e.target.value as FlowDialect)}
-                    style={{ display: "flex", flexDirection: "column", gap: "10px" }}
-                  >
-                    <Radio value="mermaid" style={styles.modalRadio}>
-                      Mermaid
-                      <span style={styles.modalRadioNote}>
-                        （pretty-mermaid · 美化后的 Mermaid 源码，产出 .mmd）
-                      </span>
-                    </Radio>
-                    <Radio value="plantuml" style={styles.modalRadio}>
-                      PlantUML
-                      <span style={styles.modalRadioNote}>（plantuml · 只交付 .puml 源文件，平台内不渲染图片）</span>
-                    </Radio>
-                  </Radio.Group>
+                  <div style={styles.modalPickGroup}>
+                    <div style={styles.modalPickTitle}>图表语法</div>
+                    <Radio.Group
+                      value={flowDialect}
+                      onChange={(e) => setFlowDialect(e.target.value as FlowDialect)}
+                      style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+                    >
+                      <Radio value="mermaid" style={styles.modalRadio}>
+                        Mermaid
+                        <span style={styles.modalRadioNote}>
+                          （pretty-mermaid · 美化后的 Mermaid 源码，产出 .mmd）
+                        </span>
+                      </Radio>
+                      <Radio value="plantuml" style={styles.modalRadio}>
+                        PlantUML
+                        <span style={styles.modalRadioNote}>（plantuml · 只交付 .puml 源文件，平台内不渲染图片）</span>
+                      </Radio>
+                    </Radio.Group>
+                  </div>
+                  {/* 主题仅在 Mermaid 下有意义：PlantUML 不出图，风格无处体现。 */}
+                  {flowDialect === "mermaid" && (
+                    <div style={styles.modalPickGroup}>
+                      <div style={styles.modalPickTitle}>主题风格（渲染 SVG / PNG 时使用）</div>
+                      <Radio.Group
+                        value={flowThemeId ?? ""}
+                        onChange={(e) => setFlowThemeId(e.target.value || null)}
+                        style={styles.modalRadioGroup}
+                      >
+                        <Radio value="" style={styles.modalRadio}>
+                          不指定
+                          <span style={styles.modalRadioNote}>（由 agent 按用途自行选择）</span>
+                        </Radio>
+                        {MERMAID_THEMES.map((t) => (
+                          <Radio key={t.id} value={t.id} style={styles.modalRadio}>
+                            {t.name_zh}
+                            <span style={styles.modalRadioNote}>（{t.id} · {t.mode === "dark" ? "暗色" : "亮色"}）</span>
+                            <span style={{ display: "inline-flex", gap: "2px", marginLeft: "6px", verticalAlign: "middle" }}>
+                              <i style={{ ...styles.libChipSwatch, background: t.bg }} />
+                              <i style={{ ...styles.libChipSwatch, background: t.fg }} />
+                            </span>
+                            <span style={{ ...styles.modalRadioNote, display: "block" }}>{t.note}</span>
+                          </Radio>
+                        ))}
+                      </Radio.Group>
+                    </div>
+                  )}
                 </Modal>
 
                 {/* 会话重命名（原 window.prompt） */}
