@@ -210,10 +210,13 @@ export function AdminPanel({
   username,
   onLogout,
   onExit,
+  onOpenWishes,
 }: {
   username: string;
   onLogout: () => void;
   onExit: () => void;
+  /** 后台「查看心愿」跳入心愿墙；本组件已在 App.tsx 受 admin 守卫，故无需再判角色。 */
+  onOpenWishes?: (wishId?: number | null) => void;
 }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [containers, setContainers] = useState<AdminContainer[]>([]);
@@ -601,7 +604,7 @@ export function AdminPanel({
 
       {tab === "ux" ? (
         <div style={{ ...s.body }} className="adm-scroll">
-          <UxDashboard />
+          <UxDashboard onOpenWishes={onOpenWishes} />
         </div>
       ) : (
       /* --- Body --------------------------------------------------------- */

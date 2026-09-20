@@ -51,8 +51,49 @@ export const adminCss = `
   .adm-toast { animation: adm-toast-in .22s ease-out; }
   @keyframes adm-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
+  /* 用户反馈子标签（§7.4）：配色与状态变体走 class，几何尺寸走 adminStyles 内联键。
+     注意内联样式优先级高于样式表，故此处只声明 border/background/color 这类会变色的属性。 */
+  .opinion-tab {
+    border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2);
+    font-family: var(--sans);
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .opinion-tab:hover { border-color: var(--scope-project); color: var(--text); }
+  .opinion-tab[data-active="true"] {
+    background: var(--scope-project-soft); border-color: var(--scope-project);
+    color: var(--scope-project); font-weight: 600;
+  }
+  .stat-card { border: 1px solid var(--border); background: var(--surface); }
+  .stat-card[data-alert="true"] { border-color: var(--red); background: var(--red-soft); }
+  .opinion-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 999px; font-size: 11px; line-height: 16px;
+    border: 1px solid var(--border-strong); background: var(--surface-3); color: var(--text-2);
+    cursor: pointer; font-family: var(--sans);
+    transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+  }
+  .opinion-badge:hover { border-color: var(--scope-project); color: var(--text); }
+  .opinion-badge[data-active="true"] {
+    background: var(--scope-project-soft); border-color: var(--scope-project);
+    color: var(--scope-project); font-weight: 600;
+  }
+  .opinion-link {
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: var(--scope-project); font-size: 12px; font-family: var(--sans);
+    text-decoration: underline; text-underline-offset: 2px;
+    transition: opacity .15s ease;
+  }
+  .opinion-link:hover:not(:disabled) { opacity: .7; }
+  .opinion-link:disabled { color: var(--text-3); cursor: default; text-decoration: none; }
+  .opinion-tab:focus-visible, .opinion-badge:focus-visible, .opinion-link:focus-visible,
+  .opinion-select:focus-visible {
+    outline: 2px solid var(--scope-project); outline-offset: 1px;
+  }
+  .opinion-select:hover { border-color: var(--scope-project); }
+
   @media (prefers-reduced-motion: reduce) {
     .adm-btn, .adm-card, .adm-row, .adm-select, .adm-search, .adm-input { transition: none; }
+    .opinion-tab, .opinion-badge, .opinion-link { transition: none; }
     .adm-toast { animation: none; }
   }
 `;
@@ -704,5 +745,82 @@ export const adminStyles: Record<string, React.CSSProperties> = {
     fontSize: "11px",
     color: "var(--text-3)",
     fontFamily: "var(--mono)",
+  },
+
+  // --- 用户反馈子标签（§7.4 / §7.6，配色见 adminCss 的 .opinion-* / .stat-card）---
+  /** 分类 Tab 行：Bug / 功能特性 / 全部（徽标数字取自 /stats）。 */
+  opinionTabRow: {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  /** 分类 Tab 按钮几何；选中态由 data-active + adminCss 接管。 */
+  opinionTabButton: {
+    padding: "5px 14px",
+    borderRadius: "999px",
+    fontSize: "12.5px",
+    lineHeight: "18px",
+    cursor: "pointer",
+  },
+  /** 统计卡片行：4 张，内容随分类 Tab 切换（D34）。 */
+  statCardRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "10px",
+  },
+  /** 单张统计卡片；unresolved_7d > 0 时 data-alert="true" 描红。 */
+  statCard: {
+    borderRadius: "10px",
+    padding: "10px 12px",
+    transition: "border-color .2s ease, background-color .2s ease",
+  },
+  /** 内容列：默认 clamp 2 行，展开态由调用方覆盖 WebkitLineClamp。 */
+  opinionContentCell: {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical" as const,
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    maxWidth: "380px",
+    fontSize: "12px",
+    lineHeight: 1.6,
+    color: "var(--text-2)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    cursor: "pointer",
+  },
+  /** 表格内联「分类 / 解决状态」两个 select 共用（比 s.select 更紧凑）。 */
+  statusSelect: {
+    padding: "3px 6px",
+    border: "1px solid var(--border-strong)",
+    borderRadius: "6px",
+    background: "var(--bg)",
+    color: "var(--text)",
+    fontSize: "12px",
+    fontFamily: "var(--sans)",
+    outline: "none",
+    cursor: "pointer",
+  },
+  /** 截图预览遮罩：fixed 全屏，纵向排列，点击空白或 Esc 关闭。 */
+  attachmentOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(5,3,15,.78)",
+    zIndex: 2000,
+    overflowY: "auto",
+    padding: "32px 16px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "18px",
+  },
+  /** 单张截图容器（图 + 图注 W×H · KB）。 */
+  attachmentFigure: {
+    margin: 0,
+    maxWidth: "90vw",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    alignItems: "center",
   },
 };

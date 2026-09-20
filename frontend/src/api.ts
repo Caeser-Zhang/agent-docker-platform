@@ -667,10 +667,14 @@ export interface KbDomainEntry {
   databases: { name: string; description: string }[];
 }
 
-async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiCall<T>(
+  path: string,
+  options: RequestInit & { raw?: boolean } = {}
+): Promise<T> {
+  const { raw, ...init } = options;
   const token = localStorage.getItem("token");
   const resp = await fetch(`${API_BASE}${path}`, {
-    ...options,
+    ...init,
     headers: {
       ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -692,8 +696,16 @@ async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
     // Platform errors use {detail}; opencode errors use {message}.
-    throw new Error(err.detail || err.message || `HTTP ${resp.status}`);
+    // 状态码附在 Error 上（§7.5 适配 1）：调用方需要区分 409（已转化）/
+    // 429（限流）/ 422（校验）分流提示。既有 catch (e) { e.message } 不受影响。
+    const e = new Error(
+      err.detail || err.message || `HTTP ${resp.status}`
+    ) as Error & { status?: number };
+    e.status = resp.status;
+    throw e;
   }
+  // raw：跳过 JSON 解析直接返回 Response（附件字节等二进制场景，§7.5 适配 3）。
+  if (raw) return resp as T;
   if (resp.status === 204) return undefined as T;
   // Some upstream answers carry no body (and proxies may empty one out);
   // resp.json() on "" throws "Unexpected end of JSON input".
@@ -2157,3 +2169,296 @@ export const api = {
     });
   },
 };
+
+// --- 意见反馈 & 心愿墙（设计文档 §7.5） ------------------------------------
+
+export type OpinionStatus =
+  | "open"
+  | "resolved"
+  | "evaluating"
+  | "planned"
+  | "developing";
+export type FeedbackCategory = "bug" | "feature";
+export type WishStatus = "evaluating" | "planned" | "developing" | "done";
+export type WishType = "model" | "memory" | "ux" | "other";
+export type WishScope = "all" | "mine" | "favorited" | "boosted";
+export type WishSort =
+  | "boost_desc"
+  | "boost_asc"
+  | "favorite_desc"
+  | "favorite_asc"
+  | "created_desc"
+  | "created_asc";
+
+export interface OpinionItem {
+  id: number;
+  category: FeedbackCategory;
+  name: string;
+  uid: string | null;
+  content: string;
+  status: OpinionStatus;
+  linked_wish_id: number | null;
+  attachment_count: number;
+  created_at: string;
+}
+export interface OpinionListResp {
+  items: OpinionItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** GET /api/admin/opinions/stats（D34 看板卡片）。 */
+export interface OpinionCategoryStats {
+  total: number;
+  by_status: Record<string, number>;
+  with_attachment: number;
+  unresolved_7d: number; // 仅 bug 有意义
+  linked_to_wish: number; // 仅 feature 有意义
+  conversion_rate: number; // 仅 feature 有意义
+}
+export interface OpinionStatsResp {
+  bug: OpinionCategoryStats;
+  feature: OpinionCategoryStats;
+}
+
+export interface OpinionPatchResp {
+  id: number;
+  status: OpinionStatus;
+  category: FeedbackCategory;
+}
+
+export interface OpinionAttachmentItem {
+  id: number;
+  width: number;
+  height: number;
+  size_bytes: number;
+  content_type: string;
+  url: string | null; // 仅管理员端点返回（D35）
+  created_at: string | null;
+}
+export interface OpinionAttachmentListResp {
+  feedback_id: number;
+  items: OpinionAttachmentItem[];
+}
+
+export interface ToWishResp {
+  feedback_id: number;
+  wish_id: number;
+  status: OpinionStatus;
+  linked_wish_id: number;
+}
+
+/** 提交回执里的 attachments 只是「已上传 N 张」的凭据：无 url（D35，
+ *  提交者本人不可回看截图），形状比管理员端点的 OpinionAttachmentItem 窄。 */
+export interface OpinionCreateResp {
+  id: number;
+  category: FeedbackCategory;
+  status: OpinionStatus;
+  created_at: string;
+  attachments: {
+    id: number;
+    width: number;
+    height: number;
+    size_bytes: number;
+    content_type: string;
+  }[];
+}
+
+export interface WishItem {
+  id: number;
+  title: string;
+  description: string;
+  type: WishType;
+  status: WishStatus;
+  boost_count: number;
+  favorite_count: number;
+  created_at: string;
+  updated_at: string | null;
+  my_boosted: boolean;
+  my_favorited: boolean;
+  is_mine: boolean;
+  author_name: string | null; // 仅管理员请求时非空
+  deleted_at: string | null; // 仅管理员 include_hidden 时非空
+  linked_feedback_id: number | null; // 仅 POST 响应回填
+}
+export interface WishListResp {
+  items: WishItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+export interface WishActionResp {
+  wish_id: number;
+  action: "boost" | "favorite";
+  active: boolean;
+  boost_count: number;
+  favorite_count: number;
+}
+export interface WishStats {
+  total: number;
+  by_status: Record<WishStatus, number>;
+  mine: number;
+  my_boosted: number;
+  my_favorited: number;
+}
+
+/** 提交意见反馈（multipart，D33）。images 为空则不 append 该 part；
+ *  4xx 时 Error 上带 status（429 限流 / 413 图过大 / 422 校验）。 */
+export async function submitOpinion(body: {
+  category: FeedbackCategory;
+  content: string;
+  images?: File[];
+}): Promise<OpinionCreateResp> {
+  const fd = new FormData();
+  fd.append("category", body.category);
+  fd.append("content", body.content);
+  for (const f of body.images ?? []) fd.append("images", f); // 同名重复 part（F22）
+  return apiCall<OpinionCreateResp>("/opinions", { method: "POST", body: fd });
+}
+
+// —— 以下 /api/admin/opinions/* 全部要求管理员角色（后端 require_admin，403 边界）——
+// 注意：apiCall 会自动拼 API_BASE（"/api"），这里的 path 不要再带 /api 前缀。
+
+/** 管理侧反馈列表：status 数组由 uxQuery 序列化为逗号串（F14 已核实）。 */
+export async function listOpinions(params: {
+  page?: number;
+  page_size?: number;
+  category?: FeedbackCategory;
+  status?: OpinionStatus[];
+  q?: string;
+}): Promise<OpinionListResp> {
+  return apiCall<OpinionListResp>(
+    `/admin/opinions${uxQuery({
+      ...params,
+      status: params.status?.length ? params.status.join(",") : undefined,
+    })}`
+  );
+}
+
+export async function getOpinionStats(): Promise<OpinionStatsResp> {
+  return apiCall<OpinionStatsResp>("/admin/opinions/stats");
+}
+
+/** 改状态 / 改分类（二者正交：改分类不联动状态、不触发转心愿，§5.1）。 */
+export async function patchOpinion(
+  id: number,
+  body: Partial<{ status: OpinionStatus; category: FeedbackCategory }>
+): Promise<OpinionPatchResp> {
+  return apiCall<OpinionPatchResp>(`/admin/opinions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listOpinionAttachments(
+  id: number
+): Promise<OpinionAttachmentListResp> {
+  return apiCall<OpinionAttachmentListResp>(`/admin/opinions/${id}/attachments`);
+}
+
+/** F20 惯例：<img> 无法携带 Authorization → 取 Blob 再 createObjectURL。
+ *  404（文件丢失）经适配 1 抛出带 status: 404 的 Error，调用方渲染占位灰块。 */
+export async function fetchOpinionAttachmentBlob(aid: number): Promise<Blob> {
+  const res = await apiCall<Response>(`/admin/opinions/attachments/${aid}`, {
+    raw: true,
+  });
+  return res.blob();
+}
+
+/** 管理员通道：一键把反馈转为心愿（重复转化 → Error.status === 409）。 */
+export async function opinionToWish(
+  id: number,
+  body: { title: string; description?: string; type?: WishType }
+): Promise<ToWishResp> {
+  return apiCall<ToWishResp>(`/admin/opinions/${id}/to-wish`, {
+    method: "POST",
+    body: JSON.stringify({
+      title: body.title,
+      description: body.description ?? "",
+      type: body.type ?? "other",
+    }),
+  });
+}
+
+// —— 心愿墙（登录用户均可访问；status 改动 / 删除恢复由后端按角色 403）——
+
+export async function listWishes(params: {
+  q?: string;
+  status?: WishStatus[];
+  scope?: WishScope;
+  sort?: WishSort;
+  page?: number;
+  page_size?: number;
+  include_hidden?: boolean; // 仅管理员生效（服务端角色收敛）
+}): Promise<WishListResp> {
+  return apiCall<WishListResp>(
+    `/wishes${uxQuery({
+      ...params,
+      status: params.status?.length ? params.status.join(",") : undefined,
+    })}`
+  );
+}
+
+/** source_feedback_id：用户自助转心愿通道（D30①），缺省时等同普通发布。 */
+export async function createWish(body: {
+  title: string;
+  description?: string;
+  type?: WishType;
+  source_feedback_id?: number;
+}): Promise<WishItem> {
+  return apiCall<WishItem>("/wishes", {
+    method: "POST",
+    body: JSON.stringify({
+      title: body.title,
+      description: body.description ?? "",
+      type: body.type ?? "other",
+      source_feedback_id: body.source_feedback_id,
+    }),
+  });
+}
+
+/** 作者可改 title/description/type；status 仅管理员（作者传 status → 403）。 */
+export async function patchWish(
+  id: number,
+  body: Partial<{
+    title: string;
+    description: string;
+    type: WishType;
+    status: WishStatus;
+  }>
+): Promise<WishItem> {
+  return apiCall<WishItem>(`/wishes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+/** 软删除（管理员专属，普通用户 → 403）。 */
+export async function deleteWish(
+  id: number
+): Promise<{ id: number; deleted: boolean }> {
+  return apiCall(`/wishes/${id}`, { method: "DELETE" });
+}
+
+/** 恢复软删除的心愿（管理员专属）。 */
+export async function restoreWish(
+  id: number
+): Promise<{ id: number; deleted: boolean }> {
+  return apiCall(`/wishes/${id}/restore`, { method: "POST" });
+}
+
+/** 助力 / 收藏 toggle（D22：再次点击即取消）。 */
+export async function toggleWishAction(
+  id: number,
+  action: "boost" | "favorite"
+): Promise<WishActionResp> {
+  return apiCall<WishActionResp>(`/wishes/${id}/actions`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+}
+
+export async function getWishStats(): Promise<WishStats> {
+  return apiCall<WishStats>("/wishes/stats");
+}

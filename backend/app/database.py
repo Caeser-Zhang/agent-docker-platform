@@ -54,6 +54,10 @@ async def init_db():
         AgentRoundMetrics,
         ToolCallMetrics,
         LLMProxyMetrics,
+        OpinionFeedback,
+        OpinionAttachment,
+        Wish,
+        WishAction,
     )
 
     async with engine.begin() as conn:

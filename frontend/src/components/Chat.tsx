@@ -48,6 +48,7 @@ import { styles } from "./chatStyles";
 import { ConfigPanel } from "./ConfigPanel";
 import { FeedbackBar } from "./FeedbackBar";
 import { FeedbackModal } from "./FeedbackModal";
+import { OpinionFeedbackModal } from "./OpinionFeedbackModal";
 import { TextWithChunkRefs } from "./ChunkRef";
 import { ThemeToggle } from "../theme";
 import {
@@ -385,6 +386,7 @@ export function Chat({
   onOpenAdmin,
   onOpenLibrary,
   onOpenKbAccess,
+  onOpenWishes,
   onLogout,
 }: {
   username: string;
@@ -392,6 +394,8 @@ export function Chat({
   onOpenAdmin?: () => void;
   onOpenLibrary?: () => void;
   onOpenKbAccess?: () => void;
+  /** 心愿墙（所有登录用户可访问，非管理员页面） */
+  onOpenWishes?: () => void;
   onLogout: () => void;
 }) {
   // antd App 上下文：confirm 模态继承 ConfigProvider 的明暗主题与主色。
@@ -441,6 +445,8 @@ export function Chat({
   // own; while it is down the banner warns that replies may lag.
   const [sseDown, setSseDown] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  // 意见反馈弹窗（F2/F3）：两态状态机在组件内部，这里只控开关
+  const [showOpinion, setShowOpinion] = useState(false);
 
   // P1-1: revert/unrevert of the last round's file changes, the agent's live
   // task list (todo.updated SSE events), and a second busy label for actions
@@ -2506,6 +2512,26 @@ export function Chat({
           </div>
         </div>
 
+        {/* 快捷入口（D12）：意见反馈 + 心愿墙。两者都是普通用户能力，
+            不需要 role === "admin" 判定；管理员专属入口在上方 userInfo 行。 */}
+        <div style={styles.quickActionsRow}>
+          <button
+            style={styles.quickActionButton}
+            onClick={() => setShowOpinion(true)}
+            title="提交 Bug 或功能建议"
+          >
+            💬 意见反馈
+          </button>
+          <button
+            style={styles.quickActionButton}
+            onClick={onOpenWishes}
+            disabled={!onOpenWishes}
+            title="看看大家都在期待什么，为心愿助力"
+          >
+            🌟 心愿墙
+          </button>
+        </div>
+
         {/* 知识领域展示区：紧邻上方的"工作区"运行时信息，按领域聚合展示当前
             用户有权访问的知识库。数据来自后端 /api/kb/my-domains，后端已按
             权限（公共隐式放行 / 私有名册）过滤，前端不做鉴权。 */}
@@ -3653,6 +3679,16 @@ export function Chat({
       )}
 
       {showConfig && <ConfigPanel onClose={() => setShowConfig(false)} />}
+
+      {/* 意见反馈弹窗（F2/F3）：bug 提交即关闭；feature 提交后原地切到
+          「转心愿」引导态，发布成功后可询问跳转到心愿墙。 */}
+      <OpinionFeedbackModal
+        open={showOpinion}
+        onClose={() => setShowOpinion(false)}
+        onNavigate={(p) => {
+          if (p === "wishes") onOpenWishes?.();
+        }}
+      />
     </div>
   );
 }

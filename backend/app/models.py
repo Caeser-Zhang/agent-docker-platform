@@ -1,6 +1,7 @@
 """SQLAlchemy ORM models — maps to the agent_containers schema in the design doc."""
 import uuid
 from datetime import datetime, timezone
+from enum import Enum
 
 from sqlalchemy import String, Text, Integer, Float, DateTime, Boolean, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -530,4 +531,171 @@ class LLMProxyMetrics(Base):
     __table_args__ = (
         Index("idx_llm_user_time", "user_id", "created_at"),
         Index("idx_llm_provider_time", "provider_id", "created_at"),
+    )
+
+
+# --- 意见反馈 & 心愿墙（docs/feedback-and-wishwall-design.md §4）---------------
+# 枚举只存 code，中文展示映射放在前端（避免双份字典）。
+
+
+class FeedbackCategory(str, Enum):
+    """意见反馈分类（D28）。feature 类会在提交后引导转为心愿。"""
+
+    bug = "bug"
+    feature = "feature"
+
+
+class OpinionStatus(str, Enum):
+    open = "open"                # 未解决（默认）
+    resolved = "resolved"        # 已解决
+    evaluating = "evaluating"    # 评估中
+    planned = "planned"          # 已规划
+    developing = "developing"    # 开发中
+
+
+class WishStatus(str, Enum):
+    evaluating = "evaluating"    # 评估中（默认）
+    planned = "planned"          # 已规划
+    developing = "developing"    # 开发中
+    done = "done"                # 已实现
+
+
+class WishType(str, Enum):
+    model = "model"              # 模型
+    memory = "memory"            # 上下文记忆
+    ux = "ux"                    # 用户体验
+    other = "other"              # 其他（默认）
+
+
+class WishActionType(str, Enum):
+    boost = "boost"              # 助力
+    favorite = "favorite"        # 收藏
+
+
+class OpinionFeedback(Base):
+    """用户意见反馈（bug / feature）。
+
+    ``name`` / ``uid`` 是**提交时刻的快照**（D1）：反馈属审计记录，须保留当时
+    身份原貌，且不依赖 ``users`` 表存活性 → ``user_id`` 同样**无外键**（与
+    MessageFeedback / AuditEvent 一致）。``linked_wish_id`` 转化后指向
+    ``wishes.id``，无外键（心愿软删后仍可反查来源反馈）。
+    """
+
+    __tablename__ = "opinion_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=FeedbackCategory.bug.value
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # 5 ~ 2000 字
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=OpinionStatus.open.value
+    )
+    linked_wish_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        # 服务后台「分类 Tab + 状态筛选 + 时间倒序」主查询（D34）
+        Index("ix_opinion_feedback_cat_status_created", "category", "status", "created_at"),
+        Index("ix_opinion_feedback_created", "created_at"),
+    )
+
+
+class OpinionAttachment(Base):
+    """反馈截图（D33 / D36）。
+
+    ``filename`` 是**服务端生成的随机名**（``{uuid4().hex}.png``），绝不使用
+    用户上传的原始文件名 → 天然免疫路径穿越。落盘字节一律是 Pillow 重编码后的
+    PNG，原始上传字节被丢弃。``width``/``height`` 供前端预留占位尺寸防抖动。
+
+    属性名用 ``size_bytes`` 而非 ``bytes``（后者遮蔽 Python 内置类型）。
+    """
+
+    __tablename__ = "opinion_attachment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    feedback_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("opinion_feedback.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False, default="image/png")
+    width: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    height: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("feedback_id", "filename", name="uq_opinion_attachment_file"),
+    )
+
+
+class Wish(Base):
+    """心愿墙条目。
+
+    ``boost_count`` / ``favorite_count`` 是冗余计数（列表排序与展示直接读列，
+    不做 COUNT 聚合），一致性由 wish_actions 的唯一约束 + 行锁 + SQL 级自增
+    三重防线保证（设计文档 §6.1）。
+
+    ``deleted_at`` 非空即软删除：普通用户列表不可见，仅管理员可查/可恢复
+    （D24）。软删**不**删 wish_actions 行，恢复后计数与用户操作状态保持一致。
+
+    ``author_id`` 无外键（全站惯例）；``author_name`` 查询时 LEFT JOIN users
+    取当前用户名——心愿是长期展示的社区内容，作者改名后应跟随。
+    """
+
+    __tablename__ = "wishes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    author_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    type: Mapped[str] = mapped_column(String(16), nullable=False, default=WishType.other.value)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=WishStatus.evaluating.value
+    )
+    boost_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    favorite_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_wishes_alive_boost", "deleted_at", "boost_count"),
+        Index("ix_wishes_alive_created", "deleted_at", "created_at"),
+        Index("ix_wishes_status", "status"),
+    )
+
+
+class WishAction(Base):
+    """一次助力 / 收藏（D22：toggle 语义，再次点击即取消）。
+
+    ``wish_id`` 用真外键 + CASCADE（心愿若被物理清理，action 行自动跟随）；
+    ``user_id`` 无外键。唯一约束是并发双击的第一道防线。
+    """
+
+    __tablename__ = "wish_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wish_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("wishes.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)  # boost | favorite
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("wish_id", "user_id", "action", name="uq_wish_action_user"),
+        Index("ix_wish_actions_user", "user_id", "action"),
     )

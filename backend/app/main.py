@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db, promote_admins, backfill_uids
-from .routers import auth, agent, tunnel, config, workspace, projects, admin, admin_ux, feedback, llm_proxy, user_config, fastk, library, kb_domains, kb_proxy
+from .routers import auth, agent, tunnel, config, workspace, projects, admin, admin_ux, feedback, llm_proxy, user_config, fastk, library, kb_domains, kb_proxy, opinion_feedback, wishes
 from .services.agent_controller import agent_controller
 from .services.container_manager import container_manager
 from .services.pptx_library import shared_library as pptx_library
@@ -148,6 +148,9 @@ app.include_router(kb_domains.router)
 app.include_router(kb_domains.user_router)
 app.include_router(library.router)
 app.include_router(library.admin_router)
+app.include_router(opinion_feedback.router)
+app.include_router(opinion_feedback.admin_router)
+app.include_router(wishes.router)
 
 
 @app.exception_handler(RequestValidationError)

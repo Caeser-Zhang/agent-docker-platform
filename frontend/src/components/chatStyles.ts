@@ -2148,4 +2148,33 @@ export const styles: Record<string, any> = {
     color: textMut,
     marginLeft: "4px",
   },
+  // 侧边栏快捷入口行（D12）：意见反馈 / 心愿墙，两个等宽按钮并排。
+  // 放在「工作区」状态面板下方，与顶部 userInfo 行的管理员入口分区，
+  // 避免普通用户能力与管理员能力挤在同一行造成权限语义混淆。
+  quickActionsRow: {
+    display: "flex",
+    gap: "8px",
+    padding: "0 14px 10px",
+  },
+  quickActionButton: {
+    flex: 1,
+    minWidth: 0,
+    height: "32px",
+    padding: "0 8px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "4px",
+    fontSize: "12px",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: text,
+    background: subtle,
+    border: `1px solid ${border}`,
+    borderRadius: "999px",
+    cursor: "pointer",
+    transition: "border-color var(--t), background var(--t), color var(--t)",
+  },
 };

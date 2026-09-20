@@ -1,6 +1,6 @@
 # Agent Docker Platform
 
-四层架构的 AI Agent 平台——**浏览器层 → 平台控制层 → 容器执行层 → 共享服务层**，全链路真实运行，无 mock。
+分层的 AI Agent 平台——主链路 **Web 层 → 控制层（内含代理层）→ 容器层 → 共享服务层 / 知识库层**，横切 **数据层**，全链路真实运行，无 mock。
 
 每个用户拥有独立的 Docker 容器，容器内唯一的进程是 [opencode](https://opencode.ai) `serve`（headless agent runtime）。平台不实现任何 agent 逻辑，只负责容器生命周期管理、配置注入和透明反向代理。
 
@@ -21,65 +21,88 @@
 
 ## 架构图
 
+全局七层视图（① Web → ② 控制 → ③ 代理 → ④ 容器 → ⑤ 共享服务 / ⑥ 知识库，横切 ⑦ 数据层）：
+
 ```mermaid
 flowchart TB
-    subgraph Browser["浏览器层 · Browser Layer"]
-        SPA["React SPA<br/>(Chat / ConfigPanel / AdminPanel<br/>UxDashboard / PptxLibrary / KbAccessAdmin)"]
-        NGINX["nginx<br/>:3000 · SPA 路由 + API 代理"]
-        SPA --> NGINX
+    subgraph WEB["① Web 层 · platform-net"]
+        FE["React SPA + nginx :3000<br/>会话 UI · 三级配置面板 · 管理台"]
     end
 
-    subgraph Platform["平台控制层 · Platform Control Layer (FastAPI :8000)"]
-        direction TB
-        subgraph Control["控制平面"]
-            AC["Agent Controller<br/>状态机 · 健康探测 · 崩溃自愈"]
-            CM["Container Manager<br/>Docker SDK · 加固参数 · 配置注入"]
+    subgraph CTRL["② 控制层 · FastAPI backend（跨两张网络的唯一通道）"]
+        CORE["认证授权 · 容器生命周期 · 三级配置消毒注入<br/>业务 / 审计 / 观测"]
+        subgraph PROXY["③ 代理层 · 数据平面（同进程，不含 agent 逻辑）"]
+            PX["Tunnel 透传 · SSE 扇出 · LLM 回源<br/>知识库白名单代理 · 模板库"]
         end
-        subgraph ConfigPlane["配置平面"]
-            CFG["Config API<br/>Provider / MCP / Skill CRUD<br/>(全局级: 宿主 opencode.json)"]
-            WS["Workspace API<br/>项目级配置 · Skill 导入<br/>文件上传 / 文件树 / 预览"]
-        end
-        subgraph DataPlane["数据平面"]
-            TUNNEL["Tunnel<br/>透明反向代理 (raw bytes)"]
-            PUMP["SSE Pump<br/>单上游 + 环形缓冲 + 扇出"]
-        end
-        DB[("PostgreSQL 16 · 可切回 SQLite<br/>用户/角色 + 容器台账")]
-        AC --> CM
-        AC --> PUMP
     end
 
-    subgraph Runtime["容器执行层 · Container Runtime Layer (agent-net)"]
-        C1["容器 agent-u1<br/>opencode serve :4096<br/>非root · 只读根fs · cap-drop ALL"]
-        C2["容器 agent-u2<br/>opencode serve :4096<br/>…"]
-        C1 -. "卷 workspace-u1<br/>(tmp/ 附件 · .opencode/)" .-> CN
-        C2 -. "卷 workspace-u2" .-> CN
-        CN["Docker Volumes<br/>per-user workspace + data"]
+    subgraph RT["④ 容器层 · agent-net（每用户一容器：非 root · 只读 rootfs · cap-drop ALL · 不映射宿主端口）"]
+        OC["opencode serve :4096（容器内唯一进程）<br/>Agent loop · LLM 调用 · 工具执行 · 会话存储"]
+        EXT["内置插件 / Skills / 工具 / MCP<br/>（只读镜像层，用户不可卸载）"]
     end
 
-    subgraph Shared["共享服务层 · Shared Services"]
-        LP["LLM Proxy<br/>(backend /llm-proxy · SSE delta 归一化)"]
-        SXNG["SearXNG<br/>web_search 元搜索"]
+    subgraph SHARED["⑤ 共享服务层 · agent-net（无宿主端口）"]
+        SS["SearXNG 元搜索 · demo-mcp 远程 MCP 样例"]
     end
 
-    UP["上游 LLM Provider<br/>(baseURL 实时读宿主 opencode.json)"]
+    subgraph KB["⑥ 知识库层 · 宿主或外部服务"]
+        FK["fastk / FastDB REST<br/>databases · search · chunk · image"]
+    end
 
-    NGINX -->|"JWT · /api/*"| Platform
-    TUNNEL -->|HTTP · basic auth| C1
-    TUNNEL -->|HTTP · basic auth| C2
-    PUMP -->|GET /event · SSE| C1
-    C1 -->|HTTP · API key 透传| LP
-    C2 -->|HTTP · API key 透传| LP
-    LP -->|HTTPS| UP
-    C1 -.->|web_search MCP| SXNG
-    C2 -.->|web_search MCP| SXNG
+    UP["上游 LLM Provider · OpenAI-compatible"]
+
+    subgraph DATA["⑦ 数据层"]
+        PG[("PostgreSQL 16<br/>用户 / 容器台账 / 领域授权 / 审计 / UX 指标")]
+        VOL["Docker Volumes<br/>工作区 · 容器数据 · PPTX 模板库"]
+        DS["docker.sock · 宿主挂载配置目录"]
+    end
+
+    FE -->|"HTTP /api/* · JWT · SSE"| CORE
+    FE -->|"直连代理面"| PX
+    CORE -->|"Docker SDK：创建 / 启停 / 销毁 / recreate"| DS
+    DS -->|"容器运行时"| RT
+    CORE -->|"put_archive 注入消毒后的 opencode.json"| OC
+    OC --- EXT
+    PX -->|"透传 + SSE 单上游（Basic Auth）"| OC
+    OC -->|"LLM 请求 · 知识库检索"| PX
+    PX -->|"HTTPS 回源 + delta 归一化"| UP
+    PX -->|"注入领域真实 Key · 仅只读"| FK
+    EXT -->|"web_search / 远程 MCP"| SS
+    CORE -->|"读写"| PG
+    CORE -->|"模板库唯一写入方"| VOL
+    OC -.->|"rw /workspace · /data；ro /library/pptx"| VOL
+    CORE -.->|"宿主 opencode.json / skills"| DS
+    PX -.->|"事件与指标旁路落库"| PG
+
+    style WEB fill:#eef5ff,stroke:#4a7fd4
+    style CTRL fill:#fff8ee,stroke:#d98c2b
+    style PROXY fill:#ffe8d4,stroke:#d9752b
+    style RT fill:#eefbf1,stroke:#3d9a5b
+    style SHARED fill:#f4f0ff,stroke:#7a5cd0
+    style KB fill:#fdeef4,stroke:#c94f86
+    style DATA fill:#f2f4f7,stroke:#6b7a90
 ```
+
+### 分层职责
+
+| 层 | 部署形态 | 职责 | 明确不做 |
+|---|---|---|---|
+| ① Web 层 | `frontend` 容器（nginx，宿主 `:3000`） | SPA 路由、`/api` 反代、SSE 长连接、流式渲染与审批交互 | 不直连容器，不持有任何凭据 |
+| ② 控制层 | `backend` 容器（FastAPI `:8000`，无宿主端口） | 认证授权、容器生命周期、三级配置消毒注入、业务与观测 | 不实现 agent loop、不解析模型输出语义 |
+| ③ 代理层 | 与②同进程（数据平面） | Tunnel 透传、SSE 扇出、LLM 回源、知识库白名单代理、模板库 | 不改写业务语义（仅归一化 SSE delta、注入/剥离凭据） |
+| ④ 容器层 | 每用户一个 `agent-{uid}` 容器 | `opencode serve` 全权负责 agent loop、工具执行、会话存储 | 不映射宿主端口、不持有真实上游 Key、不可写镜像层 |
+| ⑤ 共享服务层 | `searxng` / `demo-mcp`（仅 agent-net） | 元搜索、远程 MCP 样例 | 不落用户数据 |
+| ⑥ 知识库层 | 宿主 / 外部 fastk（FastDB REST） | 知识库检索、片段正文与附图 | 授权判定不在上游，由平台领域模型裁决 |
+| ⑦ 数据层 | `postgres` 容器 + Docker 卷 + 宿主挂载目录 | 用户与台账、领域授权、审计与 UX 指标、工作区与模板资产 | 不存明文密钥（Fernet 加密） |
 
 要点：
 
-- 前端只与 backend（9123）通信，nginx 把 `/api/*` 反代过去；用户容器**不映射宿主端口**，只能经 `agent-net` 由 backend 访问
-- backend 同时挂在 `platform-net`（接前端）和 `agent-net`（接用户容器）两张网络上
-- 每用户两块独立卷：`workspace-*`（工作区，含上传附件与项目级配置）与 `data-*`（opencode 状态）
+- 前端只与 backend 通信：nginx 把 `/api/*` 反代到 `backend:8000`；用户容器**不映射宿主端口**，只能经 `agent-net` 由 backend 访问
+- backend 同时挂在 `platform-net`（接前端与 PostgreSQL）和 `agent-net`（接用户容器与共享服务）两张网络上，是两层之间唯一的通道
+- 每用户两块独立卷：`agent-workspace-*`（工作区，含上传附件与项目级配置）与 `agent-data-*`（opencode XDG 状态）；模板库 `agent-pptx-lib` 全平台单副本，backend 唯一写入方、容器只读挂载
 - 容器内的 LLM 请求统一经 backend 的 **LLM Proxy**（`/llm-proxy/{provider}`）回源真实上游——平台顺带归一化 SSE tool-call delta（部分网关的续传块携带空 `id`/`name`，会打断 `@ai-sdk/openai-compatible` 的流式解析）；上游地址实时读宿主配置，改配置无需重启后端
+- 容器内的知识库检索统一经 backend 的 **KB Proxy**（`/fastk/api/*`）：容器只拿到不透明代理 token，真实领域 Key 仅在 backend 内存解密后注入，且只放行只读接口
+- 观测为旁路：SSE Pump 与 LLM Proxy 把事件/指标喂给 MetricsCollector 落库，驱动管理员 UX 看板，不参与主链路决策
 
 ### 一次对话的请求流转
 
@@ -671,10 +694,12 @@ permission.* / question.*
 
 | 层 | 技术 |
 |---|---|
-| 浏览器层 | React 18 + TypeScript + Vite 5 + nginx |
-| 平台控制层 | Python 3.12 + FastAPI + uvicorn + SQLAlchemy + httpx + Docker SDK |
-| 容器执行层 | Debian + opencode 1.18.16 (Node.js runtime) |
-| 共享服务层 | PostgreSQL 16（默认，可切回 SQLite）· SearXNG 元搜索（web_search MCP 后端） |
+| ① Web 层 | React 18 + TypeScript + Vite 5 + nginx |
+| ② 控制层 / ③ 代理层 | Python 3.12 + FastAPI + uvicorn + SQLAlchemy + httpx + Docker SDK |
+| ④ 容器层 | Debian + opencode 1.18.16 (Node.js runtime) |
+| ⑤ 共享服务层 | SearXNG 元搜索（web_search MCP 后端）· demo-mcp（远程 MCP 样例） |
+| ⑥ 知识库层 | fastk / FastDB REST（宿主或外部部署，经平台白名单代理访问） |
+| ⑦ 数据层 | PostgreSQL 16（默认，可切回 SQLite）· Docker Volumes · 宿主挂载目录 |
 
 ## 生产部署建议
 

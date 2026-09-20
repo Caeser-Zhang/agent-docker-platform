@@ -142,6 +142,11 @@ class Settings(BaseSettings):
     # backend-data volume so tar.gz exports survive backend recreation).
     backup_dir: str = "/app/data/backups"
 
+    # 意见反馈截图附件落盘目录（容器内绝对路径，与 backup_dir 同在 backend-data
+    # 卷内，故容器重建后元数据与文件都还在）。目录不在启动时强制创建——首次写入
+    # 前 mkdir(parents=True, exist_ok=True)，避免只读卷导致启动失败。
+    opinion_attachment_dir: str = "/app/data/opinion-attachments"
+
     # --- CORS ---
     cors_origins: list[str] = ["*"]
 

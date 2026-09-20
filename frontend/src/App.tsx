@@ -8,11 +8,19 @@ import { Chat } from "./components/Chat";
 import { AdminPanel } from "./components/AdminPanel";
 import { LibraryAdminPage } from "./components/PptxLibrary";
 import { KbAccessAdminPage } from "./components/KbAccessAdmin";
+import { WishWall } from "./components/WishWall";
 import type { TokenResponse } from "./api";
 
 function AppRoutes() {
   const [auth, setAuth] = useState<TokenResponse | null>(null);
-  const [page, setPage] = useState<"chat" | "admin" | "library" | "kbaccess">("chat");
+  const [page, setPage] = useState<"chat" | "admin" | "library" | "kbaccess" | "wishes">("chat");
+  // 后台「查看心愿」跳入时携带的目标 id（§7.4⑤）；普通入口为 null。
+  const [wishFocus, setWishFocus] = useState<number | null>(null);
+
+  const openWishes = (focusId?: number | null) => {
+    setWishFocus(focusId ?? null);
+    setPage("wishes");
+  };
 
   useEffect(() => {
     // Restore session from localStorage
@@ -27,6 +35,7 @@ function AppRoutes() {
 
   const handleLogin = (t: TokenResponse) => {
     setAuth(t);
+    setWishFocus(null);
     setPage("chat");
   };
 
@@ -36,6 +45,7 @@ function AppRoutes() {
     localStorage.removeItem("userId");
     localStorage.removeItem("role");
     setAuth(null);
+    setWishFocus(null);
     setPage("chat");
   };
 
@@ -44,7 +54,14 @@ function AppRoutes() {
   }
 
   if (page === "admin" && auth.role === "admin") {
-    return <AdminPanel username={auth.username} onLogout={handleLogout} onExit={() => setPage("chat")} />;
+    return (
+      <AdminPanel
+        username={auth.username}
+        onLogout={handleLogout}
+        onExit={() => setPage("chat")}
+        onOpenWishes={openWishes}
+      />
+    );
   }
 
   if (page === "library" && auth.role === "admin") {
@@ -55,6 +72,22 @@ function AppRoutes() {
     return <KbAccessAdminPage username={auth.username} onLogout={handleLogout} onExit={() => setPage("chat")} />;
   }
 
+  // 心愿墙：所有登录用户可访问，**不带** admin 守卫（与上面三个管理员页面不同）。
+  if (page === "wishes") {
+    return (
+      <WishWall
+        // key 带上目标 id：定位逻辑只在挂载时跑一次，换目标要重新挂载。
+        key={wishFocus ?? "wall"}
+        role={auth.role || "user"}
+        focusWishId={wishFocus}
+        onExit={() => {
+          setWishFocus(null);
+          setPage("chat");
+        }}
+      />
+    );
+  }
+
   return (
     <Chat
       username={auth.username}
@@ -62,6 +95,7 @@ function AppRoutes() {
       onOpenAdmin={auth.role === "admin" ? () => setPage("admin") : undefined}
       onOpenLibrary={auth.role === "admin" ? () => setPage("library") : undefined}
       onOpenKbAccess={auth.role === "admin" ? () => setPage("kbaccess") : undefined}
+      onOpenWishes={() => openWishes(null)}
       onLogout={handleLogout}
     />
   );
