@@ -218,3 +218,25 @@ class WishStats(BaseModel):
     mine: int = 0
     my_boosted: int = 0
     my_favorited: int = 0
+
+
+# --- AI 文本润色 -------------------------------------------------------------
+class PolishModelRef(BaseModel):
+    """opencode ModelRef 的最小形状 —— 前端把当前会话选中的模型原样透传。
+
+    字段名沿用 opencode 的 ``providerID`` / ``id``，避免前后端再做一次改名。
+    """
+    providerID: str
+    id: str
+
+
+class PolishReq(BaseModel):
+    text: str
+    # 缺省时后端回退到宿主配置的默认模型。
+    model: PolishModelRef | None = None
+
+
+class PolishResp(BaseModel):
+    text: str
+    model: str          # "providerID/id"，前端提示条展示用
+    elapsed_ms: int

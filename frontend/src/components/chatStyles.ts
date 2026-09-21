@@ -1308,6 +1308,33 @@ export const styles: Record<string, any> = {
   chatBody: { flex: 1, display: "flex", overflow: "hidden", minHeight: 0 },
   chatColumn: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 },
 
+  // --- AI 润色提示条（输入区上方）-----------------------------------------
+  polishBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    margin: "0 0 6px",
+    padding: "4px 10px",
+    borderRadius: "8px",
+    background: accentSoft,
+    border: `1px solid ${border}`,
+    fontSize: "12px",
+    color: textSec,
+  },
+  polishBarText: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  polishUndoBtn: {
+    flex: "none",
+    padding: "2px 10px",
+    border: `1px solid ${borderStrong}`,
+    borderRadius: "6px",
+    background: surface,
+    color: text,
+    fontSize: "12px",
+    cursor: "pointer",
+  },
+  // 润色进行中的图标按钮：与 disabled 的灰态区分开，表示「在跑」而非「不可点」
+  iconBtnBusy: { color: accent, cursor: "progress" },
+
   // --- @-mention autocomplete (files + agents) ---------------------------
   atMenuWrap: { position: "relative", flex: 1, display: "flex" },
   atMenu: {

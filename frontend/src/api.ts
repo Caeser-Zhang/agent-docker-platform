@@ -2462,3 +2462,29 @@ export async function toggleWishAction(
 export async function getWishStats(): Promise<WishStats> {
   return apiCall<WishStats>("/wishes/stats");
 }
+
+// —— AI 文本润色（输入区 ✨ 按钮；平台直连容器同款模型，非流式一次性返回）——
+
+export interface PolishResult {
+  text: string;
+  model: string; // "providerID/id"，提示条展示用
+  elapsed_ms: number;
+}
+
+/**
+ * 润色输入区草稿。``model`` 传当前会话选中项即可跟随用户选择；缺省时后端
+ * 用宿主默认模型。失败抛出的 Error 带 ``status``（400 内容问题 / 429 太频繁 /
+ * 502 上游失败 / 503 无可用模型），调用方原样展示 detail。
+ */
+export async function polishText(
+  text: string,
+  model?: ModelRef | null
+): Promise<PolishResult> {
+  return apiCall<PolishResult>("/text/polish", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      model: model ? { providerID: model.providerID, id: model.id } : null,
+    }),
+  });
+}

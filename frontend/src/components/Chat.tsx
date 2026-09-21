@@ -11,6 +11,7 @@ import {
   EditOutlined,
   FolderOpenOutlined,
   FolderOutlined,
+  HighlightOutlined,
   InboxOutlined,
   LoadingOutlined,
   MessageOutlined,
@@ -26,6 +27,7 @@ import {
 } from "@ant-design/icons";
 import {
   api,
+  polishText,
   type AgentRuntime,
   type AgentStatus,
   type FeedbackReasonCode,
@@ -218,6 +220,9 @@ function parseModel(value: string | null | undefined): ModelRef | undefined {
   return { providerID: value.slice(0, i), id: value.slice(i + 1) };
 }
 const modelKey = (m?: ModelRef) => (m ? `${m.providerID}/${m.id}` : "");
+
+/** 润色撤销栈深度：连续润色 5 次仍可一路退回最初草稿。 */
+const POLISH_STACK_MAX = 5;
 
 /** All "@path" references in the text (start of line or after whitespace). */
 const collectAtTokens = (text: string): string[] => {
@@ -466,6 +471,11 @@ export function Chat({
   const [projBusy, setProjBusy] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
+  // AI 润色：受控 setInput 会清空 textarea 的原生 undo 栈，所以撤销必须靠这份
+  // 显式快照栈（上限 POLISH_STACK_MAX 层，够回撤连续几次润色）。
+  const [polishing, setPolishing] = useState(false);
+  const [polishStack, setPolishStack] = useState<string[]>([]);
+  const [polishInfo, setPolishInfo] = useState<{ model: string; ms: number } | null>(null);
   const [promptAgent, setPromptAgent] = useState<string | undefined>(undefined);
   const [promptModel, setPromptModel] = useState<ModelRef | undefined>(undefined);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -1641,12 +1651,54 @@ export function Chat({
   );
 
   // ------------------------------------------------------------------
+  //  AI 润色（输入区 ✨）：整段替换 + 显式快照栈撤销
+  // ------------------------------------------------------------------
+  /** 清空润色痕迹 —— 手动编辑、发送、切换会话后旧快照都不再可信。 */
+  const resetPolish = useCallback(() => {
+    setPolishStack([]);
+    setPolishInfo(null);
+  }, []);
+
+  // 切换会话：草稿与快照都属于上一个会话，一并丢弃。
+  useEffect(() => {
+    resetPolish();
+  }, [currentSession?.id, resetPolish]);
+
+  const handlePolish = async () => {
+    const draft = input;
+    if (!draft.trim() || polishing) return;
+    setPolishing(true);
+    setError("");
+    try {
+      // 跟随当前会话选中的模型（本条覆盖 > 会话默认），后端缺省则用宿主默认。
+      const res = await polishText(draft, promptModel ?? model ?? null);
+      setInput(res.text);
+      setPolishStack((prev) => [...prev, draft].slice(-POLISH_STACK_MAX));
+      setPolishInfo({ model: res.model, ms: res.elapsed_ms });
+    } catch (e: any) {
+      setError(e?.message || "AI 润色失败");
+    } finally {
+      setPolishing(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handlePolishUndo = () => {
+    if (polishStack.length === 0) return;
+    const next = polishStack.slice(0, -1);
+    setInput(polishStack[polishStack.length - 1]);
+    setPolishStack(next);
+    if (next.length === 0) setPolishInfo(null);
+  };
+
+  // ------------------------------------------------------------------
   //  Prompting
   // ------------------------------------------------------------------
   const handleSend = async () => {
     const text = input.trim();
     if ((!text && attachments.length === 0) || !currentSession || isGenerating) return;
     setError("");
+    resetPolish();
     setAtQuery(null);
     setAtOptions([]);
     setSlashQuery(null);
@@ -1883,6 +1935,8 @@ export function Chat({
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setInput(text);
+    // 手动改过的草稿与润色快照已经不同源，撤销会「跳回」旧文本，故清栈。
+    resetPolish();
     const caret = e.target.selectionStart ?? text.length;
     // The slash menu (message start) and the @-menu are mutually exclusive.
     const sq = detectSlashCommand(text, caret);
@@ -3224,6 +3278,30 @@ export function Chat({
                     </div>
                   )}
 
+                {(polishInfo || polishing) && (
+                  <div style={styles.polishBar}>
+                    <span style={styles.polishBarText}>
+                      {polishing ? (
+                        <>✨ 正在润色…</>
+                      ) : (
+                        <>
+                          ✨ 已用 <b>{polishInfo!.model}</b> 润色 · {(polishInfo!.ms / 1000).toFixed(1)}s
+                          {polishStack.length > 0 ? ` · 可撤销 ${polishStack.length} 步` : ""}
+                        </>
+                      )}
+                    </span>
+                    {!polishing && polishStack.length > 0 && (
+                      <button
+                        style={styles.polishUndoBtn}
+                        onClick={handlePolishUndo}
+                        title="撤销上一次润色（Ctrl+Z）"
+                      >
+                        撤销
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div style={styles.atMenuWrap}>
                   <textarea
                     ref={inputRef}
@@ -3234,8 +3312,21 @@ export function Chat({
                         : "输入消息…（/ 执行命令，@ 引用文件，Enter 发送，Shift+Enter 换行）"
                     }
                     value={input}
+                    readOnly={polishing}
                     onChange={handleInputChange}
                     onKeyDown={(e) => {
+                      // 润色过的草稿：Ctrl+Z 先退润色快照，而不是浏览器原生 undo
+                      // （受控组件已把原生栈清空，按了也没反应）。
+                      if (
+                        (e.ctrlKey || e.metaKey) &&
+                        !e.shiftKey &&
+                        e.key.toLowerCase() === "z" &&
+                        polishStack.length > 0
+                      ) {
+                        e.preventDefault();
+                        handlePolishUndo();
+                        return;
+                      }
                       if (handleSlashKeyDown(e)) return;
                       if (handleAtKeyDown(e)) return;
                       if (e.key === "Enter" && !e.shiftKey) {
@@ -3444,6 +3535,22 @@ export function Chat({
                       disabled={uploading}
                     >
                       {uploading ? <LoadingOutlined /> : <PaperClipOutlined />}
+                    </button>
+                    {/* AI 润色：整段替换草稿，可 Ctrl+Z / 提示条「撤销」多层回撤 */}
+                    <button
+                      className="icon-btn"
+                      style={polishing ? { ...styles.iconBtn, ...styles.iconBtnBusy } : styles.iconBtn}
+                      onClick={handlePolish}
+                      title={
+                        polishing
+                          ? "正在润色…"
+                          : `AI 润色输入区文本（跟随当前模型${
+                              promptModel ?? model ? "：" + modelKey(promptModel ?? model) : ""
+                            }，可撤销）`
+                      }
+                      disabled={!input.trim() || polishing}
+                    >
+                      {polishing ? <LoadingOutlined /> : <HighlightOutlined />}
                     </button>
                   </div>
 
