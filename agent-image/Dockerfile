@@ -26,6 +26,14 @@ FROM ${NODE_IMAGE} AS fetch
 ARG OPENCODE_VERSION=1.18.25
 # Pinned so builds are reproducible — bump to upgrade the pre-baked plugin.
 ARG OMOS_PLUGIN_VERSION=2.2.15
+# OpenViking memory plugin. Its versions are date-stamped (2026.9.25-2 was
+# dist-tags.latest when pinned) rather than semver, so a caret range is not an
+# option and every upgrade is an explicit edit here. Pinned for the same reason
+# as above, plus one: the plugin decides at boot whether to register its own
+# MCP server, and a version that renames the knob would silently take the
+# memory tools away from every agent — the build gate below is what turns that
+# into a failed build.
+ARG OPENVIKING_PLUGIN_VERSION=2026.9.25-2
 
 WORKDIR /fetch
 # The npm package resolves an optional platform dependency (opencode-linux-x64)
@@ -73,6 +81,26 @@ RUN mkdir -p /fetch/builtin-plugins/oh-my-opencode-slim/node_modules \
     # try to reach GitHub from inside the (offline) user container.
     && test -f node_modules/oh-my-opencode-slim/dist/index.js \
     && ls node_modules/@ast-grep/ | grep -q '^cli-linux'
+
+# Pre-bake the OpenViking memory plugin (@openviking/opencode-plugin). The user
+# container has no npm and a read-only rootfs, so the tree has to arrive at
+# build time; the runtime stage copies it to
+# /opt/agent/builtin-plugins/openviking and the backend injects the package
+# path into every user's opencode.json (builtin-plugins/openviking/manifest.json).
+#
+# Unlike the two plugins above this one pulls in nothing: every import in the
+# package is either a relative ./*.mjs or a node builtin, and `dependencies` is
+# empty. So there is no platform-specific binary that could differ between this
+# stage and the runtime one, and the import-based gate further down is safe to
+# run on the runtime image's node.
+#
+# node_modules is pre-created for the same reason as oh-my-opencode-slim above.
+RUN mkdir -p /fetch/builtin-plugins/openviking/node_modules \
+    && cd /fetch/builtin-plugins/openviking \
+    && npm config set registry https://registry.npmmirror.com \
+    && npm install --no-audit --no-fund --omit=dev "@openviking/opencode-plugin@${OPENVIKING_PLUGIN_VERSION}" \
+    && test -f node_modules/@openviking/opencode-plugin/index.mjs \
+    && test -f node_modules/@openviking/opencode-plugin/lib/config.mjs
 
 # Pre-bake the present-file plugin's single runtime dependency: zod.
 # The plugin source itself (index.js + package.json + manifest.json) lives in
@@ -261,6 +289,49 @@ RUN cd /opt/agent/builtin-plugins/present-file \
     && test -f node_modules/zod/package.json \
     && grep -q '/opt/agent/builtin-plugins/present-file' manifest.json \
     && /opt/agent/skill-envs/pptx/bin/node -e "Promise.all([import('./index.js'),import('zod')]).then(async([m,{z}])=>{const p=m.default;if(!p||p.id!=='present-file'||typeof p.server!=='function')throw new Error('bad plugin shape: need default export {id,server}');const h=await p.server({worktree:'/tmp',directory:'/tmp'});const d=h.tool&&h.tool.present_file;if(!d||typeof d.execute!=='function'||!d.description)throw new Error('present_file tool missing from hooks.tool');for(const[k,v]of Object.entries(d.args)){if(!v||typeof v!=='object'||!('_zod' in v))throw new Error('arg '+k+' is not a zod v4 schema (registry requires the _zod marker)')}const js=z.toJSONSchema(z.object(d.args),{io:'input'});if(js.type!=='object'||js.properties.path.type!=='string')throw new Error('JSON Schema conversion produced an unusable tool signature');if(!js.required.includes('path'))throw new Error('path must be the only required arg');console.log('[build] present-file plugin OK, args: '+Object.keys(js.properties).join(','))}).catch(e=>{console.error('[build] present-file smoke test failed:',(e&&e.message)||e);process.exit(1)})"
+
+# Build gate for the OpenViking memory plugin. The present-file gate above
+# catches a tool that opencode would refuse to register; this one catches the
+# quieter failure — a plugin that loads, reports nothing, and quietly does the
+# wrong thing. Both halves of the memory service land here from different
+# places (node_modules/ from the fetch stage, manifest.json + ovcli.conf from
+# the `COPY builtin-plugins/` overlay), so the first thing checked is that the
+# overlay actually landed beside the tree.
+#
+# The node step replays the real contract instead of restating it: loadConfig()
+# is called with exactly the env ContainerManager._openviking_env provisions and
+# the ovcli.conf this directory ships, and the resolved settings are asserted.
+#   * mcp.enabled === false is load-bearing. lib/mcp-config.mjs's
+#     injectOpenVikingMcpConfig OVERWRITES config.mcp.openviking when enabled,
+#     replacing our remote proxy entry with `node servers/mcp-proxy.mjs` — and
+#     node is deliberately off this image's PATH, so the agent would boot with
+#     no memory tools and no error. Verified by running the same resolution
+#     without the knob file: mcpEnabled comes back true.
+#   * dataDir proves the knob file was read at all, and moves the plugin's
+#     session cache / recall ledger onto the persistent /data volume instead of
+#     the default under ~/.config, which is on the /home/agent tmpfs and lost on
+#     every restart.
+#   * credentialSource / apiKeySource === env prove the knob file contributes
+#     settings and never identity. It must not carry top-level url / api_key /
+#     account / user fields: lib/shared/credentials.mjs pins the whole chain to
+#     the file when those are present and the environment names none of them,
+#     which would send every user to one shared memory space.
+#   * authMode api_key + sendIdentityHeaders false keep the plugin from
+#     asserting an identity of its own; the real one travels inside the key the
+#     proxy injects.
+#   * endpoint must be the env value, i.e. the platform's whitelist proxy — a
+#     plugin talking straight to the OpenViking service would need a real key in
+#     the container, which is exactly what the proxy exists to avoid.
+# The URLs below are stand-ins for the assertion, not deployment values: the
+# point is that whatever the environment says wins. They do not have to track
+# backend/.env. Runs on the pptx skill's Node, as above.
+RUN cd /opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin \
+    && test -f index.mjs \
+    && test -f package.json \
+    && test -f /opt/agent/builtin-plugins/openviking/manifest.json \
+    && test -f /opt/agent/builtin-plugins/openviking/ovcli.conf \
+    && grep -q '/opt/agent/builtin-plugins/openviking' /opt/agent/builtin-plugins/openviking/manifest.json \
+    && /opt/agent/skill-envs/pptx/bin/node -e "Promise.all([import('./index.mjs'),import('./lib/config.mjs')]).then(([m,c])=>{const p=m.default;if(!p||p.id!=='openviking'||typeof p.setup!=='function'||typeof p.server!=='function')throw new Error('bad plugin shape: need default export {id,setup,server}');if(typeof m.OpenVikingPlugin!=='function')throw new Error('v1 hook entry point OpenVikingPlugin missing');const K='/opt/agent/builtin-plugins/openviking/ovcli.conf';const cfg=c.loadConfig(process.cwd(),'/tmp',{env:{HOME:'/home/agent',OPENVIKING_URL:'http://backend:8000/ov',OPENVIKING_MCP_URL:'http://backend:8000/ov/mcp',OPENVIKING_API_KEY:'build-time-placeholder',OPENVIKING_AUTH_MODE:'api_key',OPENVIKING_CLI_CONFIG_FILE:K}});if(cfg.mcp.enabled!==false)throw new Error('hook-only broken: mcpEnabled resolved to '+cfg.mcp.enabled+', so the plugin would overwrite the remote MCP entry with a local node servers/mcp-proxy.mjs this image cannot run');if(cfg.runtime.dataDir!=='/data/state/openviking')throw new Error(K+' was not read: dataDir resolved to '+cfg.runtime.dataDir);if(cfg.credentialSource!=='env'||cfg.apiKeySource!=='env')throw new Error('knob file leaked into the credential chain: '+cfg.credentialSource+'/'+cfg.apiKeySource);if(cfg.apiKey!=='build-time-placeholder')throw new Error('OPENVIKING_API_KEY was not picked up');if(cfg.endpoint!=='http://backend:8000/ov')throw new Error('REST base url resolved to '+cfg.endpoint+': plugin calls would bypass the whitelist proxy');if(cfg.authMode!=='api_key'||cfg.sendIdentityHeaders)throw new Error('identity headers must stay off: authMode='+cfg.authMode+' sendIdentityHeaders='+cfg.sendIdentityHeaders);if(!cfg.autoRecall||!cfg.autoCapture)throw new Error('auto recall/capture disabled: '+cfg.autoRecall+'/'+cfg.autoCapture);console.log('[build] openviking plugin OK: hook-only, env credentials, dataDir '+cfg.runtime.dataDir)}).catch(e=>{console.error('[build] openviking smoke test failed:',(e&&e.message)||e);process.exit(1)})"
 
 # WORKAROUND（oven-sh/bun#32178）：Bun 1.3.14 的 parallel-GC 存在确定性竞态，
 # bash 工具 spawn 子进程后 drain microtask 会 segment fault（Bun 1.3.15 已修复）。

@@ -1,0 +1,30 @@
+{"id":"Q01","group":"G1","query":"网关重试采用指数退避，初始间隔 200ms，最多重试 6 次","expected":["C21"],"note":"原文复现：几乎逐字命中 C21 前半句"}
+{"id":"Q02","group":"G1","query":"主数据库是 PostgreSQL 15，实例名 pg-order-master","expected":["C12"],"note":"原文复现：含英文实例名与版本号"}
+{"id":"Q03","group":"G1","query":"日志一律输出 JSON 结构化格式，时间戳用 ISO8601 带时区","expected":["C08"],"note":"原文复现：中英混排 + 技术术语"}
+{"id":"Q04","group":"G1","query":"2026 年 3 月 14 日凌晨两点主从切换失败","expected":["C16"],"note":"原文复现：数字日期 + 时间点"}
+{"id":"Q05","group":"G1","query":"压测用 wrk -t8 -c200 -d60s","expected":["C31"],"note":"原文复现：命令行参数，全角半角混合"}
+{"id":"Q06","group":"G1","query":"所有外部调用都必须设置超时，默认连接超时 1 秒","expected":["C26"],"note":"原文复现"}
+{"id":"Q07","group":"G1","query":"订单中心服务 order-center 部署在 prod-hz-01，副本数八个","expected":["C11"],"note":"原文复现：中文数字「八个」"}
+{"id":"Q08","group":"G1","query":"给不存在的键写入空值并设置 60 秒过期，同时启用布隆过滤器","expected":["C23"],"note":"原文复现"}
+{"id":"Q09","group":"G2","query":"服务器连不上数据库，连接数被打满了怎么办","expected":["C22"],"note":"同义改写：数据库↔DB、连接池耗尽↔连接数打满；C12 是强干扰（也讲最大连接数）"}
+{"id":"Q10","group":"G2","query":"接口抛异常了但看不到具体原因","expected":["C09"],"note":"同义改写：报错↔抛异常、笼统的内部错误↔看不到具体原因"}
+{"id":"Q11","group":"G2","query":"主机上跑的那个下单系统副本有几个","expected":["C11"],"note":"同义改写：服务器↔主机、订单中心↔下单系统"}
+{"id":"Q12","group":"G2","query":"缓存被绕过去了，DB 压力很大","expected":["C23"],"note":"同义改写：穿透↔绕过、数据库↔DB；中英混排"}
+{"id":"Q13","group":"G2","query":"外部依赖挂了的时候怎么保护自身","expected":["C28"],"note":"同义改写：下游↔外部依赖、熔断降级↔保护自身"}
+{"id":"Q14","group":"G2","query":"配置文件里的保留时长设置","expected":["C30"],"note":"同义改写：配置↔设置、保留期↔保留时长"}
+{"id":"Q15","group":"G2","query":"怎么定位程序里最耗资源的那段代码","expected":["C38"],"note":"同义改写：热点函数↔最耗资源的代码、性能剖析↔定位"}
+{"id":"Q16","group":"G2","query":"不让自动升大版本的依赖","expected":["C10"],"note":"同义改写：主版本↔大版本、不要自动升级↔不让自动升"}
+{"id":"Q17","group":"G3","query":"重试咋配的","expected":["C21"],"note":"口语化省略：5 字，无主语"}
+{"id":"Q18","group":"G3","query":"库在哪","expected":["C12"],"note":"口语化省略：3 字中文 —— 直接撞插件 minQueryLength=3 与 CJK 密度启发式 cjk>=4 的边界（P3-10/P3-12）"}
+{"id":"Q19","group":"G3","query":"压测咋跑","expected":["C31"],"note":"口语化省略：4 字"}
+{"id":"Q20","group":"G3","query":"上次挂的那回","expected":["C16"],"note":"口语化省略：指代性表达，无语义关键词"}
+{"id":"Q21","group":"G3","query":"日志留多久","expected":["C30"],"note":"口语化省略：5 字"}
+{"id":"Q22","group":"G3","query":"咋看调用链","expected":["C32"],"note":"口语化省略：5 字"}
+{"id":"Q23","group":"G3","query":"限流多少","expected":["C29"],"note":"口语化省略：4 字"}
+{"id":"Q24","group":"G3","query":"我做复盘的","expected":["C39"],"note":"口语化省略：陈述句而非疑问句"}
+{"id":"Q25","group":"G4","query":"数据库连接数的配置上限和出过的故障","expected":["C12","C22","C25","C33"],"distractors":["C13","C21"],"note":"干扰组：C13 Redis 内存上限、C21 重试上限 8 秒都含「上限」语义"}
+{"id":"Q26","group":"G4","query":"各类超时与重试时间的设定","expected":["C26","C21","C22","C29"],"distractors":["C23","C28"],"note":"干扰组：C23 的 60 秒过期、C28 的 30 秒熔断窗口都是时间数值"}
+{"id":"Q27","group":"G4","query":"幂等、去重与重复请求处理","expected":["C24","C27","C21","C29"],"distractors":["C23"],"note":"干扰组：C23 的空值缓存也涉及重复/去重语义"}
+{"id":"Q28","group":"G4","query":"Kubernetes 上的部署、扩容与容器排障","expected":["C36","C11","C19","C34"],"distractors":["C35","C15"],"note":"干扰组：C35 的 docker compose、C15 的监控看板都属于运维面"}
+{"id":"Q29","group":"G4","query":"SQL 执行计划、索引与查询性能","expected":["C25","C37","C12","C38"],"distractors":["C23","C13"],"note":"干扰组：C23 布隆过滤器、C13 Redis 都是查询加速手段"}
+{"id":"Q30","group":"G4","query":"生产环境的发布、变更与安全管控","expected":["C34","C17","C18","C33"],"distractors":["C20","C16"],"note":"干扰组：C20 漏洞升级、C16 故障都属于生产变更范畴"}

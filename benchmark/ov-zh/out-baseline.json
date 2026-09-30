@@ -1,0 +1,2358 @@
+{
+ "label": "baseline",
+ "corpus_n": 40,
+ "queries_n": 30,
+ "filter_scaffold": false,
+ "overfetch": 0,
+ "rows": [
+  {
+   "id": "Q01",
+   "group": "G1",
+   "query": "网关重试采用指数退避，初始间隔 200ms，最多重试 6 次",
+   "expected": [
+    "C21"
+   ],
+   "latency_ms": 326,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.9088,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6328,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5523,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5168,
+     "level": 2,
+     "grp": "memories",
+     "id": "C27",
+     "scaffold": false,
+     "uri": "memories/patterns/幂等设计模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4924,
+     "level": 2,
+     "grp": "memories",
+     "id": "C28",
+     "scaffold": false,
+     "uri": "memories/patterns/熔断降级模式.md"
+    }
+   ],
+   "ids": [
+    "C21",
+    null,
+    "C29",
+    "C27",
+    "C28"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C21"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q02",
+   "group": "G1",
+   "query": "主数据库是 PostgreSQL 15，实例名 pg-order-master",
+   "expected": [
+    "C12"
+   ],
+   "latency_ms": 327,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.916,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6636,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/entities/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.6388,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.628,
+     "level": 2,
+     "grp": "memories",
+     "id": "C33",
+     "scaffold": false,
+     "uri": "memories/tools/数据库客户端.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.5551,
+     "level": 2,
+     "grp": "memories",
+     "id": "C13",
+     "scaffold": false,
+     "uri": "memories/entities/缓存集群.md"
+    }
+   ],
+   "ids": [
+    "C12",
+    null,
+    "C16",
+    "C33",
+    "C13"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C12"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q03",
+   "group": "G1",
+   "query": "日志一律输出 JSON 结构化格式，时间戳用 ISO8601 带时区",
+   "expected": [
+    "C08"
+   ],
+   "latency_ms": 113,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.9371,
+     "level": 2,
+     "grp": "memories",
+     "id": "C08",
+     "scaffold": false,
+     "uri": "memories/preferences/日志格式偏好.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5172,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/preferences/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4946,
+     "level": 2,
+     "grp": "memories",
+     "id": "C30",
+     "scaffold": false,
+     "uri": "memories/patterns/日志留存策略.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4811,
+     "level": 2,
+     "grp": "memories",
+     "id": "C09",
+     "scaffold": false,
+     "uri": "memories/preferences/错误提示偏好.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4673,
+     "level": 2,
+     "grp": "memories",
+     "id": "C20",
+     "scaffold": false,
+     "uri": "memories/events/2026年8月依赖漏洞.md"
+    }
+   ],
+   "ids": [
+    "C08",
+    null,
+    "C30",
+    "C09",
+    "C20"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C08"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q04",
+   "group": "G1",
+   "query": "2026 年 3 月 14 日凌晨两点主从切换失败",
+   "expected": [
+    "C16"
+   ],
+   "latency_ms": 116,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6681,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5446,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4779,
+     "level": 2,
+     "grp": "memories",
+     "id": "C20",
+     "scaffold": false,
+     "uri": "memories/events/2026年8月依赖漏洞.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4703,
+     "level": 2,
+     "grp": "memories",
+     "id": "C28",
+     "scaffold": false,
+     "uri": "memories/patterns/熔断降级模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4701,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    }
+   ],
+   "ids": [
+    "C16",
+    null,
+    "C20",
+    "C28",
+    "C12"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C16"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q05",
+   "group": "G1",
+   "query": "压测用 wrk -t8 -c200 -d60s",
+   "expected": [
+    "C31"
+   ],
+   "latency_ms": 273,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.796,
+     "level": 2,
+     "grp": "memories",
+     "id": "C31",
+     "scaffold": false,
+     "uri": "memories/tools/压测工具wrk.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4792,
+     "level": 2,
+     "grp": "memories",
+     "id": "C19",
+     "scaffold": false,
+     "uri": "memories/events/2026年7月容量扩容.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4616,
+     "level": 2,
+     "grp": "memories",
+     "id": "C15",
+     "scaffold": false,
+     "uri": "memories/entities/监控看板.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4342,
+     "level": 2,
+     "grp": "memories",
+     "id": "C11",
+     "scaffold": false,
+     "uri": "memories/entities/订单中心服务.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4111,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    }
+   ],
+   "ids": [
+    "C31",
+    "C19",
+    "C15",
+    "C11",
+    null
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C31"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q06",
+   "group": "G1",
+   "query": "所有外部调用都必须设置超时，默认连接超时 1 秒",
+   "expected": [
+    "C26"
+   ],
+   "latency_ms": 137,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.9245,
+     "level": 2,
+     "grp": "memories",
+     "id": "C26",
+     "scaffold": false,
+     "uri": "memories/patterns/超时设置规律.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5435,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4925,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4856,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4525,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    }
+   ],
+   "ids": [
+    "C26",
+    "C22",
+    "C21",
+    "C29",
+    null
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C26"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q07",
+   "group": "G1",
+   "query": "订单中心服务 order-center 部署在 prod-hz-01，副本数八个",
+   "expected": [
+    "C11"
+   ],
+   "latency_ms": 138,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.9213,
+     "level": 2,
+     "grp": "memories",
+     "id": "C11",
+     "scaffold": false,
+     "uri": "memories/entities/订单中心服务.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6939,
+     "level": 2,
+     "grp": "memories",
+     "id": "C19",
+     "scaffold": false,
+     "uri": "memories/events/2026年7月容量扩容.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.6551,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/entities/.overview.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.6019,
+     "level": 2,
+     "grp": "memories",
+     "id": "C01",
+     "scaffold": false,
+     "uri": "memories/profile/职业背景.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.5797,
+     "level": 2,
+     "grp": "memories",
+     "id": "C17",
+     "scaffold": false,
+     "uri": "memories/events/2026年5月版本发布.md"
+    }
+   ],
+   "ids": [
+    "C11",
+    "C19",
+    null,
+    "C01",
+    "C17"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C11"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q08",
+   "group": "G1",
+   "query": "给不存在的键写入空值并设置 60 秒过期，同时启用布隆过滤器",
+   "expected": [
+    "C23"
+   ],
+   "latency_ms": 283,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.7922,
+     "level": 2,
+     "grp": "memories",
+     "id": "C23",
+     "scaffold": false,
+     "uri": "memories/cases/缓存穿透案例.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4863,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4565,
+     "level": 2,
+     "grp": "memories",
+     "id": "C13",
+     "scaffold": false,
+     "uri": "memories/entities/缓存集群.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4405,
+     "level": 2,
+     "grp": "memories",
+     "id": "C27",
+     "scaffold": false,
+     "uri": "memories/patterns/幂等设计模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4303,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/entities/.overview.md"
+    }
+   ],
+   "ids": [
+    "C23",
+    null,
+    "C13",
+    "C27",
+    null
+   ],
+   "scaffold_slots": 2,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C23"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q09",
+   "group": "G2",
+   "query": "服务器连不上数据库，连接数被打满了怎么办",
+   "expected": [
+    "C22"
+   ],
+   "latency_ms": 370,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.7166,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6107,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5655,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5347,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.5075,
+     "level": 2,
+     "grp": "memories",
+     "id": "C33",
+     "scaffold": false,
+     "uri": "memories/tools/数据库客户端.md"
+    }
+   ],
+   "ids": [
+    "C22",
+    "C12",
+    "C16",
+    null,
+    "C33"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C22"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q10",
+   "group": "G2",
+   "query": "接口抛异常了但看不到具体原因",
+   "expected": [
+    "C09"
+   ],
+   "latency_ms": 125,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.5667,
+     "level": 2,
+     "grp": "memories",
+     "id": "C09",
+     "scaffold": false,
+     "uri": "memories/preferences/错误提示偏好.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4472,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4429,
+     "level": 2,
+     "grp": "memories",
+     "id": "C26",
+     "scaffold": false,
+     "uri": "memories/patterns/超时设置规律.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4176,
+     "level": 2,
+     "grp": "memories",
+     "id": "C28",
+     "scaffold": false,
+     "uri": "memories/patterns/熔断降级模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4097,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    }
+   ],
+   "ids": [
+    "C09",
+    "C22",
+    "C26",
+    "C28",
+    null
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C09"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q11",
+   "group": "G2",
+   "query": "主机上跑的那个下单系统副本有几个",
+   "expected": [
+    "C11"
+   ],
+   "latency_ms": 141,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6357,
+     "level": 2,
+     "grp": "memories",
+     "id": "C11",
+     "scaffold": false,
+     "uri": "memories/entities/订单中心服务.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6166,
+     "level": 2,
+     "grp": "memories",
+     "id": "C19",
+     "scaffold": false,
+     "uri": "memories/events/2026年7月容量扩容.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.6008,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/entities/.overview.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5972,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.584,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    }
+   ],
+   "ids": [
+    "C11",
+    "C19",
+    null,
+    "C12",
+    "C16"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C11"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q12",
+   "group": "G2",
+   "query": "缓存被绕过去了，DB 压力很大",
+   "expected": [
+    "C23"
+   ],
+   "latency_ms": 306,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6533,
+     "level": 2,
+     "grp": "memories",
+     "id": "C23",
+     "scaffold": false,
+     "uri": "memories/cases/缓存穿透案例.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5376,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5337,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5237,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4739,
+     "level": 2,
+     "grp": "memories",
+     "id": "C33",
+     "scaffold": false,
+     "uri": "memories/tools/数据库客户端.md"
+    }
+   ],
+   "ids": [
+    "C23",
+    null,
+    "C16",
+    "C22",
+    "C33"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C23"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q13",
+   "group": "G2",
+   "query": "外部依赖挂了的时候怎么保护自身",
+   "expected": [
+    "C28"
+   ],
+   "latency_ms": 147,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.543,
+     "level": 2,
+     "grp": "memories",
+     "id": "C28",
+     "scaffold": false,
+     "uri": "memories/patterns/熔断降级模式.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4994,
+     "level": 2,
+     "grp": "memories",
+     "id": "C26",
+     "scaffold": false,
+     "uri": "memories/patterns/超时设置规律.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4746,
+     "level": 2,
+     "grp": "memories",
+     "id": "C10",
+     "scaffold": false,
+     "uri": "memories/preferences/依赖升级偏好.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4627,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4266,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    }
+   ],
+   "ids": [
+    "C28",
+    "C26",
+    "C10",
+    null,
+    null
+   ],
+   "scaffold_slots": 2,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C28"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q14",
+   "group": "G2",
+   "query": "配置文件里的保留时长设置",
+   "expected": [
+    "C30"
+   ],
+   "latency_ms": 132,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.641,
+     "level": 2,
+     "grp": "memories",
+     "id": "C30",
+     "scaffold": false,
+     "uri": "memories/patterns/日志留存策略.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4655,
+     "level": 2,
+     "grp": "memories",
+     "id": "C14",
+     "scaffold": false,
+     "uri": "memories/entities/消息队列主题.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5014,
+     "level": 0,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": "privacy/.abstract.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4915,
+     "level": 1,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": ".overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4826,
+     "level": 0,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": "resources/.abstract.md"
+    }
+   ],
+   "ids": [
+    "C30",
+    "C14",
+    null,
+    null,
+    null
+   ],
+   "scaffold_slots": 3,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C30"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q15",
+   "group": "G2",
+   "query": "怎么定位程序里最耗资源的那段代码",
+   "expected": [
+    "C38"
+   ],
+   "latency_ms": 115,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6769,
+     "level": 2,
+     "grp": "memories",
+     "id": "C38",
+     "scaffold": false,
+     "uri": "memories/skills/性能剖析技能.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4211,
+     "level": 2,
+     "grp": "memories",
+     "id": "C36",
+     "scaffold": false,
+     "uri": "memories/skills/Kubernetes排障技能.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4191,
+     "level": 2,
+     "grp": "memories",
+     "id": "C15",
+     "scaffold": false,
+     "uri": "memories/entities/监控看板.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4008,
+     "level": 2,
+     "grp": "memories",
+     "id": "C35",
+     "scaffold": false,
+     "uri": "memories/tools/本地调试工具.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4006,
+     "level": 2,
+     "grp": "memories",
+     "id": "C31",
+     "scaffold": false,
+     "uri": "memories/tools/压测工具wrk.md"
+    }
+   ],
+   "ids": [
+    "C38",
+    "C36",
+    "C15",
+    "C35",
+    "C31"
+   ],
+   "scaffold_slots": 0,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C38"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q16",
+   "group": "G2",
+   "query": "不让自动升大版本的依赖",
+   "expected": [
+    "C10"
+   ],
+   "latency_ms": 118,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.8002,
+     "level": 2,
+     "grp": "memories",
+     "id": "C10",
+     "scaffold": false,
+     "uri": "memories/preferences/依赖升级偏好.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4534,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/preferences/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4099,
+     "level": 2,
+     "grp": "memories",
+     "id": "C20",
+     "scaffold": false,
+     "uri": "memories/events/2026年8月依赖漏洞.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4063,
+     "level": 2,
+     "grp": "memories",
+     "id": "C07",
+     "scaffold": false,
+     "uri": "memories/preferences/代码风格偏好.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4015,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    }
+   ],
+   "ids": [
+    "C10",
+    null,
+    "C20",
+    "C07",
+    null
+   ],
+   "scaffold_slots": 2,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C10"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q17",
+   "group": "G3",
+   "query": "重试咋配的",
+   "expected": [
+    "C21"
+   ],
+   "latency_ms": 137,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6616,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5681,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4888,
+     "level": 2,
+     "grp": "memories",
+     "id": "C36",
+     "scaffold": false,
+     "uri": "memories/skills/Kubernetes排障技能.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.462,
+     "level": 2,
+     "grp": "memories",
+     "id": "C27",
+     "scaffold": false,
+     "uri": "memories/patterns/幂等设计模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4513,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    }
+   ],
+   "ids": [
+    "C21",
+    null,
+    "C36",
+    "C27",
+    "C29"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C21"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q18",
+   "group": "G3",
+   "query": "库在哪",
+   "expected": [
+    "C12"
+   ],
+   "latency_ms": 323,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.4105,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/entities/.overview.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4823,
+     "level": 0,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": "resources/.abstract.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4378,
+     "level": 0,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": "viking://resources/.abstract.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4305,
+     "level": 0,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": ".abstract.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4093,
+     "level": 0,
+     "grp": "skills",
+     "id": null,
+     "scaffold": true,
+     "uri": "skills/.abstract.md"
+    }
+   ],
+   "ids": [
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "scaffold_slots": 5,
+   "fetched": 5,
+   "returned": 5,
+   "found": [],
+   "hit@5": 0.0,
+   "recall@5": 0.0,
+   "mrr": 0.0,
+   "precision@5": 0.0,
+   "precision@returned": 0.0
+  },
+  {
+   "id": "Q19",
+   "group": "G3",
+   "query": "压测咋跑",
+   "expected": [
+    "C31"
+   ],
+   "latency_ms": 116,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6999,
+     "level": 2,
+     "grp": "memories",
+     "id": "C31",
+     "scaffold": false,
+     "uri": "memories/tools/压测工具wrk.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4897,
+     "level": 2,
+     "grp": "memories",
+     "id": "C15",
+     "scaffold": false,
+     "uri": "memories/entities/监控看板.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4373,
+     "level": 2,
+     "grp": "memories",
+     "id": "C38",
+     "scaffold": false,
+     "uri": "memories/skills/性能剖析技能.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.414,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4136,
+     "level": 2,
+     "grp": "memories",
+     "id": "C36",
+     "scaffold": false,
+     "uri": "memories/skills/Kubernetes排障技能.md"
+    }
+   ],
+   "ids": [
+    "C31",
+    "C15",
+    "C38",
+    "C29",
+    "C36"
+   ],
+   "scaffold_slots": 0,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C31"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q20",
+   "group": "G3",
+   "query": "上次挂的那回",
+   "expected": [
+    "C16"
+   ],
+   "latency_ms": 130,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.41,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.3915,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/preferences/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.3902,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.3668,
+     "level": 2,
+     "grp": "memories",
+     "id": "C27",
+     "scaffold": false,
+     "uri": "memories/patterns/幂等设计模式.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.3667,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/.overview.md"
+    }
+   ],
+   "ids": [
+    null,
+    null,
+    "C21",
+    "C27",
+    null
+   ],
+   "scaffold_slots": 3,
+   "fetched": 5,
+   "returned": 5,
+   "found": [],
+   "hit@5": 0.0,
+   "recall@5": 0.0,
+   "mrr": 0.0,
+   "precision@5": 0.0,
+   "precision@returned": 0.0
+  },
+  {
+   "id": "Q21",
+   "group": "G3",
+   "query": "日志留多久",
+   "expected": [
+    "C30"
+   ],
+   "latency_ms": 256,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.7301,
+     "level": 2,
+     "grp": "memories",
+     "id": "C30",
+     "scaffold": false,
+     "uri": "memories/patterns/日志留存策略.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4936,
+     "level": 2,
+     "grp": "memories",
+     "id": "C08",
+     "scaffold": false,
+     "uri": "memories/preferences/日志格式偏好.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4556,
+     "level": 2,
+     "grp": "memories",
+     "id": "C20",
+     "scaffold": false,
+     "uri": "memories/events/2026年8月依赖漏洞.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.3926,
+     "level": 2,
+     "grp": "memories",
+     "id": "C14",
+     "scaffold": false,
+     "uri": "memories/entities/消息队列主题.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.3935,
+     "level": 1,
+     "grp": "resources",
+     "id": null,
+     "scaffold": true,
+     "uri": ".overview.md"
+    }
+   ],
+   "ids": [
+    "C30",
+    "C08",
+    "C20",
+    "C14",
+    null
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C30"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q22",
+   "group": "G3",
+   "query": "咋看调用链",
+   "expected": [
+    "C32"
+   ],
+   "latency_ms": 181,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.5952,
+     "level": 2,
+     "grp": "memories",
+     "id": "C32",
+     "scaffold": false,
+     "uri": "memories/tools/链路追踪工具.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4939,
+     "level": 2,
+     "grp": "memories",
+     "id": "C38",
+     "scaffold": false,
+     "uri": "memories/skills/性能剖析技能.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4702,
+     "level": 2,
+     "grp": "memories",
+     "id": "C35",
+     "scaffold": false,
+     "uri": "memories/tools/本地调试工具.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4406,
+     "level": 2,
+     "grp": "memories",
+     "id": "C15",
+     "scaffold": false,
+     "uri": "memories/entities/监控看板.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4366,
+     "level": 2,
+     "grp": "memories",
+     "id": "C39",
+     "scaffold": false,
+     "uri": "memories/skills/故障复盘技能.md"
+    }
+   ],
+   "ids": [
+    "C32",
+    "C38",
+    "C35",
+    "C15",
+    "C39"
+   ],
+   "scaffold_slots": 0,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C32"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q23",
+   "group": "G3",
+   "query": "限流多少",
+   "expected": [
+    "C29"
+   ],
+   "latency_ms": 137,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6521,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5102,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4409,
+     "level": 2,
+     "grp": "memories",
+     "id": "C26",
+     "scaffold": false,
+     "uri": "memories/patterns/超时设置规律.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4246,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.422,
+     "level": 2,
+     "grp": "memories",
+     "id": "C19",
+     "scaffold": false,
+     "uri": "memories/events/2026年7月容量扩容.md"
+    }
+   ],
+   "ids": [
+    "C29",
+    "C22",
+    "C26",
+    null,
+    "C19"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C29"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q24",
+   "group": "G3",
+   "query": "我做复盘的",
+   "expected": [
+    "C39"
+   ],
+   "latency_ms": 134,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.5699,
+     "level": 2,
+     "grp": "memories",
+     "id": "C39",
+     "scaffold": false,
+     "uri": "memories/skills/故障复盘技能.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.4247,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.3997,
+     "level": 2,
+     "grp": "memories",
+     "id": "C24",
+     "scaffold": false,
+     "uri": "memories/cases/消息重复消费案例.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.3933,
+     "level": 2,
+     "grp": "memories",
+     "id": "C01",
+     "scaffold": false,
+     "uri": "memories/profile/职业背景.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.3868,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    }
+   ],
+   "ids": [
+    "C39",
+    null,
+    "C24",
+    "C01",
+    "C16"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C39"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2
+  },
+  {
+   "id": "Q25",
+   "group": "G4",
+   "query": "数据库连接数的配置上限和出过的故障",
+   "expected": [
+    "C12",
+    "C22",
+    "C25",
+    "C33"
+   ],
+   "latency_ms": 135,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.709,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6358,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5839,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5479,
+     "level": 2,
+     "grp": "memories",
+     "id": "C16",
+     "scaffold": false,
+     "uri": "memories/events/2026年3月数据库故障.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.5222,
+     "level": 2,
+     "grp": "memories",
+     "id": "C33",
+     "scaffold": false,
+     "uri": "memories/tools/数据库客户端.md"
+    }
+   ],
+   "ids": [
+    "C22",
+    "C12",
+    null,
+    "C16",
+    "C33"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C12",
+    "C22",
+    "C33"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 0.75,
+   "mrr": 1.0,
+   "precision@5": 0.6,
+   "precision@returned": 0.6
+  },
+  {
+   "id": "Q26",
+   "group": "G4",
+   "query": "各类超时与重试时间的设定",
+   "expected": [
+    "C26",
+    "C21",
+    "C22",
+    "C29"
+   ],
+   "latency_ms": 265,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.7266,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6563,
+     "level": 2,
+     "grp": "memories",
+     "id": "C26",
+     "scaffold": false,
+     "uri": "memories/patterns/超时设置规律.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.592,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.5416,
+     "level": 2,
+     "grp": "memories",
+     "id": "C22",
+     "scaffold": false,
+     "uri": "memories/cases/连接池耗尽案例.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.5174,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    }
+   ],
+   "ids": [
+    "C21",
+    "C26",
+    null,
+    "C22",
+    "C29"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C26",
+    "C21",
+    "C22",
+    "C29"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.8,
+   "precision@returned": 0.8
+  },
+  {
+   "id": "Q27",
+   "group": "G4",
+   "query": "幂等、去重与重复请求处理",
+   "expected": [
+    "C24",
+    "C27",
+    "C21",
+    "C29"
+   ],
+   "latency_ms": 121,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.7287,
+     "level": 2,
+     "grp": "memories",
+     "id": "C27",
+     "scaffold": false,
+     "uri": "memories/patterns/幂等设计模式.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.6151,
+     "level": 2,
+     "grp": "memories",
+     "id": "C24",
+     "scaffold": false,
+     "uri": "memories/cases/消息重复消费案例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5081,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4808,
+     "level": 2,
+     "grp": "memories",
+     "id": "C21",
+     "scaffold": false,
+     "uri": "memories/cases/网关重试策略.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4278,
+     "level": 2,
+     "grp": "memories",
+     "id": "C29",
+     "scaffold": false,
+     "uri": "memories/patterns/限流模式.md"
+    }
+   ],
+   "ids": [
+    "C27",
+    "C24",
+    null,
+    "C21",
+    "C29"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C24",
+    "C27",
+    "C21",
+    "C29"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.8,
+   "precision@returned": 0.8
+  },
+  {
+   "id": "Q28",
+   "group": "G4",
+   "query": "Kubernetes 上的部署、扩容与容器排障",
+   "expected": [
+    "C36",
+    "C11",
+    "C19",
+    "C34"
+   ],
+   "latency_ms": 116,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.5809,
+     "level": 2,
+     "grp": "memories",
+     "id": "C11",
+     "scaffold": false,
+     "uri": "memories/entities/订单中心服务.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5609,
+     "level": 2,
+     "grp": "memories",
+     "id": "C36",
+     "scaffold": false,
+     "uri": "memories/skills/Kubernetes排障技能.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.5497,
+     "level": 2,
+     "grp": "memories",
+     "id": "C05",
+     "scaffold": false,
+     "uri": "memories/profile/技术栈背景.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4897,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4555,
+     "level": 2,
+     "grp": "memories",
+     "id": "C19",
+     "scaffold": false,
+     "uri": "memories/events/2026年7月容量扩容.md"
+    }
+   ],
+   "ids": [
+    "C11",
+    "C36",
+    "C05",
+    null,
+    "C19"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C36",
+    "C11",
+    "C19"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 0.75,
+   "mrr": 1.0,
+   "precision@5": 0.6,
+   "precision@returned": 0.6
+  },
+  {
+   "id": "Q29",
+   "group": "G4",
+   "query": "SQL 执行计划、索引与查询性能",
+   "expected": [
+    "C25",
+    "C37",
+    "C12",
+    "C38"
+   ],
+   "latency_ms": 400,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.6708,
+     "level": 2,
+     "grp": "memories",
+     "id": "C37",
+     "scaffold": false,
+     "uri": "memories/skills/SQL调优技能.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.5794,
+     "level": 2,
+     "grp": "memories",
+     "id": "C25",
+     "scaffold": false,
+     "uri": "memories/cases/慢查询案例.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.3602,
+     "level": 2,
+     "grp": "memories",
+     "id": "C12",
+     "scaffold": false,
+     "uri": "memories/entities/主数据库实例.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.3564,
+     "level": 2,
+     "grp": "memories",
+     "id": "C15",
+     "scaffold": false,
+     "uri": "memories/entities/监控看板.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.3417,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/cases/.overview.md"
+    }
+   ],
+   "ids": [
+    "C37",
+    "C25",
+    "C12",
+    "C15",
+    null
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C25",
+    "C37",
+    "C12"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 0.75,
+   "mrr": 1.0,
+   "precision@5": 0.6,
+   "precision@returned": 0.6
+  },
+  {
+   "id": "Q30",
+   "group": "G4",
+   "query": "生产环境的发布、变更与安全管控",
+   "expected": [
+    "C34",
+    "C17",
+    "C18",
+    "C33"
+   ],
+   "latency_ms": 130,
+   "http": 200,
+   "top": [
+    {
+     "rank": 1,
+     "score": 0.4976,
+     "level": 2,
+     "grp": "memories",
+     "id": "C33",
+     "scaffold": false,
+     "uri": "memories/tools/数据库客户端.md"
+    },
+    {
+     "rank": 2,
+     "score": 0.466,
+     "level": 2,
+     "grp": "memories",
+     "id": "C34",
+     "scaffold": false,
+     "uri": "memories/tools/部署工具链.md"
+    },
+    {
+     "rank": 3,
+     "score": 0.4456,
+     "level": 2,
+     "grp": "memories",
+     "id": "C10",
+     "scaffold": false,
+     "uri": "memories/preferences/依赖升级偏好.md"
+    },
+    {
+     "rank": 4,
+     "score": 0.4412,
+     "level": 1,
+     "grp": "memories",
+     "id": null,
+     "scaffold": true,
+     "uri": "memories/events/.overview.md"
+    },
+    {
+     "rank": 5,
+     "score": 0.4132,
+     "level": 2,
+     "grp": "memories",
+     "id": "C14",
+     "scaffold": false,
+     "uri": "memories/entities/消息队列主题.md"
+    }
+   ],
+   "ids": [
+    "C33",
+    "C34",
+    "C10",
+    null,
+    "C14"
+   ],
+   "scaffold_slots": 1,
+   "fetched": 5,
+   "returned": 5,
+   "found": [
+    "C34",
+    "C33"
+   ],
+   "hit@5": 1.0,
+   "recall@5": 0.5,
+   "mrr": 1.0,
+   "precision@5": 0.4,
+   "precision@returned": 0.4
+  }
+ ],
+ "summary": {
+  "G1": {
+   "n": 8,
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2,
+   "avg_returned": 5.0,
+   "avg_fetched": 5.0,
+   "scaffold_rate": 0.225,
+   "lat_p50_ms": 273,
+   "lat_p95_ms": 326,
+   "errors": 0
+  },
+  "G2": {
+   "n": 8,
+   "hit@5": 1.0,
+   "recall@5": 1.0,
+   "mrr": 1.0,
+   "precision@5": 0.2,
+   "precision@returned": 0.2,
+   "avg_returned": 5.0,
+   "avg_fetched": 5.0,
+   "scaffold_rate": 0.275,
+   "lat_p50_ms": 141,
+   "lat_p95_ms": 306,
+   "errors": 0
+  },
+  "G3": {
+   "n": 8,
+   "hit@5": 0.75,
+   "recall@5": 0.75,
+   "mrr": 0.75,
+   "precision@5": 0.15,
+   "precision@returned": 0.15,
+   "avg_returned": 5.0,
+   "avg_fetched": 5.0,
+   "scaffold_rate": 0.3,
+   "lat_p50_ms": 137,
+   "lat_p95_ms": 256,
+   "errors": 0
+  },
+  "G4": {
+   "n": 6,
+   "hit@5": 1.0,
+   "recall@5": 0.7917,
+   "mrr": 1.0,
+   "precision@5": 0.6333,
+   "precision@returned": 0.6333,
+   "avg_returned": 5.0,
+   "avg_fetched": 5.0,
+   "scaffold_rate": 0.2,
+   "lat_p50_ms": 135,
+   "lat_p95_ms": 265,
+   "errors": 0
+  },
+  "ALL": {
+   "n": 30,
+   "hit@5": 0.9333,
+   "recall@5": 0.8917,
+   "mrr": 0.9333,
+   "precision@5": 0.2733,
+   "precision@returned": 0.2733,
+   "avg_returned": 5.0,
+   "avg_fetched": 5.0,
+   "scaffold_rate": 0.2533,
+   "lat_p50_ms": 137,
+   "lat_p95_ms": 327,
+   "errors": 0
+  }
+ }
+}

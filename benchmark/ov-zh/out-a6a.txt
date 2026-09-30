@@ -1,0 +1,367 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T10:28:24Z
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage A1: purge probe users (files first, then user) ##########
+{
+ "users_before": [
+  "3c2e2f2a-9628-462a-876b-a23b6d675a34",
+  "ovzh-eval",
+  "p2probe",
+  "p3c-probe",
+  "p4-commit",
+  "p4-perf-write",
+  "p4-scale",
+  "p4-smoke",
+  "platform-admin",
+  "studio-debug",
+  "studio-other"
+ ],
+ "probe_survivors": [
+  "p2probe",
+  "p4-scale",
+  "ovzh-eval",
+  "studio-debug",
+  "p3c-probe",
+  "p4-smoke",
+  "p4-perf-write",
+  "p4-commit"
+ ],
+ "delete_fs_spec": [
+  {
+   "name": "uri",
+   "required": true
+  },
+  {
+   "name": "recursive",
+   "required": false
+  },
+  {
+   "name": "wait",
+   "required": false
+  },
+  {
+   "name": "timeout",
+   "required": false
+  },
+  {
+   "name": "X-OpenViking-Actor-Peer",
+   "required": false
+  },
+  {
+   "name": "X-API-Key",
+   "required": false
+  },
+  {
+   "name": "Authorization",
+   "required": false
+  },
+  {
+   "name": "x-api-key",
+   "required": false
+  },
+  {
+   "name": "authorization",
+   "required": false
+  },
+  {
+   "name": "X-OpenViking-Account",
+   "required": false
+  },
+  {
+   "name": "X-OpenViking-User",
+   "required": false
+  }
+ ],
+ "p2probe": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 39,
+  "per_file": {
+   "ok": 18,
+   "fail": 21
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p2probe/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:28:41.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pref"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p2probe\",\"status\":\"deleting\",\"task_id\":\"cca4248f-b601-"
+  }
+ },
+ "p4-scale": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 507,
+  "per_file": {
+   "ok": 501,
+   "fail": 6
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p4-scale/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:14.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pre"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p4-scale\",\"status\":\"deleting\",\"task_id\":\"c85cb06d-b271"
+  }
+ },
+ "ovzh-eval": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 54,
+  "per_file": {
+   "ok": 44,
+   "fail": 10
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/ovzh-eval/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:15.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pr"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"ovzh-eval\",\"status\":\"deleting\",\"task_id\":\"8c0aa4ea-3fc"
+  }
+ },
+ "studio-debug": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 8,
+  "per_file": {
+   "ok": 1,
+   "fail": 7
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/studio-debug/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:15:39.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"studio-debug\",\"status\":\"deleting\",\"task_id\":\"13604771-"
+  }
+ },
+ "p3c-probe": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 84,
+  "per_file": {
+   "ok": 49,
+   "fail": 35
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p3c-probe/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:18.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pr"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p3c-probe\",\"status\":\"deleting\",\"task_id\":\"f599316a-ec2"
+  }
+ },
+ "p4-smoke": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 32,
+  "per_file": {
+   "ok": 23,
+   "fail": 9
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p4-smoke/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:18.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pre"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p4-smoke\",\"status\":\"deleting\",\"task_id\":\"a8b1e769-f877"
+  }
+ },
+ "p4-perf-write": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 87,
+  "per_file": {
+   "ok": 81,
+   "fail": 6
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p4-perf-write/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:23.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types lik"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p4-perf-write\",\"status\":\"deleting\",\"task_id\":\"3162a31b"
+  }
+ },
+ "p4-commit": {
+  "key_ok": true,
+  "dir_delete": {
+   "status": 403,
+   "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Deleting a namespace root requires root access; use a concrete content path inste"
+  },
+  "leaves_found": 17,
+  "per_file": {
+   "ok": 8,
+   "fail": 9
+  },
+  "dir_delete_retry": 403,
+  "ls_after": {
+   "status": 200,
+   "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p4-commit/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T10:31:23.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like pr"
+  },
+  "admin_delete_user": {
+   "status": 202,
+   "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"p4-commit\",\"status\":\"deleting\",\"task_id\":\"7badba48-97c"
+  }
+ },
+ "users_after": [
+  "3c2e2f2a-9628-462a-876b-a23b6d675a34",
+  "platform-admin",
+  "studio-other"
+ ],
+ "probes_remaining": []
+}
+DONE_A1_OK
+
+########## stage A1b: p4-scale residue files after purge ##########
+0
+DONE_A1B
+########## stage A2: purge studio-other ##########
+at=2026-09-29T10:32:15Z
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 72, in map_httpcore_exceptions
+    yield
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 377, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<stdin>", line 78, in <module>
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "<stdin>", line 26, in main
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1814, in get
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1585, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1674, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1702, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1739, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1776, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 376, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 89, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+########## stage A2: purge studio-other ##########
+at=2026-09-29T10:33:00Z
+  gate round 1 local_ov=000
+  gate round 2 local_ov=200
+VALID gate
+{
+ "present": true,
+ "per_file": {
+  "leaves": 6,
+  "ok": 0,
+  "fail": 6
+ },
+ "admin_delete_user": {
+  "status": 202,
+  "body": "{\"status\":\"ok\",\"result\":{\"account_id\":\"agent-platform\",\"user_id\":\"studio-other\",\"status\":\"deleting\",\"task_id\":\"e2113709-"
+ },
+ "users_final": [
+  "3c2e2f2a-9628-462a-876b-a23b6d675a34",
+  "platform-admin"
+ ]
+}
+DONE_A2
+p2probe: 46
+p4-scale: 0
+ovzh-eval: 0
+studio-debug: 0
+studio-other: 0
+p3c-probe: 72
+p4-smoke: 1
+p4-perf-write: 0
+p4-commit: 1
+p5gc-a: 0
+p5gc-b: 0
+p5gd-a: 0
+p5gd-b: 0
+90M	/app/.openviking/data
+DONE_A3

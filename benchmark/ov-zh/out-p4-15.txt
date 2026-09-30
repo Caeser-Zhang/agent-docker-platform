@@ -1,0 +1,131 @@
+===== [A] the SECOND compose config: does /home/zhangzhixiao/agent-docker-demo exist? =====
+total 1864
+drwxrwxrwx 16 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 .
+drwxr-x--- 23 zhangzhixiao zhangzhixiao    4096 Sep 22 20:42 ..
+-rwxr-xr-x  1 zhangzhixiao zhangzhixiao     786 Sep 21 10:29 .env
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao     317 Aug 24 15:16 .env.example
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao     535 Sep 10 09:33 .gitattributes
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao    1961 Sep 14 09:21 .gitignore
+drwxrwxrwx  2 zhangzhixiao zhangzhixiao    4096 Sep 10 16:42 .probe
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep 15 19:58 .pytest_cache
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 .tmp
+drwxrwxrwx  2 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 .wsl-setup
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao   46266 Sep 17 17:11 README.md
+drwxrwxrwx  6 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 agent-image
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao   45056 Aug 20 14:15 agent_demo.db
+drwxrwxrwx  6 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 backend
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep 15 16:18 config
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao    7067 Sep 10 20:40 docker-compose.yml
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep 16 18:30 docs
+drwxrwxrwx  5 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 frontend
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep  8 14:54 library
+drwxrwxrwx  2 zhangzhixiao zhangzhixiao    4096 Aug 27 16:50 mcp-demo
+drwxrwxrwx  3 zhangzhixiao zhangzhixiao    4096 Sep 21 10:29 mcp-fastk
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao 1710606 Aug 26 16:58 opencode-api.json
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao    3088 Sep 21 10:29 probe_alive.sh
+-rwxrwxrwx  1 zhangzhixiao zhangzhixiao     158 Sep 21 10:29 probe_find.sh
+  --- compose file identity ---
+  /home/zhangzhixiao/agent-docker-demo/docker-compose.yml
+    mtime=2026-09-10 20:40:04.466305400 +0800 size=7067 md5=3b138050610850a8346b2ca95352b474
+  /mnt/d/Project/agent-docker-demo/docker-compose.yml
+    mtime=2026-09-29 09:12:47.462768200 +0800 size=16120 md5=8876af692d51adf59de41c9a68a5891c
+
+===== [B] did any config file change around 04:35-04:41 UTC? =====
+  /mnt/d/Project/agent-docker-demo/.env                                  2026-09-29 01:22:46.438686300 +0800
+  /mnt/d/Project/agent-docker-demo/backend/.env                          2026-09-28 12:13:23.559601600 +0800
+  /mnt/d/Project/agent-docker-demo/docker-compose.yml                    2026-09-29 09:12:47.462768200 +0800
+  /mnt/d/Project/agent-docker-demo/openviking/ov.conf                    2026-09-28 20:16:13.638881300 +0800
+  --- anything under repo modified in the last 40 min (excl .git/benchmark) ---
+/mnt/d/Project/agent-docker-demo/docs/openviking-integration-test-plan.md
+/mnt/d/Project/agent-docker-demo/_scratch_p410d.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p410e.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p410f.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p412.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p413.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p414.sh
+/mnt/d/Project/agent-docker-demo/_scratch_p415.sh
+
+===== [C] host schedulers that could run compose =====
+  --- crontab ---
+no crontab for zhangzhixiao
+  --- /etc/cron.d ---
+total 20
+drwxr-xr-x  2 root root 4096 Jul  7 20:18 .
+drwxr-xr-x 99 root root 4096 Sep 29 12:54 ..
+-rw-r--r--  1 root root  102 Mar 31  2024 .placeholder
+-rw-r--r--  1 root root  201 Apr  8  2024 e2scrub_all
+-rw-r--r--  1 root root  396 Jan 10  2024 sysstat
+  --- systemd timers ---
+NEXT                            LEFT LAST                        PASSED UNIT                         ACTIVATES
+Tue 2026-09-29 12:59:19 CST 4min 13s Mon 2026-09-28 13:08:38 CST      - man-db.timer                 man-db.service
+Tue 2026-09-29 13:09:18 CST    14min -                                - systemd-tmpfiles-clean.timer systemd-tmpfiles-clean.service
+Tue 2026-09-29 13:32:55 CST    37min Mon 2026-09-28 18:21:19 CST      - apt-daily.timer              apt-daily.service
+Tue 2026-09-29 17:33:44 CST 4h 38min Tue 2026-09-29 11:35:05 CST      - motd-news.timer              motd-news.service
+Wed 2026-09-30 00:00:00 CST      11h Tue 2026-09-29 01:22:25 CST      - dpkg-db-backup.timer         dpkg-db-backup.service
+Wed 2026-09-30 00:00:00 CST      11h Tue 2026-09-29 01:22:25 CST      - logrotate.timer              logrotate.service
+Wed 2026-09-30 06:03:13 CST      17h Tue 2026-09-29 10:35:34 CST      - apt-daily-upgrade.timer      apt-daily-upgrade.service
+Sun 2026-10-04 03:10:53 CST   4 days Mon 2026-09-28 10:07:57 CST      - e2scrub_all.timer            e2scrub_all.service
+-                                  - -                                - apport-autoreport.timer      apport-autoreport.service
+-                                  - -                                - fstrim.timer                 fstrim.service
+-                                  - -                                - snapd.snap-repair.timer      snapd.snap-repair.service
+-                                  - -                                - ua-timer.timer               ua-timer.service
+
+12 timers listed.
+  --- systemd units mentioning compose/docker ---
+  docker.service                           loaded    active   running       Docker Application Container Engine
+● walinuxagent.service                     not-found inactive dead          walinuxagent.service
+  wsl-pro.service                          loaded    active   running       Bridge to Ubuntu Pro agent on Windows
+
+===== [D] dockerd journal around the two stop clusters =====
+-- No entries --
+
+===== [E] all compose projects known to the daemon =====
+NAME                STATUS              CONFIG FILES
+agent-docker-demo   running(6)          /mnt/d/Project/agent-docker-demo/docker-compose.yml,/home/zhangzhixiao/agent-docker-demo/docker-compose.yml
+openviking-repo     exited(1)           /home/zhangzhixiao/.openviking/openviking-repo/docker-compose.yml
+
+===== [F] PHASE 5 PRE-FLIGHT GATE =====
+  --- F1 stack stability: StartedAt snapshot #1 ---
+    /agent-docker-demo-backend-1 status=running started=2026-09-29T04:54:23.805325148Z restarts=0 oom=false
+    /agent-docker-demo-openviking-1 status=running started=2026-09-29T04:54:23.793977648Z restarts=0 oom=false
+    /agent-3c2e2f2a-9628-462a-876b-a23b6d675a34 status=exited started=2026-09-28T09:38:11.75740822Z restarts=0 oom=false
+    /agent-p2probe status=running started=2026-09-29T04:54:23.742451348Z restarts=0 oom=false
+    /openviking status=exited started=2026-09-28T04:55:40.078665399Z restarts=0 oom=false
+    /agent-docker-demo-frontend-1 status=running started=2026-09-29T04:54:23.798399548Z restarts=0 oom=false
+    /agent-f4f5d8ce-f63d-475b-a083-5a0113f66a9b status=exited started=2026-09-21T02:06:32.443304603Z restarts=0 oom=false
+    /agent-f0b2f7e5-2a0e-4272-82c5-a28e9182f9a1 status=exited started=2026-09-20T03:28:09.920189964Z restarts=0 oom=false
+    /agent-docker-demo-searxng-1 status=running started=2026-09-29T04:54:23.781727248Z restarts=0 oom=false
+    /agent-docker-demo-demo-mcp-1 status=running started=2026-09-29T04:54:23.723579048Z restarts=0 oom=false
+    /agent-20873ad8-a6dd-44b6-8d4e-03f62d9e43df status=exited started=2026-09-15T07:57:12.006800029Z restarts=0 oom=false
+    /agent-92396af7-6562-4c67-901e-ba6ca2c24fca status=exited started=2026-09-11T09:33:03.808565659Z restarts=0 oom=false
+    /agent-982aafb0-23cf-4c28-84f2-a21a1e7f2a80 status=exited started=2026-09-01T11:08:11.279573875Z restarts=0 oom=false
+    /agent-docker-demo-postgres-1 status=running started=2026-09-29T04:54:23.785735148Z restarts=0 oom=false
+  --- F2 embedding health: 429 / circuit breaker in last 15 min (MUST be 0) ---
+    429_count=0
+    breaker_count=0
+    embed_fail_count=0
+  --- F3 queue backlog: mtime + size (must not be growing) ---
+    total 6984
+    drwxr-xr-x 2 root root    4096 04:56:05 .
+    drwxr-xr-x 4 root root    4096 04:56:05 ..
+    -rw-r--r-- 1 root root 1716224 04:06:13 queue.db
+    -rw-r--r-- 1 root root   32768 04:54:45 queue.db-shm
+    -rw-r--r-- 1 root root 5384872 04:06:14 queue.db-wal
+    6.9M	/app/.openviking/data/_system/queue
+  --- F4 OV health/ready/metrics model availability ---
+    host health=200 ready=200
+    # HELP openviking_model_usage_available OpenViking metric.
+    # TYPE openviking_model_usage_available gauge
+    openviking_model_usage_available{model_type="vlm",valid="1"} 1.0
+    openviking_model_usage_available{model_type="embedding",valid="1"} 1.0
+    openviking_model_usage_available{model_type="rerank",valid="1"} 0.0
+    rerank_gauge=
+  --- F5 OV resource use right now ---
+agent-docker-demo-backend-1 cpu=0.17% mem=84.07MiB / 15.51GiB
+agent-docker-demo-openviking-1 cpu=2.39% mem=638.4MiB / 15.51GiB
+agent-p2probe cpu=0.31% mem=270MiB / 2GiB
+agent-docker-demo-frontend-1 cpu=0.00% mem=13.47MiB / 15.51GiB
+agent-docker-demo-searxng-1 cpu=0.00% mem=132.5MiB / 15.51GiB
+agent-docker-demo-demo-mcp-1 cpu=0.01% mem=11.24MiB / 15.51GiB
+agent-docker-demo-postgres-1 cpu=0.02% mem=28.27MiB / 15.51GiB
+===== P415-DONE =====

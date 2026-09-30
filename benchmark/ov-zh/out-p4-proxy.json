@@ -1,0 +1,56 @@
+{
+ "checks": {
+  "P4-07 proxy_overhead_p50<=50ms": [
+   12.0,
+   "PASS"
+  ]
+ },
+ "direct_http": {
+  "200": 100
+ },
+ "direct_ms": {
+  "max": 510.1,
+  "mean": 205.0,
+  "min": 134.8,
+  "n": 100,
+  "p50": 170.5,
+  "p95": 401.9,
+  "p99": 492.8
+ },
+ "direct_url": "http://openviking:1933",
+ "endpoint": "/api/v1/search/search",
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"ovzh-ev",
+  "http": 200
+ },
+ "interleaved": true,
+ "label": "p4-proxy",
+ "mode": "context",
+ "n_each": 100,
+ "overhead_mean_ms": 17.3,
+ "overhead_p50_ms": 12.0,
+ "proxy_http": {
+  "200": 100
+ },
+ "proxy_ms": {
+  "max": 882.7,
+  "mean": 222.3,
+  "min": 140.0,
+  "n": 100,
+  "p50": 182.5,
+  "p95": 433.5,
+  "p99": 624.2
+ },
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "sample_body": {
+  "mode": "context",
+  "purpose": "coding",
+  "query": "上次挂的那回"
+ },
+ "suite": "proxy",
+ "ts": "2026-09-29T03:33:51",
+ "vector_count_after": 229,
+ "vector_count_before": 229
+}

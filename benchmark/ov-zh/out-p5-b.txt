@@ -1,0 +1,104 @@
+############ [G] wait for the stack to be ready ############
+  now_utc=2026-09-29T05:53:18Z  uptime=100084.84
+  t=0s proxy_health=503 ov_health=000
+  t=5s proxy_health=200 ov_health=200
+  GATE_READY=yes at 2026-09-29T05:53:30Z
+  ov started=2026-09-29T05:53:09.957518097Z rc=0
+  be started=2026-09-29T05:53:09.962322341Z rc=0
+  ov uptime_sec=100097.76
+
+############ [1] P5-01 cross-user content/read + fs/ls over the proxy ############
+  -- [1a] user A (p2probe) reaching for user B (ovzh-eval) --
+  A->B content/read memories/identity.md       http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories/identity.md","details":{"resource":"viking://user/ovzh-eval/memories/identity.md"}},"telemetry":null,"profile":null}
+  A->B fs/ls memories                          http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  A->B fs/ls user root                         http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval","details":{"resource":"viking://user/ovzh-eval"}},"telemetry":null,"profile":null}
+  A->B fs/ls percent-encoded                   http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  A->B content/read preferences dir doc        http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories/preferences/.overview.md","details":{"resource":"viking://user/ovzh-eval/memories/preferences/.overview.md"}},"telemetry":null,"profile":null}
+  -- [1b] control: A reading its OWN space must succeed --
+  A->A content/read identity.md                http=200  {"status":"ok","result":"# identity.md - Who Am I?\n\n_Fill this in during your first conversation. Make it yours._\n\n- **Name:** \n- **Creature:** AI assistant\n- **Vibe:** \n- **Emoji:** \n- **Avatar:** \n\n---\n\nThe start of figuring out who you are.","error":null,"telemetry":null,"profile":nul
+  A->A fs/ls memories                          http=200  {"status":"ok","result":[{"uri":"viking://user/p2probe/memories/preferences","size":0,"isDir":true,"modTime":"2026-09-28T07:24:55.000Z","abstract":"# viking://user/p2probe/memories/preferences [Directory abstract is not ready]"},{"uri":"viking://user/p2probe/memories/identity.md","size":439,"isDir":
+  -- [1c] home alias '~' must resolve to A, never to B --
+  A->~ fs/ls viking://~/memories               http=200  {"status":"ok","result":[{"uri":"viking://user/p2probe/memories/preferences","size":0,"isDir":true,"modTime":"2026-09-28T07:24:55.000Z","abstract":"# viking://user/p2probe/memories/preferences [Directory abstract is not ready]"},{"uri":"viking://user/p2probe/memories/identity.md","size":439,"isDir":
+  A->~ content/read ~/memories/identity        http=200  {"status":"ok","result":"# identity.md - Who Am I?\n\n_Fill this in during your first conversation. Make it yours._\n\n- **Name:** \n- **Creature:** AI assistant\n- **Vibe:** \n- **Emoji:** \n- **Avatar:** \n\n---\n\nThe start of figuring out who you are.","error":null,"telemetry":null,"profile":nul
+  -- [1d] search/find with an explicit cross-user target_uri --
+  A search target_uri=B/memories               http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  A find   target_uri=B/memories               http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  A search ctx target_uri=B                    http=400  {"status":"error","error":{"code":"INVALID_ARGUMENT","message":"Invalid request parameters: body: Value error, target_uri is not supported in mode='context'","details":{"validation_errors":[{"loc":["body"],"message":"Value error, target_uri is not supported in mode='context'","type":"value_error"}]}
+  -- [1e] MCP tools/call with a cross-user uri --
+  A mcp read  uri=B/memories/identity.md       http=200  event: messagedata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Error executing tool read: 1 validation error for readArguments\nuris\n  Field required [type=missing, input_value={'uri': 'viking://user/ov...l/memories/identity.md'}, input_type=dict]\n    For further informat
+  A mcp list  uri=viking://user/ovzh-eval      http=200  event: messagedata: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Error executing tool list: Access denied for viking://user/ovzh-eval"}],"isError":true}}
+  A mcp tree  uri=viking://user/ovzh-eval      http=200  event: messagedata: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"Error executing tool tree: Access denied for viking://user/ovzh-eval"}],"isError":true}}
+  A mcp grep  path=viking://user/ovzh-eval     http=200  event: messagedata: {"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"grep failed for every pattern:\n  .: PermissionDeniedError: Access denied for viking://user/ovzh-eval"}],"structuredContent":{"result":"grep failed for every pattern:\n  .: PermissionDeniedError: Access denied f
+  A mcp glob  uri=viking://user/ovzh-eval      http=200  event: messagedata: {"jsonrpc":"2.0","id":5,"result":{"content":[{"type":"text","text":"Error: Access denied for viking://user/ovzh-eval"}],"structuredContent":{"result":"Error: Access denied for viking://user/ovzh-eval"},"isError":false}}
+  -- [1f] MCP control on A's own space --
+  A mcp list uri=viking://user/p2probe         http=200  event: messagedata: {"jsonrpc":"2.0","id":6,"result":{"content":[{"type":"text","text":"[dir] memories\n[dir] peers\n[dir] privacy\n[dir] resources\n[dir] sessions\n[dir] skills"}],"structuredContent":{"result":"[dir] memories\n[dir] peers\n[dir] privacy\n[dir] resources\n[dir] sessions\n[dir] skil
+  -- [1g] semantic search: does B's distinctive corpus surface for A? --
+  A search B-only marker                       http=200  {"status":"ok","result":{"memories":[{"context_type":"memory","uri":"viking://user/p2probe/memories/preferences/user/日志保留策略.md","level":2,"score":0.8368158936500549,"abstract":"- 日志保留采用热/温/冷三级策略：热数据保留 7 天，温数据保留 90 天，冷数据归档�
+  SECTION1 window=2026-09-29T05:53:31Z..2026-09-29T05:53:33Z  post_gate_health=200  VALID=yes
+
+############ [3c] foreign keys used DIRECTLY against openviking:1933 ############
+    key material staged: B_len=119 admin_len=126 root_len=64 account=agent-platform admin_uid=platform-admin
+  staged: KB_len=119 KADMIN_len=126 KROOT_len=64
+  -- [3b-redo] A's proxy token + a FOREIGN real key smuggled in a second header --
+  H7  +X-API-Key(B real key)                     http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry
+  H8  +Authorization Bearer B                    http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry
+  H9  +Authorization Bearer ROOT                 http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry
+  H10 +X-API-Key(ROOT)                           http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry
+  H11 +X-API-Key(admin)                          http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry
+  -- [3c] the SAME keys used DIRECTLY against openviking:1933 (bypassing ov_proxy) --
+  DIRECT B key    -> B/memories (owner, expect 200) http=200  {"status":"ok","result":[{"uri":"viking://user/ovzh-eval/memories/cases","size":0,"isDir":true,"modTime":"2026-09-28T13:04:36.000Z","abstract":"# viking://user/ovzh-eval/
+  DIRECT admin    -> B/memories (expect 403)     http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ov
+  DIRECT ROOT     -> B/memories (expect 403)     http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API k
+  DIRECT B key    -> admin/accounts (expect 403) http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Requires role: root","details":{}},"telemetry":null,"profile":null}
+  DIRECT ROOT     -> admin/accounts (expect 200) http=200  {"status":"ok","result":[{"account_id":"default","created_at":"2026-09-28T04:56:05.776044+00:00","user_count":0,"status":"active"},{"account_id":"agent-platform","created
+  DIRECT proxytok -> p2probe/memories (expect 401) http=401  {"status":"error","result":null,"error":{"code":"UNAUTHENTICATED","message":"Invalid API Key","details":{}},"telemetry":null,"profile":null}
+  -- [3e] network reachability: can A dial the OV data plane at all? --
+  A -> openviking:1933/health (NO key)           http=200
+  A -> openviking:1933/api/v1/system/status (NO key) http=401
+  A -> openviking:1933/api/v1/admin/accounts (NO key) http=401
+  SECTION3 post_gate_health=200  VALID=yes
+
+############ [5] P5-05 ROOT key must not exist inside the container ############
+  --- full env of agent-p2probe (credential-shaped values redacted) ---
+  env: AGENT_USER_ID=p2probe
+  env: AGENT_WORKDIR=/workspace
+  env: BUN_JSC_numberOfGCMarkers=1
+  env: FASTDB_BASE_URL=http://backend:8000
+  env: FASTK_API_KEY=<redacted>
+  env: HOME=/home/agent
+  env: HOSTNAME=cfe833e00e4c
+  env: OPENCODE_DISABLE_AUTOUPDATE=1
+  env: OPENCODE_PORT=4096
+  env: OPENCODE_SERVER_PASSWORD=<redacted>
+  env: OPENCODE_SERVER_USERNAME=opencode
+  env: OPENVIKING_API_KEY=<redacted>
+  env: OPENVIKING_AUTH_MODE=api_key
+  env: OPENVIKING_CLI_CONFIG_FILE=/opt/agent/builtin-plugins/openviking/ovcli.conf
+  env: OPENVIKING_MCP_URL=http://backend:8000/ov/mcp
+  env: OPENVIKING_URL=http://backend:8000/ov
+  env: PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  env: PIP_BREAK_SYSTEM_PACKAGES=1
+  env: PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+  env: PIP_USER=1
+  env: PPTX_LIBRARY_DIR=/library/pptx
+  env: PPTX_STYLES_DIR=/library/pptx/styles
+  env: PWD=/workspace
+  env: XDG_CACHE_HOME=/data/cache
+  env: XDG_CONFIG_HOME=/data/config
+  env: XDG_DATA_HOME=/data/share
+  env: XDG_STATE_HOME=/data/state
+  --- is the literal ROOT key value present in the container fs / env? ---
+  root_key_len=64 root_key_head=b31fd5
+  fs_hit_dirs_scanned=9  env_hits=1
+  container_credential_inventory:
+    env_var=FASTK_API_KEY=
+    env_var=OPENCODE_SERVER_PASSWORD=
+    env_var=OPENVIKING_API_KEY=
+  --- what the baked config files actually contain ---
+  file=/data/config/opencode/opencode.json size=2216
+    "apiKey": "<redacted>"
+  file=/opt/agent/builtin-plugins/openviking/ovcli.conf size=106
+  OPENVIKING_API_KEY head=gAAAAA len=100 (Fernet token, gAAAAA prefix)
+  SECTION5 post_gate_health=200  VALID=yes
+  done_utc=2026-09-29T05:53:51Z
+(end of Group A re-run)

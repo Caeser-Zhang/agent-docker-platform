@@ -1,0 +1,26 @@
+=== A6-R1: root key rotation ===
+--- sanity: .env value matches NEWKEY ---
+env_newkey_matches=1
+--- recreate openviking + backend (compose sees env change) ---
+ Container agent-docker-demo-openviking-1 Running 
+ Container agent-docker-demo-postgres-1 Running 
+ Container agent-docker-demo-backend-1 Running 
+--- gate: OV /health up to 100s (R25 guard) ---
+ov_health_code=200 attempts=2 ok=1
+--- verify: new key admin users (expect 200, 2 users left) ---
+{"status":"ok","result":[{"user_id":"platform-admin","role":"admin","api_key_available":true},{"user_id":"3c2e2f2a-9628-462a-876b-a23b6d675a34","role":"user","api_key_available":true}],"error":null,"telemetry":null,"profile":null}
+HTTP_200
+--- verify: OLD key same call (expect 401) ---
+old_key_code=401
+--- verify: OLD key via Bearer too (expect 401) ---
+old_key_bearer_code=401
+--- verify: /ready (expect 200) ---
+ready_code=200
+--- verify inside backend process: key is NEW, admin call works, A6.1 makeup ---
+backend_root_key_is_new: True
+backend_root_key_is_old: False
+backend_admin_users_code: 200
+users_final: [{"user_id": "platform-admin", "role": "admin", "api_key_available": true}, {"user_id": "3c2e2f2a-9628-462a-876b-a23b6d675a34", "role": "user", "api_key_available": true}]
+/api/v1/stats/memories code=200 body={"status": "ok", "result": {"total_memories": 2, "by_category": {"profile": 0, "preferences": 1, "entities": 0, "events": 1, "cases": 0, "patterns": 0, "tools": 0, "skills": 0}, "hotness_distribution": {"cold": 0, "warm": 2, "hot": 0}, "staleness": {"not_accessed_7d": 0, "not_accessed_30d": 0, "oldest_memory_age_days": 0.0}}, "error": null, "telemetry": null, "profile": null}
+/api/v1/debug/vector/count code=200 body={"status": "ok", "result": {"count": 134}, "error": null, "telemetry": null, "profile": null}
+DONE_A6I

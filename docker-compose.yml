@@ -8,6 +8,8 @@
 # Prerequisites:
 #   - Docker Engine installed and running
 #   - The agent image must be built first: docker build -t agent-demo:1.4.0 ./agent-image
+#   - Copy .env.example to .env and fill in the OV_* secrets, otherwise the
+#     openviking service refuses to start (compose `${VAR:?}` interpolation).
 #
 # Usage:
 #   docker-compose up -d
@@ -46,6 +48,16 @@ services:
     # `docker compose up -d` to apply (no image rebuild needed).
     env_file:
       - ./backend/.env
+    # Secrets that must NOT land in the committed backend/.env are injected
+    # here instead; compose `environment:` wins over `env_file:`.
+    # The OpenViking root key comes from the same root .env value the
+    # openviking service itself gets, so there is exactly one copy to rotate.
+    # BACKEND ONLY — see AGENT_OPENVIKING_ROOT_API_KEY in config.py.
+    environment:
+      - AGENT_OPENVIKING_ROOT_API_KEY=${OV_ROOT_API_KEY:-}
+    # NOTE: deliberately no `depends_on: openviking`. The backend must boot
+    # (and keep serving everything else) when the memory service is absent;
+    # routers/ov_proxy.py degrades to 503 instead.
     volumes:
       # Mount Docker socket so the backend can manage containers
       # WARNING: In production, use a Docker API proxy instead
@@ -111,6 +123,139 @@ services:
     networks:
       - agent-net
 
+  # OpenViking — shared agent-memory / context database backing the built-in
+  # `openviking` MCP tool in every agent container (see
+  # docs/openviking-integration-test-plan.md). ONE instance for the whole
+  # platform: per-user isolation comes from a User API Key minted per platform
+  # user (backend/app/services/ov_access.py), not from separate deployments.
+  #
+  # Internal only: no host ports, agent-net only. Agent containers and the
+  # backend both reach it as http://openviking:1933.
+  #
+  # Config is code, secrets are not: ./openviking/ov.conf is committed and
+  # contains NO plaintext keys — the three of them are written as
+  # ${OV_ROOT_API_KEY} / ${OV_EMBEDDING_API_KEY} / ${OV_VLM_API_KEY} and
+  # expanded inside the container by OpenViking's own loader
+  # (openviking_cli/utils/config/config_loader.py calls os.path.expandvars on
+  # the raw JSON, "useful for container deployments"). The values come from the
+  # root .env, interpolated by docker-compose into `environment:` below.
+  # ov.conf is mounted read-only; nothing in the server writes to it.
+  #
+  # State: one named volume at /app/.openviking/data (the `storage.workspace`).
+  # That single tree holds the AGFS files, the vector index, the task queue AND
+  # the multi-tenant keystore (viking/_system/accounts.json,
+  # viking/{account}/_system/users.json with the Argon2id key hashes). Losing it
+  # invalidates every minted User Key — treat it like postgres-data.
+  #
+  # The volume starts EMPTY on purpose: the retired WSL dev instance's data
+  # lives under account `default` and would pollute the Chinese-recall
+  # benchmarks, so it is not migrated.
+  #
+  # The image ships its own HEALTHCHECK (openviking-entrypoint --healthcheck →
+  # curl 127.0.0.1:1933/health, which needs no auth), so none is redefined.
+  openviking:
+    # Pinned by digest, NOT `latest`. The REST + Admin contract this platform
+    # codes against (docs/openviking-integration-test-plan.md §3) was verified
+    # against the 2026-09-20 amd64 build below: all 12 paths the opencode
+    # plugin emits, both recall routes (/api/v1/search/search for the context
+    # face, /api/v1/search/recall as the deprecated fallback), and the three
+    # Admin key schemas ov_access.py posts to. Registry `latest` has since moved
+    # to sha256:632d24fd...; taking it means re-running the Phase 1 server-side
+    # checks, so an upgrade must be a deliberate act with a new digest here —
+    # never a side effect of `docker compose pull`.
+    image: ghcr.io/volcengine/openviking@sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05
+    restart: unless-stopped
+    environment:
+      - OPENVIKING_SERVER_PORT=1933
+      # Consumed by ${VAR} expansion inside ov.conf. Rotate in the root .env.
+      - OV_ROOT_API_KEY=${OV_ROOT_API_KEY:?set OV_ROOT_API_KEY in the root .env}
+      - OV_EMBEDDING_API_KEY=${OV_EMBEDDING_API_KEY:?set OV_EMBEDDING_API_KEY in the root .env}
+      - OV_VLM_API_KEY=${OV_VLM_API_KEY:?set OV_VLM_API_KEY in the root .env}
+      # Rerank toggle. Empty (the default) = rerank DISABLED, and that is a
+      # clean disable, not a crash: ov.conf's `rerank` block deliberately omits
+      # `provider`, so RerankConfig._effective_provider() falls through all four
+      # branches and returns None, is_available() is False, and
+      # hierarchical_retriever never builds a client (vector-only search).
+      # The knob MUST be api_key, not api_base — _effective_provider() has an
+      # `if self.api_key: return "cohere"` branch, so an empty api_base with a
+      # real api_key would be misdetected as Cohere and send our Aliyun key to
+      # cohere.com. Set it to an Aliyun Model Studio key to enable rerank; the
+      # endpoint in ov.conf is DashScope's native path, whose
+      # /api/v1/services/rerank marker makes OpenAIRerankClient pick the nested
+      # request envelope automatically.
+      #
+      # MEASURED, and the reason this ships empty (P3-13 A/B, 2026-09-28,
+      # benchmark/ov-zh, 40-doc zh corpus / 30 queries, same container + digest):
+      #   recall@5 0.892 -> 0.517   mrr 0.933 -> 0.578   hit@5 0.933 -> 0.633
+      #   p50     136ms -> 3075ms (22.6x)   p95 248ms -> 3784ms
+      #   threshold checks 5 PASS / 2 FAIL -> 0 PASS / 7 FAIL
+      #   cost ~9.9 rerank calls and ~3300 DashScope tokens per query
+      # Enabling rerank also flips hierarchical_retriever to RetrieverMode
+      # THINKING with no per-request opt-out, and THINKING descends the URI tree
+      # by scoring directory `.overview.md` nodes. A directory only gets one if
+      # its memory type is registered in the MemoryTypeRegistry AND carries an
+      # `overview_template` (memory_updater.py:1570-1572). The live registry has
+      # 9 types but only 4 have a template (preferences/entities/cases/events);
+      # tools.yaml and skills.yaml exist on disk yet are NOT registered, and
+      # `patterns` has no YAML at all — so those whole subtrees have no overview
+      # and become unreachable under THINKING. 10 of the 30 queries lost their
+      # only hit that way. This is a write-path-independent registry gap, not a
+      # content/write artefact: MCP `write` into cases/ -> overview=complete,
+      # into tools/ -> overview=skipped. With rerank OFF the same unregistered
+      # categories still rank #1 (tools/probe-tools.md at 0.8567, no target_uri
+      # needed), which is the second independent reason this stays empty.
+      # Do not turn this on without re-running the A/B.
+      - OV_RERANK_API_KEY=${OV_RERANK_API_KEY:-}
+      # NOTE: TZ is deliberately NOT set here. `events` memories are bucketed by
+      # calendar day taken from the message `created_at`, which the server stamps
+      # with datetime.now(timezone.utc) (session.py:1395) and formats without any
+      # localisation (memory_updater.py:682-689). So TZ=Asia/Shanghai cannot move
+      # the bucket — it only flips the naive datetime.now() fallbacks in
+      # get_year/get_month/get_day, leaving the primary path on UTC and the
+      # fallback on local time (two date bases, worse than now). Beijing-time
+      # memories created 00:00-08:00 therefore land in the previous day's bucket;
+      # the only supported fix is a caller-supplied `created_at` with a +08:00
+      # offset, which the upstream plugin never sends. See R23 in
+      # docs/openviking-integration-test-plan.md.
+    volumes:
+      - openviking-data:/app/.openviking/data
+      - ./openviking/ov.conf:/app/.openviking/ov.conf:ro
+    # Host port for the built-in web UI (OpenViking Studio at `/` → 302 →
+    # `/studio/`) and the Swagger UI at `/docs`. Default loopback-only.
+    #
+    # LAN access to Studio goes through the frontend nginx on port 3000
+    # (/studio/ + /ovstudio/ locations → openviking:1933 over platform-net),
+    # which this service joins below — so admins on other machines do NOT
+    # need this port published. Set OV_BIND=0.0.0.0 in the root .env only if
+    # you want the direct port too; data still requires a User API Key.
+    #
+    # NOTE (P2-06, measured): agent containers sit on agent-net alongside this
+    # service, so `http://openviking:1933` IS directly reachable from them —
+    # the backend's /ov proxy is the intended path, not the only network path.
+    # What keeps that safe is authn, not routing: a container only ever holds an
+    # opaque proxy token (OPENVIKING_API_KEY, not an OpenViking key), and every
+    # data-plane endpoint answers a keyless direct call with 401. The residue is
+    # disclosure, not tenant data — /metrics (~132 KB) and /openapi.json
+    # (~311 KB) are readable without a key. Tightening this means moving
+    # openviking onto a network shared with backend alone; tracked as a risk in
+    # docs/openviking-integration-test-plan.md §11.7 (P2-06), not fixed here.
+    #
+    # This deliberately relaxes the "no published host port" stance in
+    # docs/openviking-integration-test-plan.md §4.1: the root key is
+    # path-restricted to the admin plane in api_key mode, so publishing the
+    # port exposes no tenant data. What IS unauthenticated here is /health,
+    # /ready, /docs, /redoc, /openapi.json, /metrics and /studio/* — on a
+    # shared machine drop this block and use a throwaway socat sidecar instead.
+    ports:
+      - "${OV_BIND:-127.0.0.1}:1933:1933"
+    networks:
+      - agent-net
+      # platform-net: ONLY so the frontend nginx can reverse-proxy Studio
+      # (/studio/ + /ovstudio/ → openviking:1933) on the existing port 3000,
+      # avoiding a second LAN-published port. Same authn model applies —
+      # nginx adds none; OpenViking's key check is the gate.
+      - platform-net
+
   # fastk-mcp — RETIRED (P0④). The fastk knowledge-base tools are now served
   # through the backend's /fastk/api proxy (routers/kb_proxy.py), which enforces
   # per-user API-key whitelisting. The standalone MCP server bypassed that control
@@ -157,6 +302,9 @@ volumes:
   backend-data:
   # PostgreSQL data directory
   postgres-data:
+  # OpenViking workspace (AGFS files + vector index + task queue + the
+  # multi-tenant keystore holding every minted User Key's Argon2id hash).
+  openviking-data:
   # Shared PPTX template library — one physical copy for the whole platform.
   # Fixed name so container_manager can mount the exact same volume read-only
   # into every per-user container regardless of the compose project name.

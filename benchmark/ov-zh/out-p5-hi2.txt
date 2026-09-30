@@ -1,0 +1,127 @@
+=== P5-10/P5-11 driver at=2026-09-29T07:29:24Z key_len=100
+gate_round=1 local_ov=000 via_proxy=503
+gate_round=2 local_ov=200 via_proxy=200
+GATE_OK=1 gate_rounds=2
+--- R25 stack state
+/agent-p2probe created=2026-09-28T08:07:46.663464467Z started=2026-09-29T07:29:10.719569726Z restarts=0 status=running
+/agent-docker-demo-openviking-1 created=2026-09-28T17:22:47.11218534Z started=2026-09-29T07:29:10.76789523Z restarts=0 status=running
+/agent-docker-demo-backend-1 created=2026-09-29T02:35:13.312654014Z started=2026-09-29T07:29:10.756029829Z restarts=0 status=running
+/agent-docker-demo-frontend-1 created=2026-09-20T09:24:47.045674337Z started=2026-09-29T07:29:10.746654228Z restarts=0 status=running
+kernel_uptime_sec=105865.15
+=== P5-10 coexistence probe
+S1.mcp_keys = ["demo-mcp", "openviking", "web_search"]
+S1.mcp.demo-mcp = {"all_keys": ["enabled", "type", "url"], "command": null, "enabled": true, "environment": {}, "header_keys": [], "headers": {}, "type": "remote", "url": "http://demo-mcp:8080/mcp"}
+S1.mcp.openviking = {"all_keys": ["enabled", "headers", "type", "url"], "command": null, "enabled": true, "environment": {}, "header_keys": ["X-API-Key"], "headers": {"X-API-Key": "<len=100 head=gAAAAA>"}, "type": "remote", "url": "http://backend:8000/ov/mcp"}
+S1.mcp.web_search = {"all_keys": ["command", "enabled", "environment", "type"], "command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "header_keys": [], "headers": {}, "type": "local", "url": null}
+S1.plugin = ["/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "/opt/agent/builtin-plugins/present-file"]
+S1.permission = {"bash": "allow", "edit": "allow", "external_directory": "allow", "glob": "allow", "grep": "allow", "list": "allow", "openviking_*": "allow", "present_file": "allow", "read": "allow", "skill": "allow", "task": "allow", "todowrite": "allow", "web_search*": "allow", "webfetch": "allow"}
+S1.permission_keys = ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "webfetch"]
+S1.mcp_perm_rules = {"openviking_*": "allow"}
+S1.enabled_providers = ["volces-gateway"]
+S1.model = "volces-gateway/deepseek-v4-pro"
+S1.small_model = "volces-gateway/deepseek-v4-pro"
+S1.agents_keys = []
+S1.agent_keys = []
+S1.top_keys = ["$schema", "autoupdate", "enabled_providers", "mcp", "model", "permission", "plugin", "provider", "share", "small_model"]
+S2.plugins = {"oh-my-opencode-slim": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "node_modules": true, "pkg_exists": true, "pkg_main": "dist/index.js", "pkg_name": "oh-my-opencode-slim", "pkg_type": "module", "pkg_version": "2.2.15", "readable_files": ["LICENSE", "README.ja-JP.md", "README.ko-KR.md", "README.md", "README.zh-CN.md", "dist", "node_modules", "oh-my-opencode-slim.schema.json", "package.json", "src"]}, "openviking": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "node_modules": false, "pkg_exists": true, "pkg_main": "index.mjs", "pkg_name": "@openviking/opencode-plugin", "pkg_type": "module", "pkg_version": "2026.9.25-2", "readable_files": ["INSTALL-ZH.md", "INSTALL.md", "README.md", "index.mjs", "lib", "package.json", "scripts", "servers"]}, "present-file": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/present-file", "node_modules": true, "pkg_exists": true, "pkg_main": "index.js", "pkg_name": "opencode-present-file", "pkg_type": "module", "pkg_version": "1.0.0", "readable_files": ["index.js", "manifest.json", "node_modules", "package-lock.json", "package.json"]}}
+S2.web_search = {"interpreter_resolved": "/usr/bin/python3", "mcp_root_listing": ["fastk", "openviking", "web_search"], "script_isfile": true, "script_path": "/opt/agent/builtin-mcp/web_search/web_search_mcp.py", "script_size": 8808}
+S3.plugin_config_keys = ["agents", "autoUpdate", "preset", "presets"]
+S3.preset = "container"
+S3.autoUpdate = false
+S3.disabled_skills = null
+S3.presets.container.designer = {"mcps": [], "skills": []}
+S3.presets.container.explorer = {"mcps": [], "skills": []}
+S3.presets.container.fixer = {"mcps": [], "skills": []}
+S3.presets.container.librarian = {"mcps": ["web_search"], "skills": []}
+S3.presets.container.oracle = {"mcps": [], "skills": []}
+S3.presets.container.orchestrator = {"mcps": ["*"], "skills": ["*"]}
+S3.agents = {"council": {"model": "volces-gateway/deepseek-v4-pro"}, "councillor": {"model": "volces-gateway/deepseek-v4-pro"}, "designer": {"model": "volces-gateway/deepseek-v4-pro"}, "explorer": {"model": "volces-gateway/deepseek-v4-pro"}, "fixer": {"model": "volces-gateway/deepseek-v4-pro"}, "librarian": {"model": "volces-gateway/deepseek-v4-pro"}, "observer": {"model": "volces-gateway/deepseek-v4-pro"}, "oracle": {"model": "volces-gateway/deepseek-v4-pro"}, "orchestrator": {"model": "volces-gateway/deepseek-v4-pro"}}
+S4.web_search.initialize = {"name": "web-search-mcp", "version": "1.0.0"}
+S4.web_search.protocolVersion = "2024-11-05"
+S4.web_search.tools = ["search"]
+S4.web_search.stderr = ""
+S5.openviking.initialize.status = 200
+S5.openviking.session_id_present = false
+S5.openviking.serverInfo = {"name": "openviking", "version": "1.27.0"}
+S5.openviking.tools = ["find", "search", "read", "list", "tree", "remember", "write", "edit", "add_resource", "list_watches", "cancel_watch", "grep", "glob", "forget", "health"]
+S5.openviking.tool_count = 15
+S6.raw_name_overlap = ["search"]
+S6.prefixed_overlap = []
+S6.prefixed_ws = ["web_search_search"]
+S6.prefixed_ov_count = 15
+S6.permission_rule_covers_ws = false
+S6.permission_rule_covers_ov = true
+S7.present-file = {"entry":"/opt/agent/builtin-plugins/present-file/index.js","exports":["default"],"functions":[],"arity":[]}
+S7.oh-my-opencode-slim = {"entry":"/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim/dist/index.js","exports":["OhMyOpenCodeLite","default"],"functions":["OhMyOpenCodeLite"],"arity":[1]}
+S7.openviking = {"entry":"/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin/index.mjs","exports":["OpenVikingPlugin","default"],"functions":["OpenVikingPlugin"],"arity":[0]}
+S7_DONE
+S7.rc = 0
+S7.stderr = ""
+S8.body./api/config = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.body./api/mcp = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.body./api/tool = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.opencode_api = {"/api/agent": "200 len=91", "/api/app": "200 len=2884", "/api/config": "200 len=2884", "/api/health": "200 len=16", "/api/mcp": "200 len=2884", "/api/permission": "200 len=2884", "/api/provider": "200 len=91", "/api/session": "200 len=50", "/api/tool": "200 len=2884"}
+S9.searxng_url = "http://searxng:8080"
+S9.searxng_healthz = 200
+PROBE_DONE
+P5-10 rc=0
+=== P5-11 toggle probe
+L0.source_origin = "/host-opencode/opencode.json"
+L0.source_top_keys = ["$schema", "autoupdate", "builtin_mcp", "mcp", "permission", "provider", "share"]
+L0.source_builtin_mcp = {"fastk": {"enabled": true}, "web_search": {"enabled": true}}
+L0.source_builtin_skills = null
+L0.settings.openviking_enabled = true
+L0.discovered_builtin_mcp = {"openviking": {"enabled": true, "type": "remote", "url": "http://backend:8000/ov/mcp"}, "web_search": {"command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "type": "local"}}
+L0.discovered_builtin_plugins = ["/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "/opt/agent/builtin-plugins/present-file"]
+L0.builtin_mcp_servers_baseline = {"openviking": {"enabled": true, "type": "remote", "url": "http://backend:8000/ov/mcp"}, "web_search": {"command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "type": "local"}}
+L0.hidden_mcp_servers_baseline = []
+L0.hidden_builtin_skills_baseline = []
+L1.C0_baseline = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": [], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": [], "skill_perm": "allow"}
+L1.C1_host_ov_disabled = {"builtin_mcp_servers": {"openviking": false, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C2_host_ov_enabled = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": [], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": [], "skill_perm": "allow"}
+L1.C3_host_websearch_disabled = {"builtin_mcp_servers": {"openviking": true, "web_search": false}, "disabled_skills": null, "hidden_mcps": ["web_search"], "hidden_skills": [], "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow", "web_search_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!web_search"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["web_search"], "skill_perm": "allow"}
+L1.C4_user_hides_ov = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C5_platform_visible_user_hides = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C6_platform_hidden_user_empty = {"builtin_mcp_servers": {"openviking": false, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C7_both_hidden = {"builtin_mcp_servers": {"openviking": true, "web_search": false}, "disabled_skills": null, "hidden_mcps": ["openviking", "web_search"], "hidden_skills": [], "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny", "web_search_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking", "!web_search"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking", "web_search"], "skill_perm": "allow"}
+L1.C8_host_remote_disabled.hidden = ["p5-remote-probe"]
+L1.C8_host_remote_enabled.hidden = []
+L1.C9_host_local_disabled.hidden = []
+L1.listvis.idempotent = ["*"]
+L1.listvis.hide = ["*", "!openviking"]
+L1.listvis.hide_twice = ["*", "!openviking"]
+L1.listvis.whitelist_hide = []
+L1.listvis.whitelist_keep = ["web_search"]
+L1.sanitize = {"a b": "a_b", "a-b": "a-b", "a.b": "a_b", "openviking": "openviking", "web_search": "web_search", "中文": "__"}
+L1_DONE
+L2.gate = {"password_len": 0, "running": false}
+Traceback (most recent call last):
+  File "/tmp/p5i.py", line 181, in <module>
+    asyncio.run(main())
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/tmp/p5i.py", line 146, in main
+    before, _ = await asyncio.to_thread(lambda: read_docs()[0])
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/p5i.py", line 146, in <lambda>
+    before, _ = await asyncio.to_thread(lambda: read_docs()[0])
+                                                ^^^^^^^^^^^
+  File "/tmp/p5i.py", line 124, in read_docs
+    raw = container_manager.read_config_file(TARGET, "opencode.json")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'app.services.container_manager' has no attribute 'read_config_file'
+P5-11 rc=1
+DONE_P5HI at=2026-09-29T07:29:36Z

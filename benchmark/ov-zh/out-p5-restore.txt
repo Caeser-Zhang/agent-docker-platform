@@ -1,0 +1,13 @@
+R.before = {"agents_count": 9, "disabled_skills": null, "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "ov_header_len": 100, "pcfg_keys": ["agents", "autoUpdate", "preset", "presets"], "perm_count": 15, "perm_keys": ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "web_search_*", "webfetch"], "perm_mcp": {"openviking_*": "allow", "web_search_*": "allow"}, "plugin_list_len": 3, "roundtrip_hidden": []}
+R.perm_keys_removed = ["web_search_*"]
+R.opencode_written = true
+R.librarian_before = {"mcps": [], "model": "volces-gateway/deepseek-v4-pro", "skills": []}
+R.plugin_written = true
+R.rendered_keys = ["agents", "autoUpdate", "preset", "presets"]
+R.rendered_librarian = {"mcps": ["web_search"], "model": "volces-gateway/deepseek-v4-pro", "skills": []}
+R.rendered_agents_count = 9
+R.rendered_equals_restored = true
+R.after_container_side = {"agents_count": 9, "disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "ov_header_len": 100, "pcfg_keys": ["agents", "autoUpdate", "preset", "presets"], "perm_count": 14, "perm_keys": ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "webfetch"], "perm_mcp": {"openviking_*": "allow"}, "plugin_list_len": 3, "roundtrip_hidden": []}
+R.RESTORE_OK = true
+RESTORE_DONE
+restore rc=0

@@ -14,14 +14,23 @@
  *   - multi-select with batch restart / stop / destroy (typed confirm)
  *   - actions: view logs, restart, graceful stop, destroy (typed confirm)
  *   - optional 5s auto-refresh
+ *   - 记忆访问 tab: per-user OpenViking user keys (search by username/工号,
+ *     copy into the Studio login form) + Studio usage instructions
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, type AdminContainer, type AdminOverview, type AdminRequestLogEntry } from "../api";
+import {
+  api,
+  type AdminContainer,
+  type AdminOverview,
+  type AdminRequestLogEntry,
+  type OvMemoryAccess,
+  type OvMemoryAccessRow,
+} from "../api";
 import { adminStyles as s, adminCss } from "./adminStyles";
 import { UxDashboard } from "./UxDashboard";
 
-/** 顶级 Tab：容器管理（原有）/ 用户体验看板（任务二）。 */
-type AdminTab = "containers" | "ux";
+/** 顶级 Tab：容器管理（原有）/ 用户体验看板（任务二）/ 记忆访问（OpenViking）。 */
+type AdminTab = "containers" | "ux" | "ov";
 
 type LogsTab = "container" | "requests";
 
@@ -70,6 +79,12 @@ interface BatchBusyState {
 
 const TAIL_OPTIONS = [100, 200, 500, 1000, 2000];
 const REQ_LIMIT_OPTIONS = [50, 100, 200, 500];
+
+/** OV Studio：经平台 nginx 反代（frontend/nginx.conf）走同源路径，局域网内
+ *  任意机器用平台地址即可访问，无需直连 openviking 的 1933 端口。
+ *  /studio/ = SPA 本体；/ovstudio = API 数据面（Studio 登录表单的 baseUrl）。 */
+const OV_STUDIO_URL = `${window.location.origin}/studio/`;
+const OV_API_BASE = `${window.location.origin}/ovstudio`;
 const BATCH_OP_LABEL: Record<BatchOp, string> = {
   restart: "重启",
   stop: "停止",
@@ -242,6 +257,16 @@ export function AdminPanel({
   const [batchBusy, setBatchBusy] = useState<BatchBusyState | null>(null);
   const [batchDestroyModal, setBatchDestroyModal] = useState<BatchDestroyModalState | null>(null);
 
+  // --- 记忆访问（OpenViking）Tab state ------------------------------------
+  const [ovData, setOvData] = useState<OvMemoryAccess | null>(null);
+  const [ovLoading, setOvLoading] = useState(false);
+  const [ovError, setOvError] = useState<string | null>(null);
+  const [ovSearch, setOvSearch] = useState("");
+  /** user_id → 已复制提示（2s 后自动消失）。 */
+  const [ovCopied, setOvCopied] = useState<string | null>(null);
+  /** 显示完整 key 的行（默认掩码）。 */
+  const [ovRevealed, setOvRevealed] = useState<Set<string>>(new Set());
+
   const toastTimer = useRef<number | null>(null);
   const logBoxRef = useRef<HTMLPreElement>(null);
   /** Header checkbox needs .indeterminate, which has no JSX prop. */
@@ -291,6 +316,59 @@ export function AdminPanel({
     const id = window.setInterval(refresh, 5000);
     return () => window.clearInterval(id);
   }, [autoRefresh, tab, refresh]);
+
+  // --- 记忆访问（OpenViking）---------------------------------------------
+  const refreshOv = useCallback(async () => {
+    setOvLoading(true);
+    try {
+      const data = await api.getAdminOvMemoryAccess();
+      setOvData(data);
+      setOvError(null);
+    } catch (e: any) {
+      setOvError(e.message || "加载失败");
+    } finally {
+      setOvLoading(false);
+    }
+  }, []);
+
+  // 进入 Tab 即拉取一次（调用便宜：一次 Admin API 读回 + 两次 DB 查询）。
+  useEffect(() => {
+    if (tab === "ov") refreshOv();
+  }, [tab, refreshOv]);
+
+  const copyOvKey = useCallback(
+    async (userId: string, key: string) => {
+      try {
+        await navigator.clipboard.writeText(key);
+        setOvCopied(userId);
+        window.setTimeout(() => setOvCopied((cur) => (cur === userId ? null : cur)), 2000);
+      } catch {
+        showToast("复制失败，请点击「显示」后手动复制");
+      }
+    },
+    [showToast]
+  );
+
+  const toggleOvReveal = useCallback((userId: string) => {
+    setOvRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
+
+  const visibleOvRows = useMemo(() => {
+    if (!ovData) return [];
+    const q = ovSearch.trim().toLowerCase();
+    if (!q) return ovData.users;
+    return ovData.users.filter(
+      (r) =>
+        (r.username || "").toLowerCase().includes(q) ||
+        (r.uid || "").toLowerCase().includes(q) ||
+        r.user_id.toLowerCase().includes(q)
+    );
+  }, [ovData, ovSearch]);
 
   // Auto-scroll the log box to the bottom whenever new logs land.
   useEffect(() => {
@@ -562,9 +640,15 @@ export function AdminPanel({
             <ShieldIcon />
           </span>
           <div>
-            <div style={s.headerTitle}>{tab === "ux" ? "用户体验看板" : "Docker 容器管理"}</div>
+            <div style={s.headerTitle}>
+              {tab === "ux" ? "用户体验看板" : tab === "ov" ? "记忆访问（OpenViking）" : "Docker 容器管理"}
+            </div>
             <div style={s.headerSubtitle}>
-              {tab === "ux" ? "Agent 回复质量与体验指标 · 管理员专属" : "平台级容器状态与操作 · 管理员专属"}
+              {tab === "ux"
+                ? "Agent 回复质量与体验指标 · 管理员专属"
+                : tab === "ov"
+                  ? "按用户名/工号定位用户的记忆 key · 管理员专属"
+                  : "平台级容器状态与操作 · 管理员专属"}
               {tab === "containers" &&
                 updatedAt &&
                 ` · 更新于 ${updatedAt.toLocaleTimeString("zh-CN", { hour12: false })}`}
@@ -600,12 +684,164 @@ export function AdminPanel({
         >
           用户体验
         </button>
+        <button
+          className={`adm-tab${tab === "ov" ? " adm-tab-active" : ""}`}
+          style={{ ...s.logsTab, ...(tab === "ov" ? s.logsTabActive : {}) }}
+          onClick={() => setTab("ov")}
+        >
+          记忆访问
+        </button>
       </div>
 
       {tab === "ux" ? (
         <div style={{ ...s.body }} className="adm-scroll">
           <UxDashboard onOpenWishes={onOpenWishes} />
         </div>
+      ) : tab === "ov" ? (
+      /* --- 记忆访问（OpenViking）------------------------------------------ */
+      <div style={{ ...s.body }} className="adm-scroll">
+        {ovError && <div style={s.errorBanner}>加载失败：{ovError}</div>}
+
+        {ovData && !ovData.enabled && (
+          <div style={s.errorBanner}>
+            OpenViking 记忆服务未启用（AGENT_OPENVIKING_ENABLED=false 或缺少 root key），无法列出用户 key。
+          </div>
+        )}
+
+        {ovData?.enabled && (
+          <>
+            {/* 使用说明：Studio 登录表单怎么填 */}
+            <div className="adm-card" style={{ ...s.card, marginBottom: "14px" }}>
+              <div style={s.cardLabel}>在 OpenViking Studio 查看指定用户的记忆</div>
+              <div style={{ ...s.cardSub, marginTop: 0, lineHeight: "1.9" }}>
+                ① 在下表按用户名/工号找到该用户，点「复制」取 User API Key；② 打开{" "}
+                <a href={OV_STUDIO_URL} target="_blank" rel="noreferrer" style={{ color: "var(--indigo)" }}>
+                  OpenViking Studio
+                </a>
+                （{OV_STUDIO_URL}，局域网内任意机器经平台地址访问）；③ 登录表单：baseUrl 填{" "}
+                <code style={s.mono}>{OV_API_BASE}</code>，accountId 填{" "}
+                <code style={s.mono}>{ovData.account_id}</code>，apiKey 粘贴刚复制的 key，其余留空。
+                注意：root key 只能管理、不能看数据，不能填进 apiKey；「未启用」表示该用户从未用过记忆服务，Studio 里无内容。
+              </div>
+            </div>
+
+            {/* Toolbar: search + refresh */}
+            <div style={s.toolbar}>
+              <div className="adm-search" style={s.searchWrap}>
+                <span style={s.searchIcon}>
+                  <SearchIcon />
+                </span>
+                <input
+                  className="adm-search"
+                  style={s.search}
+                  value={ovSearch}
+                  onChange={(e) => setOvSearch(e.target.value)}
+                  placeholder="搜索 用户名 / 工号"
+                  aria-label="搜索用户名或工号"
+                />
+              </div>
+              <button className="adm-btn" style={s.btn} onClick={() => refreshOv()} disabled={ovLoading}>
+                {ovLoading ? "刷新中…" : "立即刷新"}
+              </button>
+              <span style={{ fontSize: "12px", color: "var(--indigo)" }}>
+                显示 {visibleOvRows.length} / {ovData.users.length}
+              </span>
+            </div>
+
+            {/* 用户 → key 表 */}
+            <div className="adm-scroll" style={s.tableWrap}>
+              <table style={s.table}>
+                <thead>
+                  <tr>
+                    <th style={s.th}>工号</th>
+                    <th style={s.th}>用户</th>
+                    <th style={s.th}>角色</th>
+                    <th style={s.th}>容器状态</th>
+                    <th style={s.th}>记忆服务</th>
+                    <th style={s.th}>User API Key</th>
+                    <th style={s.th}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleOvRows.map((r) => {
+                    const key = r.api_key;
+                    return (
+                      <tr key={r.user_id} className="adm-row">
+                        <td style={s.td}>
+                          {r.uid ? <span style={s.uidText}>{r.uid}</span> : <span style={s.muted}>—</span>}
+                        </td>
+                        <td style={s.td}>
+                          <div style={s.userCell}>
+                            <span style={s.avatar}>{(r.username || "?")[0]?.toUpperCase()}</span>
+                            <span>{r.username || <span style={s.muted}>已删除用户</span>}</span>
+                          </div>
+                        </td>
+                        <td style={s.td}>
+                          {r.role === "admin" ? (
+                            <Badge text="admin" variant="blue" />
+                          ) : (
+                            <Badge text="user" variant="gray" />
+                          )}
+                        </td>
+                        <td style={s.td}>
+                          {r.container_status ? (
+                            <Badge text={r.container_status} variant={dbVariant(r.container_status)} />
+                          ) : (
+                            <span style={s.muted}>无容器</span>
+                          )}
+                        </td>
+                        <td style={s.td}>
+                          {r.ov_registered ? (
+                            <Badge text="已注册" variant="green" />
+                          ) : (
+                            <Badge text="未启用" variant="gray" />
+                          )}
+                        </td>
+                        <td style={s.tdWrap}>
+                          {key ? (
+                            <div style={{ ...s.mono, fontSize: "11px", wordBreak: "break-all" }}>
+                              {ovRevealed.has(r.user_id) ? key : `${key.slice(0, 16)}…`}
+                            </div>
+                          ) : (
+                            <span style={s.muted}>—</span>
+                          )}
+                        </td>
+                        <td style={s.td}>
+                          {key && (
+                            <div style={s.actionsCell}>
+                              <button
+                                className="adm-btn"
+                                style={s.btnSmall}
+                                onClick={() => toggleOvReveal(r.user_id)}
+                              >
+                                {ovRevealed.has(r.user_id) ? "隐藏" : "显示"}
+                              </button>
+                              <button
+                                className="adm-btn"
+                                style={s.btnSmall}
+                                onClick={() => copyOvKey(r.user_id, key)}
+                              >
+                                {ovCopied === r.user_id ? "已复制" : "复制"}
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!ovLoading && ovData.enabled && visibleOvRows.length === 0 && (
+                    <tr>
+                      <td style={s.td} colSpan={7}>
+                        <span style={s.muted}>无匹配用户</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
       ) : (
       /* --- Body --------------------------------------------------------- */
       <div style={{ ...s.body }} className="adm-scroll">

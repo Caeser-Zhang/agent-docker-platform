@@ -1,0 +1,131 @@
+﻿===== created vs started (recreate would change Created) =====
+/agent-docker-demo-openviking-1 created=2026-09-28T17:22:47.11218534Z started=2026-09-29T04:40:31.736049396Z finished=2026-09-29T04:38:05.80763245Z exit=0 restarts=0 policy=unless-stopped
+/agent-docker-demo-backend-1 created=2026-09-29T02:35:13.312654014Z started=2026-09-29T04:40:31.732173896Z finished=2026-09-29T04:38:06.284350546Z exit=0 restarts=0 policy=unless-stopped
+/agent-docker-demo-postgres-1 created=2026-08-20T07:32:07.003112059Z started=2026-09-29T04:40:31.727204696Z finished=2026-09-29T04:38:05.90219262Z exit=0 restarts=0 policy=unless-stopped
+/agent-docker-demo-frontend-1 created=2026-09-20T09:24:47.045674337Z started=2026-09-29T04:40:34.209562781Z finished=2026-09-29T04:40:33.743532065Z exit=0 restarts=1 policy=unless-stopped
+/agent-docker-demo-searxng-1 created=2026-09-20T02:35:31.395296841Z started=2026-09-29T04:40:31.717444995Z finished=2026-09-29T04:38:05.93316192Z exit=0 restarts=0 policy=unless-stopped
+/agent-docker-demo-demo-mcp-1 created=2026-09-20T02:35:31.378061928Z started=2026-09-29T04:40:31.656838393Z finished=2026-09-29T04:40:30.142491359Z exit=0 restarts=0 policy=unless-stopped
+/agent-p2probe created=2026-09-28T08:07:46.663464467Z started=2026-09-29T04:40:31.676786094Z finished=2026-09-29T04:40:30.142473359Z exit=0 restarts=0 policy=unless-stopped
+===== compose projects / services =====
+NAME                STATUS              CONFIG FILES
+agent-docker-demo   running(6)          /mnt/d/Project/agent-docker-demo/docker-compose.yml,/home/zhangzhixiao/agent-docker-demo/docker-compose.yml
+agent-docker-demo-backend-1 running Up 19 seconds
+agent-docker-demo-demo-mcp-1 running Up 19 seconds
+agent-docker-demo-frontend-1 running Up 16 seconds
+agent-docker-demo-openviking-1 running Up 19 seconds (health: starting)
+agent-docker-demo-postgres-1 running Up 19 seconds
+agent-docker-demo-searxng-1 running Up 19 seconds
+===== any compose / watch / restart process on the host? =====
+-- windows-side docker processes --
+-- wsl distros --
+  NAME            STATE           VERSION
+* Ubuntu-24.04    Running         2
+===== WSL kernel log tail (OOM killer / vm pressure?) =====
+[95571.930362] br-bd0e12162874: port 4(vetha205d66) entered forwarding state
+[95571.983393] eth0: renamed from veth4a03123
+[95572.019471] br-bd0e12162874: port 5(vetha6bef31) entered blocking state
+[95572.019489] br-bd0e12162874: port 5(vetha6bef31) entered forwarding state
+[95572.054327] br-cf4ba9f6a954: port 3(veth29ec5b1) entered blocking state
+[95572.054334] br-cf4ba9f6a954: port 3(veth29ec5b1) entered disabled state
+[95572.054347] veth29ec5b1: entered allmulticast mode
+[95572.054436] veth29ec5b1: entered promiscuous mode
+[95572.057329] br-cf4ba9f6a954: port 3(veth29ec5b1) entered blocking state
+[95572.057336] br-cf4ba9f6a954: port 3(veth29ec5b1) entered forwarding state
+[95572.067239] eth1: renamed from veth7fe4522
+[95573.638090] br-cf4ba9f6a954: port 1(veth908d7e2) entered disabled state
+[95573.638750] veth14e9d9d: renamed from eth0
+[95573.775246] br-cf4ba9f6a954: port 1(veth908d7e2) entered disabled state
+[95573.776732] veth908d7e2 (unregistering): left allmulticast mode
+[95573.776738] veth908d7e2 (unregistering): left promiscuous mode
+[95573.776745] br-cf4ba9f6a954: port 1(veth908d7e2) entered disabled state
+[95574.102803] br-cf4ba9f6a954: port 1(veth1d6bc00) entered blocking state
+[95574.102809] br-cf4ba9f6a954: port 1(veth1d6bc00) entered disabled state
+[95574.102822] veth1d6bc00: entered allmulticast mode
+[95574.102873] veth1d6bc00: entered promiscuous mode
+[95574.110072] br-cf4ba9f6a954: port 1(veth1d6bc00) entered blocking state
+[95574.110081] br-cf4ba9f6a954: port 1(veth1d6bc00) entered forwarding state
+[95574.154108] eth0: renamed from vetha87537c
+[95577.432756] WSL (2 - init-systemd(Ubuntu-24.04)) ERROR: WaitForBootProcess:3488: /sbin/init failed to start within 10000ms
+===== LIVE capture: streaming events + StartedAt sampler, 5 min =====
+s1 t=04:40:52 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s2 t=04:41:22 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s3 t=04:41:52 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s4 t=04:42:21 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s5 t=04:42:51 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s6 t=04:43:21 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s7 t=04:43:51 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s8 t=04:44:20 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s9 t=04:44:50 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+s10 t=04:45:19 ov_started=2026-09-29T04:40:31.736049396Z ov_health=200 running_containers=7
+-- captured events (filtered to compose stack) --
+1790656852 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656852 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656853 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790656853 health_status: healthy agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656857 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656857 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656857 exec_die agent-p2probe exit=0 signal=<no value>
+1790656871 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656871 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656872 exec_die agent-p2probe exit=0 signal=<no value>
+1790656882 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656882 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656882 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790656887 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656887 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656887 exec_die agent-p2probe exit=0 signal=<no value>
+1790656901 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656901 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656901 exec_die agent-p2probe exit=0 signal=<no value>
+1790656911 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656911 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656911 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790656916 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656916 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656916 exec_die agent-p2probe exit=0 signal=<no value>
+1790656931 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656931 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656931 exec_die agent-p2probe exit=0 signal=<no value>
+1790656941 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656941 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656941 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790656946 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656946 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656946 exec_die agent-p2probe exit=0 signal=<no value>
+1790656960 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656960 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656960 exec_die agent-p2probe exit=0 signal=<no value>
+1790656970 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656970 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656970 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790656975 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656975 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656975 exec_die agent-p2probe exit=0 signal=<no value>
+1790656989 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656989 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790656990 exec_die agent-p2probe exit=0 signal=<no value>
+1790656999 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790656999 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790657000 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790657005 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790657005 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790657005 exec_die agent-p2probe exit=0 signal=<no value>
+1790657020 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790657020 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790657020 exec_die agent-p2probe exit=0 signal=<no value>
+1790657029 exec_create: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790657029 exec_start: openviking-entrypoint --healthcheck agent-docker-demo-openviking-1 exit=<no value> signal=<no value>
+1790657029 exec_die agent-docker-demo-openviking-1 exit=0 signal=<no value>
+1790657034 exec_create: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+1790657034 exec_start: /bin/sh -c curl -fsS -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/health || exit 1 agent-p2probe exit=<no value> signal=<no value>
+-- captured event action histogram --
+     30 exec_start:
+     30 exec_die
+     30 exec_create:
+      1 health_status:
+-- total captured lines --
+91
+===== post-watch state + embedding errors in the last 6 min =====
+ov started=2026-09-29T04:40:31.736049396Z health=healthy restarts=0
+0
+===== P414-DONE =====

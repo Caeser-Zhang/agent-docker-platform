@@ -1,0 +1,131 @@
+########## stage A6.1: vector_count after fs purge ##########
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 72, in map_httpcore_exceptions
+    yield
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 377, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/app/services/ov_access.py", line 167, in _admin_post
+    response = await client.post(url, json=body, headers=headers)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1905, in post
+    return await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1585, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1674, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1702, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1739, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1776, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 376, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 89, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<stdin>", line 15, in <module>
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "<stdin>", line 7, in main
+  File "/app/app/services/ov_access.py", line 269, in user_api_key
+    await _register_user(user_id)
+  File "/app/app/services/ov_access.py", line 225, in _register_user
+    await ensure_account()
+  File "/app/app/services/ov_access.py", line 207, in ensure_account
+    status, payload = await _admin_post(
+                      ^^^^^^^^^^^^^^^^^^
+  File "/app/app/services/ov_access.py", line 169, in _admin_post
+    raise OvUnavailable(f"cannot reach OpenViking at {url}: {exc}") from exc
+app.services.ov_access.OvUnavailable: cannot reach OpenViking at http://openviking:1933/api/v1/admin/accounts: All connection attempts failed
+
+########## stage A6.2: remove agent-p2probe + volumes ##########
+agent-p2probe
+agent-data-p2probe
+agent-ws-p2probe
+rm rc=0
+
+########## stage A6.3: remove orphan openviking container ##########
+openviking
+rm rc=0
+
+########## stage A6.4: retired WSL dev instance residue ##########
+-- processes still using ~/.openviking? --
+root         834  0.5  0.0   2672  1772 ?        Ss   18:37   0:00 /bin/sh /usr/local/bin/openviking-entrypoint
+root        1284 75.4  1.9 462412 312176 ?       Rl   18:37   0:12 /app/.venv/bin/python /app/.venv/bin/openviking-server --host 0.0.0.0 --port 1933 --with-bot
+-- removing user-owned parts --
+  rm rc=0
+-- root-owned parts (data/, ovcli.settings.conf) --
+  SKIP: passwordless sudo unavailable — needs manual: sudo rm -rf ~/.openviking/data ~/.openviking/ovcli.settings.conf
+total 16
+drwx------  3 zhangzhixiao zhangzhixiao 4096 Sep 29 18:37 .
+drwxr-x--- 23 zhangzhixiao zhangzhixiao 4096 Sep 22 20:42 ..
+drwxr-xr-x  6 root         root         4096 Sep 23 09:44 data
+-rw-r--r--  1 root         root           25 Sep 23 09:48 ovcli.settings.conf
+
+########## stage A6.5: verify ##########
+agent-docker-demo-backend-1	Up 18 seconds
+agent-docker-demo-openviking-1	Up 18 seconds (health: starting)
+agent-3c2e2f2a-9628-462a-876b-a23b6d675a34	Exited (137) 25 hours ago
+agent-docker-demo-frontend-1	Up 18 seconds
+agent-f4f5d8ce-f63d-475b-a083-5a0113f66a9b	Exited (137) 8 days ago
+agent-f0b2f7e5-2a0e-4272-82c5-a28e9182f9a1	Exited (137) 9 days ago
+agent-docker-demo-searxng-1	Up 18 seconds
+agent-docker-demo-demo-mcp-1	Up 18 seconds
+agent-20873ad8-a6dd-44b6-8d4e-03f62d9e43df	Exited (137) 2 weeks ago
+agent-92396af7-6562-4c67-901e-ba6ca2c24fca	Exited (137) 2 weeks ago
+agent-982aafb0-23cf-4c28-84f2-a21a1e7f2a80	Exited (137) 3 weeks ago
+agent-docker-demo-postgres-1	Up 18 seconds
+---
+agent-test-data
+agent-test-ws
+DONE_A6

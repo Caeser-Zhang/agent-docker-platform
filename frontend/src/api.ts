@@ -383,6 +383,30 @@ export interface AdminOverview {
   };
 }
 
+/** 管理页「记忆访问」：一名平台用户的 OpenViking 记忆访问凭据。 */
+export interface OvMemoryAccessRow {
+  user_id: string;
+  username: string | null;
+  uid: string | null;
+  /** 平台角色 "user" | "admin"。 */
+  role: string;
+  /** agent_containers 记录状态；null = 无容器记录。 */
+  container_status: string | null;
+  container_name: string | null;
+  /** false = 该用户从未使用过记忆服务（未在 OV 注册，Studio 里无内容）。 */
+  ov_registered: boolean;
+  ov_role: string | null;
+  /** 明文 user key（仅 admin 可见）——复制进 Studio 登录表单的 apiKey 字段。 */
+  api_key: string | null;
+}
+
+export interface OvMemoryAccess {
+  enabled: boolean;
+  /** Studio 登录表单的 accountId 字段必须填这个值。 */
+  account_id: string;
+  users: OvMemoryAccessRow[];
+}
+
 // --- PPTX 模板库（named volume 单副本共享，容器侧只读挂载） ----------------
 // 模板字节不进用户工作区：后端把它们放在 agent-pptx-lib 卷上，用户容器以 ro
 // 方式挂载同一路径，所以 N 个用户只占 1 份空间。API 返回的 path 是容器内路径，
@@ -1080,6 +1104,11 @@ export const api = {
 
   async adminDestroyContainer(userId: string): Promise<{ ok: boolean; message: string }> {
     return apiCall(`/admin/containers/${userId}/destroy`, { method: "POST" });
+  },
+
+  /** 管理页「记忆访问」：按用户名/工号列出用户的 OpenViking key（q 为可选过滤，前端也可客户端过滤）。 */
+  async getAdminOvMemoryAccess(q?: string): Promise<OvMemoryAccess> {
+    return apiCall(`/admin/ov/memory-access${q ? `?q=${encodeURIComponent(q)}` : ""}`);
   },
 
   // --- UX feedback (任务一：点赞/点踩) ------------------------------------

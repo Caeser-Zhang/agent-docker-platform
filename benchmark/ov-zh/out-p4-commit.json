@@ -1,0 +1,31 @@
+{
+ "checks": {
+  "P4-06 commit<=30s": [
+   20.8,
+   "PASS"
+  ]
+ },
+ "direct_url": "http://openviking:1933",
+ "elapsed_s": 20.8,
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"p4-comm",
+  "http": 200
+ },
+ "label": "p4-commit",
+ "nonce": "p4commit1790652903",
+ "poll_interval_s": 2.0,
+ "polls": 9,
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "recallable_after_s": 20.8,
+ "remember_accepted_ms": 83.7,
+ "remember_http": 200,
+ "remember_response": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Stored 2 message(s) and committed for memory extraction.\"}], \"structuredContent\": {\"result\": \"Stored 2 message(s) and committed for memory extraction.\"}, \"isError\": false}}",
+ "remember_tool_error": null,
+ "suite": "commit",
+ "ts": "2026-09-29T03:35:03",
+ "user": "p4-commit",
+ "vector_count_after": 312,
+ "vector_count_before": 310
+}

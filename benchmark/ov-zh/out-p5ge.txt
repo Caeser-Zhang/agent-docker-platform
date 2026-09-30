@@ -1,0 +1,75 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T09:58:02Z
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage 1: baseline — marker + tree snapshot (backend direct path) ##########
+{
+ "write_marker_status": 200,
+ "read_marker": {
+  "status": 200,
+  "identical": true
+ },
+ "tree_status": 200,
+ "tree_leaf_count": 12
+}
+VALID stage1
+
+########## stage 2: old container fingerprint ##########
+  old id      = 7940a10b143a660331da9d0970dace3b2dbd6c487ee5441408a6c052ae394858
+  old created = 2026-09-29T09:40:49.222838441Z
+  env OPENVIKING_AUTH_MODE len=7
+  env OPENVIKING_API_KEY len=100
+  env OPENVIKING_CLI_CONFIG_FILE len=48
+  env OPENVIKING_URL len=22
+  env OPENVIKING_MCP_URL len=26
+
+########## stage 3: destroy the container (volumes survive) ##########
+agent-p2probe
+  container removed; workspace/data volumes untouched
+  volume kept: agent-data-p2probe
+  volume kept: agent-ws-p2probe
+VALID stage3
+
+########## stage 4: rebuild through the platform path (ensure_container) ##########
+  ensure_container: name=agent-p2probe ret2=AFtjFAuA2Dc6CDIi3IiMiMJktlcn211WyNQqtecccVc ret3=True
+  new container image id: sha256:93d984254d3e403f68f5dcb4032bea323950be53ff54ea01c0d511a214de0bd3
+VALID stage4
+
+########## stage 5: new container fingerprint + env + token decode ##########
+  new id      = 3779a848d288cbc7ec2efab624e259dc2861572dca834621ae4a9f200f2e6c44
+  new created = 2026-09-29T09:58:22.027075242Z
+  identity_changed = yes
+  env OPENVIKING_AUTH_MODE len=7
+  env OPENVIKING_API_KEY len=100
+  env OPENVIKING_CLI_CONFIG_FILE len=48
+  env OPENVIKING_URL len=22
+  env OPENVIKING_MCP_URL len=26
+  token decodes to ovproxy:p2probe: True
+VALID stage5
+
+########## stage 6: memory survived — agent channel + backend direct ##########
+  -- agent channel MCP read of the marker (via backend /ov/mcp):
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"# 容器重建记忆存续探针 P5-07\n\n长江是亚洲第一长河，全长约六千三百公里。\n京杭大运河是世界上最长的人工运河，沟通海河、黄河、淮河、长江与钱塘江。"}],"isError":false}}
+
+
+  -- backend direct read + tree comparison:
+{
+ "read_marker_after_rebuild": {
+  "status": 200,
+  "identical": true
+ },
+ "tree_after_leaf_count": 12,
+ "tree_identical": true
+}
+VALID stage6
+
+########## stage 7: cleanup the probe marker ##########
+{
+ "delete_marker": 200,
+ "read_after_delete": 404
+}
+VALID stage7
+DONE_P5GE at=2026-09-29T09:58:26Z

@@ -1,0 +1,435 @@
+PASS T1a opencode harness timeoutMs -> 30000 (expect 30000)
+PASS T1b recallTimeoutMs -> 120000 (expect 120000)
+PASS T1c recallContextTimeoutMs (0 = derive) -> 0 (expect 0)
+PASS T1d mcpToolCallTimeoutMs -> 60000 (expect 60000)
+PASS T1e OPENVIKING_TIMEOUT_MS overrides the harness value -> 4000 (expect 4000)
+PASS T1f recall enabled + minQueryLength -> [true,true,2] (expect [true,true,2])
+PASS T1g endpoint comes from OPENVIKING_URL -> "http://127.0.0.1:18099" (expect 127.0.0.1:18099)
+PASS D2a fetchJSON resolves (no throw) on a dead port -> null (expect null)
+PASS D2b envelope is ok:false / status:0 -> [false,0] (expect [false,0])
+PASS D2c not mislabelled as a timeout -> undefined (expect undefined)
+PASS D2d message names the transport failure -> "fetch failed" (expect ECONNREFUSED|fetch failed)
+PASS D2e fails at once, no 3s stall -> 53 (expect <1000ms)
+PASS D5 recall degrades to null on a dead port -> [null,null] (expect [null,null])
+PASS D7a hook degrades to undefined on a dead port -> [null,null] (expect [null,undefined])
+PASS D7b the hook costs ~0s, not 30s -> 2 (expect <1000ms)
+PASS D9 makeRequest rejects with an actionable message -> "OpenViking service unavailable at http://127.0.0.1:18099. Start it with: openviking-server --config ~/.openviking/ov.conf" (expect OpenViking service unavailable ...)
+
+listening: blackhole=18099 halfDead=18098
+
+PASS H2a fetchJSON resolves (no throw) against a hung server -> null (expect null)
+PASS H2b envelope is ok:false / status:0 -> [false,0] (expect [false,0])
+PASS H2c failure is labelled an abort, not a mystery -> ["AbortError",true] (expect ["AbortError",true])
+PASS H2d abort lands at the requested deadline -> 3005 (expect ~3000ms)
+PASS H2e the request really reached the server -> 1 (expect >=1)
+PASS H3 timeoutMs:1 is clamped up to MIN_TIMEOUT_MS=1000 -> 1002 (expect ~1000ms)
+PASS H4 defaultTimeoutMs is config.timeoutMs -> 4001 (expect ~4000ms)
+PASS H5a recall against a fully hung server returns null, not a throw -> [null,null] (expect [null,null])
+PASS H5b the ladder stays under the 30s ceiling -> 15005 (expect <30000ms)
+  H5 legs=4 ["POST /api/v1/search/search","POST /api/v1/search/recall","POST /api/v1/search/find","POST /api/v1/search/find"] wall=15005ms
+  H5 stages=["recall_context_face_error@5003","recall_endpoint_fallback@10004","recall_search_summary@15005"]
+PASS H6a recall against a half-dead server returns null, not a throw -> [null,null] (expect [null,null])
+PASS H6b the search leg was really attempted -> 4 (expect >=1)
+  H6 legs=4 ["POST /api/v1/search/search","POST /api/v1/search/recall","POST /api/v1/search/find","POST /api/v1/search/find"] wall=15004ms
+  H6 stages=["recall_context_face_error@5002","recall_endpoint_fallback@10003","recall_search_summary@15004"]
+PASS H7a hook against a hung server resolves undefined (no throw) -> [null,null] (expect [null,undefined])
+PASS H7b the /health gate really fired -> 1 (expect >=1)
+PASS H7c a fully hung server costs the hook ~5s, not the 30s default -> 5001 (expect ~5000ms)
+PASS H8a injectRelevantMemories against a half-dead server does not throw -> null (expect null)
+PASS H8b nothing was injected into the turn -> 1 (expect 1)
+PASS H8c a half-dead server keeps the turn under the 30s ceiling -> 15029 (expect <30000ms)
+  H8 legs=5 ["GET /health","POST /api/v1/search/search","POST /api/v1/search/recall","POST /api/v1/search/find","POST /api/v1/search/find"] wall=15029ms
+PASS H9 makeRequest rejects with a timeout message -> "Request timeout after 2000ms" (expect Request timeout after 2000ms)
+
+request counts: {"bh":9,"hd":9,"hdHealth":1,"hdOther":8}
+open sockets still tracked: 3
+
+P411-SUMMARY 34/34 PASS
+{
+ "suite": "p4-11-timeout-degrade",
+ "results": [
+  {
+   "id": "T1a",
+   "name": "opencode harness timeoutMs",
+   "value": 30000,
+   "expect": 30000,
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1b",
+   "name": "recallTimeoutMs",
+   "value": 120000,
+   "expect": 120000,
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1c",
+   "name": "recallContextTimeoutMs (0 = derive)",
+   "value": 0,
+   "expect": 0,
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1d",
+   "name": "mcpToolCallTimeoutMs",
+   "value": 60000,
+   "expect": 60000,
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1e",
+   "name": "OPENVIKING_TIMEOUT_MS overrides the harness value",
+   "value": 4000,
+   "expect": 4000,
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1f",
+   "name": "recall enabled + minQueryLength",
+   "value": [
+    true,
+    true,
+    2
+   ],
+   "expect": "[true,true,2]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "T1g",
+   "name": "endpoint comes from OPENVIKING_URL",
+   "value": "http://127.0.0.1:18099",
+   "expect": "127.0.0.1:18099",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D2a",
+   "name": "fetchJSON resolves (no throw) on a dead port",
+   "value": null,
+   "expect": "null",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D2b",
+   "name": "envelope is ok:false / status:0",
+   "value": [
+    false,
+    0
+   ],
+   "expect": "[false,0]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D2c",
+   "name": "not mislabelled as a timeout",
+   "expect": "undefined",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D2d",
+   "name": "message names the transport failure",
+   "value": "fetch failed",
+   "expect": "ECONNREFUSED|fetch failed",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D2e",
+   "name": "fails at once, no 3s stall",
+   "value": 53,
+   "expect": "<1000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D5",
+   "name": "recall degrades to null on a dead port",
+   "value": [
+    null,
+    null
+   ],
+   "expect": "[null,null]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D7a",
+   "name": "hook degrades to undefined on a dead port",
+   "value": [
+    null,
+    null
+   ],
+   "expect": "[null,undefined]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D7b",
+   "name": "the hook costs ~0s, not 30s",
+   "value": 2,
+   "expect": "<1000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "D9",
+   "name": "makeRequest rejects with an actionable message",
+   "value": "OpenViking service unavailable at http://127.0.0.1:18099. Start it with: openviking-server --config ~/.openviking/ov.conf",
+   "expect": "OpenViking service unavailable ...",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H2a",
+   "name": "fetchJSON resolves (no throw) against a hung server",
+   "value": null,
+   "expect": "null",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H2b",
+   "name": "envelope is ok:false / status:0",
+   "value": [
+    false,
+    0
+   ],
+   "expect": "[false,0]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H2c",
+   "name": "failure is labelled an abort, not a mystery",
+   "value": [
+    "AbortError",
+    true
+   ],
+   "expect": "[\"AbortError\",true]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H2d",
+   "name": "abort lands at the requested deadline",
+   "value": 3005,
+   "expect": "~3000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H2e",
+   "name": "the request really reached the server",
+   "value": 1,
+   "expect": ">=1",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H3",
+   "name": "timeoutMs:1 is clamped up to MIN_TIMEOUT_MS=1000",
+   "value": 1002,
+   "expect": "~1000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H4",
+   "name": "defaultTimeoutMs is config.timeoutMs",
+   "value": 4001,
+   "expect": "~4000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H5a",
+   "name": "recall against a fully hung server returns null, not a throw",
+   "value": [
+    null,
+    null
+   ],
+   "expect": "[null,null]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H5b",
+   "name": "the ladder stays under the 30s ceiling",
+   "value": 15005,
+   "expect": "<30000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H6a",
+   "name": "recall against a half-dead server returns null, not a throw",
+   "value": [
+    null,
+    null
+   ],
+   "expect": "[null,null]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H6b",
+   "name": "the search leg was really attempted",
+   "value": 4,
+   "expect": ">=1",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H7a",
+   "name": "hook against a hung server resolves undefined (no throw)",
+   "value": [
+    null,
+    null
+   ],
+   "expect": "[null,undefined]",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H7b",
+   "name": "the /health gate really fired",
+   "value": 1,
+   "expect": ">=1",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H7c",
+   "name": "a fully hung server costs the hook ~5s, not the 30s default",
+   "value": 5001,
+   "expect": "~5000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H8a",
+   "name": "injectRelevantMemories against a half-dead server does not throw",
+   "value": null,
+   "expect": "null",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H8b",
+   "name": "nothing was injected into the turn",
+   "value": 1,
+   "expect": 1,
+   "verdict": "PASS"
+  },
+  {
+   "id": "H8c",
+   "name": "a half-dead server keeps the turn under the 30s ceiling",
+   "value": 15029,
+   "expect": "<30000ms",
+   "verdict": "PASS"
+  },
+  {
+   "id": "H9",
+   "name": "makeRequest rejects with a timeout message",
+   "value": "Request timeout after 2000ms",
+   "expect": "Request timeout after 2000ms",
+   "verdict": "PASS"
+  }
+ ],
+ "counts": {
+  "bh": 9,
+  "hd": 9,
+  "hdHealth": 1,
+  "hdOther": 8
+ },
+ "seen": [
+  {
+   "which": "bh",
+   "method": "POST",
+   "url": "/api/v1/search/search",
+   "at_ms": 110
+  },
+  {
+   "which": "bh",
+   "method": "GET",
+   "url": "/health",
+   "at_ms": 3108
+  },
+  {
+   "which": "bh",
+   "method": "GET",
+   "url": "/health",
+   "at_ms": 4107
+  },
+  {
+   "which": "bh",
+   "method": "POST",
+   "url": "/api/v1/search/search",
+   "at_ms": 8111
+  },
+  {
+   "which": "bh",
+   "method": "POST",
+   "url": "/api/v1/search/recall",
+   "at_ms": 13112
+  },
+  {
+   "which": "bh",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 18114
+  },
+  {
+   "which": "bh",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 18114
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/search",
+   "at_ms": 23115
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/recall",
+   "at_ms": 28116
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 33119
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 33119
+  },
+  {
+   "which": "bh",
+   "method": "GET",
+   "url": "/health",
+   "at_ms": 38119
+  },
+  {
+   "which": "hd",
+   "method": "GET",
+   "url": "/health",
+   "at_ms": 43121
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/search",
+   "at_ms": 43140
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/recall",
+   "at_ms": 48142
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 53148
+  },
+  {
+   "which": "hd",
+   "method": "POST",
+   "url": "/api/v1/search/find",
+   "at_ms": 53148
+  },
+  {
+   "which": "bh",
+   "method": "GET",
+   "url": "/health",
+   "at_ms": 58152
+  }
+ ]
+}
+P411-DONE
+RC=0

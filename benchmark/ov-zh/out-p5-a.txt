@@ -1,0 +1,248 @@
+############ [0] preconditions ############
+  now_utc=2026-09-29T05:40:55Z
+  agent-docker-demo-backend-1|Up 16 seconds
+  agent-docker-demo-demo-mcp-1|Up 16 seconds
+  agent-docker-demo-frontend-1|Up 16 seconds
+  agent-docker-demo-openviking-1|Up 16 seconds (health: starting)
+  agent-docker-demo-postgres-1|Up 16 seconds
+  agent-docker-demo-searxng-1|Up 16 seconds
+  agent-p2probe|Up 16 seconds (healthy)
+  --- A container (agent-p2probe) OPENVIKING_* env, key redacted ---
+  OPENVIKING_API_KEY=<redacted>
+  OPENVIKING_AUTH_MODE=api_key
+  OPENVIKING_CLI_CONFIG_FILE=/opt/agent/builtin-plugins/openviking/ovcli.conf
+  OPENVIKING_MCP_URL=http://backend:8000/ov/mcp
+  OPENVIKING_URL=http://backend:8000/ov
+  proxy_token_len=100
+
+############ [1] P5-01 cross-user content/read + fs/ls over the proxy ############
+  -- [1a] REST: user A reading user B (ovzh-eval) --
+  A->B content/read memories/identity.md     http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A->B fs/ls memories                        http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A->B fs/ls user root                       http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A->B fs/ls (percent-encoded)               http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1b] REST: control, user A reading itself --
+  A->A content/read identity.md              http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A->A fs/ls memories                        http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1c] REST: home-alias '~' must resolve to A, never to B --
+  A->~ fs/ls viking://~/memories             http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A->~ content/read ~/memories/identity      http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1d] REST: search with an explicit cross-user target_uri --
+  A search target_uri=B/memories             http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A find   target_uri=B/memories             http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1e] MCP tools/call read with a cross-user uri --
+  A mcp read uri=B/memories/identity.md      http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A mcp list uri=viking://user/ovzh-eval     http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  A mcp tree uri=viking://user/ovzh-eval     http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1f] MCP control: same calls on A's own space --
+  A mcp list uri=viking://user/p2probe       http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- [1g] does a plain semantic search leak B's distinctive corpus? --
+  A search B-only marker (中文评测集)   http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+
+############ [2] P5-02 proxy-token forgery / truncation / cross-token reuse ############
+  T0 valid token (control)                 http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  T1 empty token                           http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T2 last char flipped                     http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T3 first char flipped                    http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T4 truncated to 32 chars                 http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T5 literal 'ovproxy:p2probe'             http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T6 prefix-stripped plaintext             http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T7 garbage                               http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  T8 valid token via Authorization         http=503  {"error":{"message":"记忆服务当前不可用，请稍后重试。"}}
+  -- T9 same URL, token in Authorization: Bearer instead of X-API-Key --
+     http=503
+  -- T10 both headers, X-API-Key bogus + Authorization valid --
+     http=401  {"error":{"message":"无效的记忆服务访问凭据，请联系管理员重建容器。"}}
+  -- T11 token in query string must NOT authenticate --
+     http=401
+
+############ [3] P5-03 header escalation: identity headers + foreign keys ############
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 72, in map_httpcore_exceptions
+      yield
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 377, in handle_async_request
+      resp = await self._pool.handle_async_request(req)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+      raise exc from None
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+      response = await connection.handle_async_request(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+      raise exc
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+      stream = await self._connect(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+      stream = await self._network_backend.connect_tcp(**kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+      return await self._backend.connect_tcp(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+      with map_exceptions(exc_map):
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+      self.gen.throw(value)
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+      raise to_exc(exc) from exc
+  httpcore.ConnectError: All connection attempts failed
+  
+  The above exception was the direct cause of the following exception:
+  
+  Traceback (most recent call last):
+    File "/app/app/services/ov_access.py", line 167, in _admin_post
+      response = await client.post(url, json=body, headers=headers)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1905, in post
+      return await self.request(
+             ^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1585, in request
+      return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1674, in send
+      response = await self._send_handling_auth(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1702, in _send_handling_auth
+      response = await self._send_handling_redirects(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1739, in _send_handling_redirects
+      response = await self._send_single_request(request)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1776, in _send_single_request
+      response = await transport.handle_async_request(request)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 376, in handle_async_request
+      with map_httpcore_exceptions():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+      self.gen.throw(value)
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 89, in map_httpcore_exceptions
+      raise mapped_exc(message) from exc
+  httpx.ConnectError: All connection attempts failed
+  
+  The above exception was the direct cause of the following exception:
+  
+  Traceback (most recent call last):
+    File "<stdin>", line 17, in <module>
+    File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+      return runner.run(main)
+             ^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+      return self._loop.run_until_complete(task)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+      return future.result()
+             ^^^^^^^^^^^^^^^
+    File "<stdin>", line 6, in main
+    File "/app/app/services/ov_access.py", line 269, in user_api_key
+      await _register_user(user_id)
+    File "/app/app/services/ov_access.py", line 225, in _register_user
+      await ensure_account()
+    File "/app/app/services/ov_access.py", line 207, in ensure_account
+      status, payload = await _admin_post(
+                        ^^^^^^^^^^^^^^^^^^
+    File "/app/app/services/ov_access.py", line 169, in _admin_post
+      raise OvUnavailable(f"cannot reach OpenViking at {url}: {exc}") from exc
+  app.services.ov_access.OvUnavailable: cannot reach OpenViking at http://openviking:1933/api/v1/admin/accounts: All connection attempts failed
+  -- [3a] A's proxy token + forged OpenViking identity headers --
+  H1 +X-OpenViking-Account: ovzh-eval            http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H2 +X-OpenViking-User: ovzh-eval               http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H3 +X-OpenViking-Actor-Peer: ovzh-eval         http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H4 +all three identity headers                 http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H5 +X-OpenViking-User: platform-admin          http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H6 +X-OpenViking-Account: agent-platform       http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  -- [3b] A's proxy token + a FOREIGN real key smuggled in a second header --
+  H7 +X-API-Key(B's real key) 2nd hdr            http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H8 +Authorization Bearer B key                 http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H9 +Authorization Bearer ROOT key              http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H10 +X-API-Key(ROOT key)                       http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  H11 +X-API-Key(admin key)                      http=403  {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access denied for viking://user/ovzh-eval/memories","details":{"resource":"viking://user/ovzh-eval/memories"}},"telemetry":null,"profile":null}
+  -- [3c] control: the SAME foreign keys used DIRECTLY against openviking:1933 --
+  DIRECT B key -> B/memories                     http=401  {"status":"error","result":null,"error":{"code":"UNAUTHENTICATED","message":"Missing API Key when resolving identity.","details":{}},"telemetry":null,"profile":
+  DIRECT ADMIN key -> B/memories                 http=401  {"status":"error","result":null,"error":{"code":"UNAUTHENTICATED","message":"Missing API Key when resolving identity.","details":{}},"telemetry":null,"profile":
+  DIRECT ROOT key -> B/memories                  http=401  {"status":"error","result":null,"error":{"code":"UNAUTHENTICATED","message":"Missing API Key when resolving identity.","details":{}},"telemetry":null,"profile":
+  -- [3d] is A's PROXY TOKEN itself a valid OpenViking key? (must be 401) --
+  DIRECT proxy token -> openviking:1933          http=401  {"status":"error","result":null,"error":{"code":"UNAUTHENTICATED","message":"Invalid API Key","details":{}},"telemetry":null,"profile":null}
+  -- [3e] can A reach openviking:1933 directly at all? (network policy) --
+  A -> openviking:1933/health (no key)           http=200
+
+############ [4] P5-04 Admin / debug / console unreachable through the proxy ############
+  R01 /ov/api/v1/admin/accounts                http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R02 /ov/api/v1/admin/accounts/<acct>         http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R03 /ov/api/v1/admin/../admin/accts          http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R04 /ov/api/v1/debug/vector/count            http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R05 /ov/api/v1/stats/memories                http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R06 /ov/console                              http=404  {"detail":"Not Found"}
+  R07 /ov/metrics                              http=404  {"detail":"Not Found"}
+  R08 /ov/openapi.json                         http=404  {"detail":"Not Found"}
+  R09 /ov/docs                                 http=404  {"detail":"Not Found"}
+  R10 /ov/api/v1/sessions/x (allowed)          http=404  {"status":"error","error":{"code":"NOT_FOUND","message":"Session p5-probe-sid not found"}}
+  R11 /ov/api/v1/sessions/x/../admin           http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R12 /ov/api/v1/forget                        http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R13 /ov/api/v1/content/write                 http=404  {"error":{"message":"记忆服务不提供该接口。"}}
+  R14 /ov/api/v1/system/status (ok)            http=200  {"status":"ok","result":{"initialized":true,"user":"p2probe"},"error":null,"telemetry":null,"profile":null}
+  R15 /ov/health (ok)                          http=200  {"status":"ok","healthy":true,"version":"v0.4.21","auth_mode":"api_key","account_id":"agent-platform","user_id":"p2probe","role":"user"}
+  -- MCP tool-level denials (expect JSON-RPC -32601 inside HTTP 200) --
+  M01 tools/call forget                        {"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"平台未开放记忆工具 forget。"}}
+  M02 tools/call cancel_watch                  {"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"平台未开放记忆工具 cancel_watch。"}}
+  M03 tools/call add_account                   {"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"平台未开放记忆工具 add_account。"}}
+  M04 tools/call delete_resource               {"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"平台未开放记忆工具 delete_resource。"}}
+  -- tools/list is NOT filtered by design (documents the gap) --
+     "name":"add_resource"
+     "name":"cancel_watch"
+     "name":"edit"
+     "name":"find"
+     "name":"forget"
+     "name":"glob"
+     "name":"grep"
+     "name":"health"
+     "name":"list"
+     "name":"list_watches"
+     "name":"read"
+     "name":"remember"
+     "name":"search"
+     "name":"tree"
+     "name":"write"
+
+############ [5] P5-05 ROOT key must not exist inside the container ############
+  env: FASTK_API_KEY=<redacted>
+  env: OPENVIKING_API_KEY=<redacted>
+  env: OPENVIKING_AUTH_MODE=api_key
+  env: OPENVIKING_CLI_CONFIG_FILE=/opt/agent/builtin-plugins/openviking/ovcli.conf
+  env: OPENVIKING_MCP_URL=http://backend:8000/ov/mcp
+  env: OPENVIKING_URL=http://backend:8000/ov
+  --- literal root-key value present anywhere in the container fs? ---
+  (root key unavailable for comparison)
+  --- what credential material DOES the container hold? ---
+  file=/data/config/opencode/opencode.json
+    "apiKey": "21a57a67<redacted>"
+  file=/opt/agent/builtin-plugins/openviking/ovcli.conf
+  --- OPENVIKING_API_KEY is a Fernet proxy token, not an OV key: prefix/len ---
+    head=gAAAAA len=100
+
+############ [6] P5-06 role boundary matrix (ROOT / ADMIN / USER) ############
+  PROBE                                                          ROOT                       ADMIN                      USER
+  GET /api/v1/admin/accounts                                     200                        403                        403
+  GET /api/v1/admin/accounts/agent-platform                      405                        405                        405
+  GET /api/v1/admin/accounts/agent-platform/users                200                        200                        403
+  GET /api/v1/stats/memories                                     403                        200                        200
+  GET /api/v1/debug/vector/count                                 403                        200                        200
+  GET /api/v1/system/status                                      200                        200                        200
+  GET /api/v1/fs/ls?uri=viking://user/ovzh-eval/memories         403                        403                        403
+  GET /api/v1/fs/ls?uri=viking://user/p2probe/memories           403                        403                        200
+  POST /api/v1/search/search                                     403                        200                        200
+  GET /api/v1/content/read?uri=viking://user/p2probe/memories/   403                        403                        200
+  GET /health                                                    200                        200                        200
+  
+    -- error bodies (one per role, on a tenant-scoped data API) --
+    ROOT                   http=403  code=PERMISSION_DENIED {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"ROOT API keys cannot access ten
+    ADMIN(platform-admin)  http=200  {"status":"ok","result":{"total_memories":651,"by_category":{"profile":5,"preferences":15,"entities":7,"events":10,"cases":598,"patterns":5,"tools":6,
+    USER(p2probe)          http=200  {"status":"ok","result":{"total_memories":651,"by_category":{"profile":5,"preferences":15,"entities":7,"events":10,"cases":598,"patterns":5,"tools":6,
+  
+    -- ADMIN scope: can platform-admin read ANOTHER user's space? --
+    ADMIN ls viking://user/ovzh-eval/memories         http=403  code=PERMISSION_DENIED {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access d
+    ADMIN ls viking://user/p2probe/memories           http=403  code=PERMISSION_DENIED {"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"Access d
+    ADMIN ls viking://agent                           http=200  {"status":"ok","result":[{"uri":"viking://agent/endpoints","size":0,"isDir":true,"modTime":"2026-09-28T06:40:0
+    ADMIN ls viking://resources                       http=200  {"status":"ok","result":[],"error":null,"telemetry":null,"profile":null}
+(end of Group A)

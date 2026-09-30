@@ -37,7 +37,7 @@ from docker.models.networks import Network
 from docker.models.volumes import Volume
 
 from ..config import settings
-from . import kb_access
+from . import kb_access, ov_access
 from .host_config import SKILLS_DIR
 from .opencode_config import (
     PLUGIN_CONFIG_FILENAME,
@@ -52,6 +52,13 @@ logger = logging.getLogger(__name__)
 # Where the entrypoint expects the injected config (must match agent-image).
 CONTAINER_CONFIG_DIR = "/data/config/opencode"
 CONTAINER_CONFIG_PATH = f"{CONTAINER_CONFIG_DIR}/opencode.json"
+
+# Read-only OpenViking plugin knob file baked into the agent image (must match
+# agent-image/Dockerfile). Named as a path rather than a setting because it is
+# part of the image layout, not of the deployment: moving it means rebuilding
+# the image, and a container pointing at a missing file would silently lose
+# `mcpEnabled: false` and spawn a local MCP proxy this image cannot run.
+OPENVIKING_PLUGIN_CONFIG = "/opt/agent/builtin-plugins/openviking/ovcli.conf"
 
 
 class ContainerManager:
@@ -454,6 +461,10 @@ class ContainerManager:
                 # style presets from here and must never write into it.
                 "PPTX_LIBRARY_DIR": settings.pptx_library_dir,
                 "PPTX_STYLES_DIR": f"{settings.pptx_library_dir}/styles",
+                # OpenViking memory service. Empty while the platform switch is
+                # off, so _ov_env_stale() never recreates containers for a
+                # feature that is disabled.
+                **self._openviking_env(user_id),
             },
             # --- Restart policy ---
             "restart_policy": {"Name": "unless-stopped"},
@@ -476,6 +487,52 @@ class ContainerManager:
                 "mount-fingerprint": self._mount_fingerprint(),
             },
             "detach": True,
+        }
+
+    def _openviking_env(self, user_id: str) -> dict:
+        """Container env for the shared memory service ({} when switched off).
+
+        ``OPENVIKING_API_KEY`` is NOT an OpenViking key. Like ``FASTK_API_KEY``
+        it is an opaque token encoding the bearer's own user id, and
+        :mod:`app.routers.ov_proxy` swaps it for that user's real — derived,
+        never stored — OpenViking key when forwarding. The container therefore
+        holds nothing that reaches another user's memories. The name is the
+        plugin's own (``lib/shared/credentials.mjs`` reads it verbatim), which
+        is why a token that is not a key travels under a key-shaped variable.
+
+        Two URLs because the agent reaches memory over two channels: the MCP
+        client uses ``OPENVIKING_MCP_URL`` (the same token is also stamped into
+        ``mcp.openviking.headers`` in opencode.json, see
+        :func:`opencode_config.build_container_config`), while the OpenViking
+        plugin's own REST calls — auto-recall, auto-capture, profile injection
+        — append ``/api/v1/...`` to ``OPENVIKING_URL``.
+
+        ``OPENVIKING_CLI_CONFIG_FILE`` points at a read-only knob file baked
+        into the image. It cannot live at the plugin's default
+        ``~/.openviking/ovcli.conf``: ``/home/agent`` is a tmpfs, so anything
+        there is both per-container and wiped on restart. The file carries the
+        knobs that have no environment variable — chiefly ``mcpEnabled:
+        false``, without which the plugin replaces our remote MCP entry with
+        its own ``node servers/mcp-proxy.mjs`` local one, and there is no node
+        on this image's PATH.
+
+        ``OPENVIKING_AUTH_MODE`` pins ``api_key`` so the plugin never sends
+        ``X-OpenViking-Account`` / ``-User`` identity headers: the real identity
+        is inside the key the proxy injects, and a container-supplied one would
+        be a lie. Setting a credential env var at all also keeps the chain
+        unpinned, so the knob file contributes settings and never credentials.
+
+        Every value here is checked by :meth:`_ov_env_stale`, because Docker
+        never refreshes the env of an existing container.
+        """
+        if not settings.openviking_enabled:
+            return {}
+        return {
+            "OPENVIKING_URL": settings.openviking_rest_url,
+            "OPENVIKING_MCP_URL": settings.openviking_mcp_url,
+            "OPENVIKING_API_KEY": ov_access.issue_proxy_token(user_id),
+            "OPENVIKING_AUTH_MODE": "api_key",
+            "OPENVIKING_CLI_CONFIG_FILE": OPENVIKING_PLUGIN_CONFIG,
         }
 
     def _image_stale(self, client, container) -> bool:
@@ -517,6 +574,51 @@ class ContainerManager:
             return True
         return kb_access.verify_proxy_token(env.get("FASTK_API_KEY")) is None
 
+    def _ov_env_stale(self, container) -> bool:
+        """True when a container's memory-service env no longer works.
+
+        Three drifts matter, and none can be repaired in place because Docker
+        reuses creation-time env on ``start``/``restart``:
+
+        * A proxy URL moved (``AGENT_OPENVIKING_MCP_URL`` /
+          ``AGENT_OPENVIKING_REST_URL`` edited), so the container still dials
+          the old address.
+        * ``AGENT_SECRET_KEY`` was rotated. The proxy token is Fernet-sealed
+          with that key, so an old token now decrypts to garbage and every
+          memory call 401s — the same operational consequence
+          :mod:`app.crypto` already documents for encrypted DB fields.
+        * The provisioning itself changed shape. The rename from
+          ``OPENVIKING_PROXY_TOKEN`` to the plugin's ``OPENVIKING_API_KEY``, and
+          the addition of ``OPENVIKING_URL`` / ``OPENVIKING_AUTH_MODE`` /
+          ``OPENVIKING_CLI_CONFIG_FILE``, all land here as a missing or
+          mismatched variable — so every container built before the OpenViking
+          plugin was wired in recreates itself on next start instead of running
+          an agent that cannot reach memory.
+
+        As in :meth:`_fastk_env_stale` the token is validated by decoding it
+        back to a user id rather than compared literally: Fernet embeds a
+        timestamp, so re-minting always yields a different string. Any decodable
+        token is acceptable, because the proxy resolves the real OpenViking key
+        from the user id inside it.
+
+        Returns False while the feature is switched off — a leftover env block
+        is then inert (the MCP entry is dropped from the injected config), and
+        recreating every container for a disabled feature would be pure churn.
+        """
+        if not settings.openviking_enabled:
+            return False
+        env_list = (container.attrs.get("Config") or {}).get("Env") or []
+        env = dict(item.split("=", 1) for item in env_list if "=" in item)
+        if env.get("OPENVIKING_MCP_URL") != settings.openviking_mcp_url:
+            return True
+        if env.get("OPENVIKING_URL") != settings.openviking_rest_url:
+            return True
+        if env.get("OPENVIKING_AUTH_MODE") != "api_key":
+            return True
+        if env.get("OPENVIKING_CLI_CONFIG_FILE") != OPENVIKING_PLUGIN_CONFIG:
+            return True
+        return ov_access.verify_proxy_token(env.get("OPENVIKING_API_KEY")) is None
+
     def _mount_fingerprint(self) -> str:
         """Stable hash of the shared mount/tmpfs layout baked into every container.
 
@@ -547,6 +649,8 @@ class ContainerManager:
             return True, f"stale image (want {settings.agent_image})"
         if self._fastk_env_stale(container):
             return True, "stale fastk env (would bypass the KB whitelist proxy)"
+        if self._ov_env_stale(container):
+            return True, "stale openviking env (memory service unreachable or credential unusable)"
         labels = (container.attrs.get("Config") or {}).get("Labels") or {}
         if labels.get("mount-fingerprint") != self._mount_fingerprint():
             # Missing label == container predates the shared-library mount.
@@ -609,15 +713,23 @@ class ContainerManager:
         if container is not None:
             password = self._extract_password(container) or secrets.token_urlsafe(32)
             if container.status == "running":
-                # A running container is normally reused as-is, but a stale
-                # fastk env is a live access-control bypass (the CLI would reach
-                # the fastk server directly, ignoring the whitelist). Security wins
-                # over session continuity: recreate it now. User data survives
-                # in the named workspace/data volumes.
+                # A running container is normally reused as-is, but two env
+                # drifts cannot be repaired in place (Docker reuses creation-time
+                # env on start/restart): a stale fastk env is a live
+                # access-control bypass — the CLI would reach the fastk server
+                # directly, ignoring the whitelist — and a stale memory-service
+                # credential would 401 on every call forever. Security and
+                # correctness win over session continuity: recreate now. User
+                # data survives in the named workspace/data volumes.
+                reason = ""
                 if self._fastk_env_stale(container):
+                    reason = "bypasses the KB whitelist (stale fastk env)"
+                elif self._ov_env_stale(container):
+                    reason = "has an unusable memory-service credential (stale openviking env)"
+                if reason:
                     logger.warning(
-                        "Running container %s bypasses the KB whitelist (stale fastk env) — recreating",
-                        container_name,
+                        "Running container %s %s — recreating",
+                        container_name, reason,
                     )
                     container.remove(force=True)
                     container = None

@@ -1,0 +1,121 @@
+############ GATE
+gate_waited_rounds=4 ov_http=200 at=2026-09-29T06:47:42Z
+ov_health_body={"status":"ok","healthy":true,"version":"v0.4.21","auth_mode":"api_key"}
+ov_state_started=2026-09-29T06:47:22.814256403Z
+############ P5-09 version triple
+-- opencode (in container)
+1.18.25
+-- plugin package.json version + source commit
+name=@openviking/opencode-plugin version=2026.9.25-2 main=index.mjs oc-plugin=["server","tui"] srcCommit=3e02c6ac29842be214fa1560dfaf6ea39a69322c deps={}
+-- published files whitelist (does it ship tests/ ?)
+["index.mjs","lib/","servers/","scripts/","README.md","INSTALL.md","INSTALL-ZH.md"]
+tests_dir=ABSENT
+scripts_dir=PRESENT
+setup.mjs
+-- server image digest
+image_ref=ghcr.io/volcengine/openviking@sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05 image_id=sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05
+-- live REST handshake from A container through whitelist proxy
+{"status":"ok","healthy":true,"version":"v0.4.21","auth_mode":"api_key","account_id":"agent-platform","user_id":"p2probe","role":"user"}
+{"status":"ok","result":{"initialized":true,"user":"p2probe"},"error":null,"telemetry":null,"profile":null}
+-- live MCP handshake from A container (initialize + tools/list count)
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"experimental":{},"prompts":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"tools":{"listChanged":false}},"serverInfo":{"name":"openviking","version":"1.27.0"}}}
+
+
+-- plugin-resolved client identity under the container real env
+{
+ "clientVersion": "2026.9.25-2",
+ "userAgent": "openviking-memory-opencode/2026.9.25-2",
+ "harness": "opencode",
+ "endpoint": "http://backend:8000/ov",
+ "mcpUrl": "http://backend:8000/ov/mcp",
+ "authMode": "api_key",
+ "sendIdentityHeaders": false,
+ "credentialSource": "env",
+ "apiKeySource": "env",
+ "apiKeyLen": 100,
+ "account": "",
+ "user": "",
+ "mcpEnabled": false,
+ "dataDir": "/data/state/openviking",
+ "repoContext": false,
+ "autoRecall": true,
+ "autoCapture": true,
+ "timeoutMs": 30000,
+ "recallTimeoutMs": 120000,
+ "cliConfigPath": "/opt/agent/builtin-plugins/openviking/ovcli.conf",
+ "configPath": "/opt/agent/builtin-plugins/openviking/ovcli.conf",
+ "peerId": "",
+ "effectivePeer": {
+  "peerId": "",
+  "source": "none",
+  "origin": "unresolved",
+  "legacyPeerId": "-tmp"
+ }
+}
+############ P5-12 / P5-13 build gates re-run verbatim from Dockerfile
+extracted_gate_count=2
+set -e
+echo "-- gate 1 of 2"
+cd /opt/agent/builtin-plugins/present-file  && test -f index.js  && test -f package.json  && test -f manifest.json  && test -f node_modules/zod/package.json  &&
+echo "gate1=PASS"
+echo "-- gate 2 of 2"
+-- gate 1 of 2
+[build] present-file plugin OK, args: path,title,mode,focus,note
+gate1=PASS
+-- gate 2 of 2
+[build] openviking plugin OK: hook-only, env credentials, dataDir /data/state/openviking
+gate2=PASS
+gates_extracted=2
+GATES_RC=0
+############ P5-14 read-only rootfs
+-- container env (names + shape, values redacted)
+-- node on PATH? (mcp-config.mjs would spawn it if mcpEnabled were true)
+node=NOT_ON_PATH
+/usr/bin/python3
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+-- write probes (expect: /opt/agent RO, /library/pptx RO, /data RW, /workspace RW, /home/agent RW-tmpfs)
+WRITE_DENY /opt/agent
+WRITE_DENY /opt/agent/builtin-plugins/openviking
+WRITE_DENY /usr/local/bin
+WRITE_DENY /library/pptx
+WRITE_OK   /data
+WRITE_OK   /data/state
+WRITE_OK   /data/state/openviking
+WRITE_OK   /workspace
+WRITE_OK   /home/agent
+WRITE_OK   /home/agent/.openviking
+WRITE_OK   /tmp
+-- mount / rootfs facts
+ReadonlyRootfs=true Tmpfs={"/home/agent":"size=512m,uid=1000,gid=1000","/tmp":"size=256m"}
+-- what the plugin actually wrote, and where
+[/data/state/openviking]
+/data/state/openviking
+[/home/agent/.openviking]
+/home/agent/.openviking
+/home/agent/.openviking/state
+/home/agent/.openviking/state/ws-identity-e9671acd2448.json
+[/home/agent top]
+.
+..
+.gitconfig
+.openviking
+[/data top]
+.
+..
+cache
+config
+share
+state
+-- resolved state paths (dataDir vs the three tmpfs-bound ones)
+{
+ "resolveDataDir": "/data/state/openviking",
+ "workspaceStateDir": "/home/agent/.openviking/state",
+ "pendingDir": "no-export",
+ "debugLogPath": "/home/agent/.openviking/logs/opencode-plugin.log",
+ "writePathAsync": true,
+ "envStateDir": "(unset)",
+ "envPendingDir": "(unset)",
+ "envHome": "(unset)"
+}
+DONE_P5F at=2026-09-29T06:47:47Z

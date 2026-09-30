@@ -1,0 +1,83 @@
+﻿===== all containers: status + StartedAt =====
+/agent-docker-demo-backend-1 | running | started=2026-09-29T04:37:27.186401814Z | finished=2026-09-29T04:35:30.112328911Z | exit=0 | restarts=0 | oom=false
+/agent-docker-demo-openviking-1 | running | started=2026-09-29T04:37:27.191337405Z | finished=2026-09-29T04:35:29.73455604Z | exit=0 | restarts=0 | oom=false
+/agent-3c2e2f2a-9628-462a-876b-a23b6d675a34 | exited | started=2026-09-28T09:38:11.75740822Z | finished=2026-09-28T09:38:29.477301799Z | exit=137 | restarts=0 | oom=false
+/agent-p2probe | running | started=2026-09-29T04:37:27.125993917Z | finished=2026-09-29T04:37:25.657221162Z | exit=0 | restarts=0 | oom=false
+/openviking | exited | started=2026-09-28T04:55:40.078665399Z | finished=2026-09-28T04:55:53.625106658Z | exit=1 | restarts=0 | oom=false
+/agent-docker-demo-frontend-1 | running | started=2026-09-29T04:37:29.694506302Z | finished=2026-09-29T04:37:29.289578956Z | exit=0 | restarts=1 | oom=false
+/agent-f4f5d8ce-f63d-475b-a083-5a0113f66a9b | exited | started=2026-09-21T02:06:32.443304603Z | finished=2026-09-21T02:40:45.308224754Z | exit=137 | restarts=0 | oom=false
+/agent-f0b2f7e5-2a0e-4272-82c5-a28e9182f9a1 | exited | started=2026-09-20T03:28:09.920189964Z | finished=2026-09-20T04:00:41.73771919Z | exit=137 | restarts=0 | oom=false
+/agent-docker-demo-searxng-1 | running | started=2026-09-29T04:37:27.164037952Z | finished=2026-09-29T04:35:29.721379337Z | exit=0 | restarts=0 | oom=false
+/agent-docker-demo-demo-mcp-1 | running | started=2026-09-29T04:37:27.122466923Z | finished=2026-09-29T04:37:25.657221062Z | exit=0 | restarts=0 | oom=false
+/agent-20873ad8-a6dd-44b6-8d4e-03f62d9e43df | exited | started=2026-09-15T07:57:12.006800029Z | finished=2026-09-15T08:27:47.913371872Z | exit=137 | restarts=0 | oom=false
+/agent-92396af7-6562-4c67-901e-ba6ca2c24fca | exited | started=2026-09-11T09:33:03.808565659Z | finished=2026-09-11T10:06:19.733749501Z | exit=137 | restarts=0 | oom=false
+/agent-982aafb0-23cf-4c28-84f2-a21a1e7f2a80 | exited | started=2026-09-01T11:08:11.279573875Z | finished=2026-09-01T11:40:09.749665528Z | exit=137 | restarts=0 | oom=false
+/agent-docker-demo-postgres-1 | running | started=2026-09-29T04:37:27.181433122Z | finished=2026-09-29T04:35:29.705294845Z | exit=0 | restarts=0 | oom=false
+===== openviking healthcheck config + last probe results =====
+Health={"Test":["CMD","openviking-entrypoint","--healthcheck"],"Interval":30000000000,"Timeout":5000000000,"StartPeriod":30000000000,"Retries":3}
+RestartPolicy={"Name":"unless-stopped","MaximumRetryCount":0}
+exit=0 start=2026-09-29 12:34:41.491860659 +0800 CST end=2026-09-29 12:34:41.643989607 +0800 CST out={"status":"ok","healthy":true,"version":"v0.4.21","auth_mode":"api_key"}
+exit=0 start=2026-09-29 12:35:11.64580361 +0800 CST end=2026-09-29 12:35:11.762464051 +0800 CST out={"status":"ok","healthy":true,"version":"v0.4.21","auth_mode":"api_key"}
+exit=7 start=2026-09-29 12:37:32.747399766 +0800 CST end=2026-09-29 12:37:32.938699271 +0800 CST out=curl: (7) Failed to connect to 127.0.0.1 port 1933 after 0 ms: Could not connect to server
+
+exit=7 start=2026-09-29 12:37:37.942094993 +0800 CST end=2026-09-29 12:37:38.099144776 +0800 CST out=curl: (7) Failed to connect to 127.0.0.1 port 1933 after 0 ms: Could not connect to server
+
+exit=7 start=2026-09-29 12:37:43.100466808 +0800 CST end=2026-09-29 12:37:43.243333852 +0800 CST out=curl: (7) Failed to connect to 127.0.0.1 port 1933 after 0 ms: Could not connect to server
+
+
+===== daemon events 04:00 -> 04:40 UTC (die/start/stop/kill only) =====
+===== OV log around the 04:32 boot: what preceded it =====
+===== backend: did IT recreate/restart anything? =====
+33:2026-09-29T02:37:00.094701641Z 2026-09-29 02:37:00,094 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts "HTTP/1.1 409 Conflict"
+34:2026-09-29T02:37:00.095410871Z 2026-09-29 02:37:00,095 [app.services.ov_access] INFO: OpenViking account agent-platform already exists
+35:2026-09-29T02:37:00.108235985Z 2026-09-29 02:37:00,107 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts/agent-platform/users "HTTP/1.1 409 Conflict"
+36:2026-09-29T02:37:00.824267901Z 2026-09-29 02:37:00,823 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+38:2026-09-29T02:37:01.162712886Z 2026-09-29 02:37:01,162 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+40:2026-09-29T02:37:01.322120436Z 2026-09-29 02:37:01,321 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/find "HTTP/1.1 200 OK"
+42:2026-09-29T02:37:01.664246944Z 2026-09-29 02:37:01,663 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/recall "HTTP/1.1 200 OK"
+44:2026-09-29T02:37:01.847241964Z 2026-09-29 02:37:01,846 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+103:2026-09-29T02:55:11.218498827Z 2026-09-29 02:55:11,218 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts "HTTP/1.1 409 Conflict"
+104:2026-09-29T02:55:11.219452361Z 2026-09-29 02:55:11,219 [app.services.ov_access] INFO: OpenViking account agent-platform already exists
+105:2026-09-29T02:55:11.236668809Z 2026-09-29 02:55:11,236 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts/agent-platform/users "HTTP/1.1 409 Conflict"
+106:2026-09-29T02:55:12.065249744Z 2026-09-29 02:55:12,064 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+108:2026-09-29T02:55:12.364895150Z 2026-09-29 02:55:12,364 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+110:2026-09-29T02:55:12.499460296Z 2026-09-29 02:55:12,499 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/find "HTTP/1.1 200 OK"
+112:2026-09-29T02:55:12.679822061Z 2026-09-29 02:55:12,679 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/recall "HTTP/1.1 200 OK"
+114:2026-09-29T02:55:12.868896441Z 2026-09-29 02:55:12,868 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+230:2026-09-29T03:27:29.382828910Z 2026-09-29 03:27:29,382 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts "HTTP/1.1 409 Conflict"
+231:2026-09-29T03:27:29.384059134Z 2026-09-29 03:27:29,383 [app.services.ov_access] INFO: OpenViking account agent-platform already exists
+232:2026-09-29T03:27:29.395529611Z 2026-09-29 03:27:29,395 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts/agent-platform/users "HTTP/1.1 409 Conflict"
+233:2026-09-29T03:27:29.691985934Z 2026-09-29 03:27:29,691 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+235:2026-09-29T03:27:30.215329420Z 2026-09-29 03:27:30,214 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+237:2026-09-29T03:27:30.375841128Z 2026-09-29 03:27:30,375 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+239:2026-09-29T03:27:30.583825240Z 2026-09-29 03:27:30,583 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+241:2026-09-29T03:27:31.094170381Z 2026-09-29 03:27:31,093 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+281:2026-09-29T03:33:52.134599563Z 2026-09-29 03:33:52,134 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts "HTTP/1.1 409 Conflict"
+282:2026-09-29T03:33:52.135898096Z 2026-09-29 03:33:52,135 [app.services.ov_access] INFO: OpenViking account agent-platform already exists
+283:2026-09-29T03:33:52.148566823Z 2026-09-29 03:33:52,148 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/admin/accounts/agent-platform/users "HTTP/1.1 409 Conflict"
+284:2026-09-29T03:33:52.295317873Z 2026-09-29 03:33:52,295 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+286:2026-09-29T03:33:52.554764915Z 2026-09-29 03:33:52,554 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+288:2026-09-29T03:33:52.735086545Z 2026-09-29 03:33:52,734 [httpx] INFO: HTTP Request: POST http://openviking:1933/api/v1/search/search "HTTP/1.1 200 OK"
+===== host/VM uptime (is Docker Desktop or WSL itself cycling?) =====
+ 12:37:47 up 1 day,  2:32,  1 user,  load average: 1.54, 0.63, 0.52
+ServerVersion=29.6.1 OS=Ubuntu 24.04.4 LTS Kernel=6.6.114.1-microsoft-standard-WSL2
+===== vector_count per user key (did indexing resume past 463?) =====
+ovzh-eval vector_count={"status":"ok","result":{"count":813},"error":null,"telemetry":null,"profile":null}
+ovzh-eval stats={"status":"ok","result":{"total_memories":651,"by_category":{"profile":5,"preferences":15,"entities":7,"events":10,"cases":598,"patterns":5,"tools":6,"skills":5},"hotness_distribution":{"cold":0,"warm":651,"hot":0},"staleness":{"not_accessed_7d":0,"not_accessed_30d":0,"oldest_memory_age_days":0.9}},"error":null,"telemetry":null,"profile":null}
+p4-scale vector_count={"status":"ok","result":{"count":813},"error":null,"telemetry":null,"profile":null}
+p4-scale stats={"status":"ok","result":{"total_memories":651,"by_category":{"profile":5,"preferences":15,"entities":7,"events":10,"cases":598,"patterns":5,"tools":6,"skills":5},"hotness_distribution":{"cold":0,"warm":651,"hot":0},"staleness":{"not_accessed_7d":0,"not_accessed_30d":0,"oldest_memory_age_days":0.9}},"error":null,"telemetry":null,"profile":null}
+p4-commit vector_count={"status":"ok","result":{"count":813},"error":null,"telemetry":null,"profile":null}
+p4-commit stats={"status":"ok","result":{"total_memories":651,"by_category":{"profile":5,"preferences":15,"entities":7,"events":10,"cases":598,"patterns":5,"tools":6,"skills":5},"hotness_distribution":{"cold":0,"warm":651,"hot":0},"staleness":{"not_accessed_7d":0,"not_accessed_30d":0,"oldest_memory_age_days":0.9}},"error":null,"telemetry":null,"profile":null}
+===== ROOT key on tenant data API (new P5-06 evidence) =====
+root->vector/count http=403
+root->stats/memories http=403
+root->admin/accounts http=200
+===== p4-scale residue breakdown (fixed quoting; no $# expansion) =====
+515
+515
+8
+/app/.openviking/data/viking/agent-platform/user/p4-scale/memories/cases/p4scale-00309.md
+/app/.openviking/data/viking/agent-platform/user/p4-scale/memories/cases/p4scale-00453.md
+/app/.openviking/data/viking/agent-platform/user/p4-scale/memories/cases/p4scale-00358.md
+0
+===== P413-DONE =====

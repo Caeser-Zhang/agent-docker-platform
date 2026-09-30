@@ -1,0 +1,75 @@
+############ [0] liveness gate ############
+  t=0s ov_health=000 backend_health=
+  t=5s ov_health=200 backend_health=
+  t=10s ov_health=200 backend_health=
+  t=15s ov_health=200 backend_health=
+  t=20s ov_health=200 backend_health=
+  t=25s ov_health=200 backend_health=
+  t=30s ov_health=200 backend_health=
+  t=35s ov_health=200 backend_health=
+  t=40s ov_health=200 backend_health=
+  t=45s ov_health=200 backend_health=
+  t=50s ov_health=200 backend_health=
+  t=55s ov_health=200 backend_health=
+  t=60s ov_health=200 backend_health=
+  t=65s ov_health=200 backend_health=
+  t=70s ov_health=200 backend_health=
+  t=75s ov_health=200 backend_health=
+  t=80s ov_health=200 backend_health=
+  t=85s ov_health=200 backend_health=
+  t=90s ov_health=200 backend_health=
+  t=95s ov_health=200 backend_health=
+  t=100s ov_health=200 backend_health=
+  t=105s ov_health=200 backend_health=
+  t=110s ov_health=200 backend_health=
+  t=115s ov_health=200 backend_health=
+  t=120s ov_health=200 backend_health=
+  t=125s ov_health=200 backend_health=
+  t=130s ov_health=200 backend_health=
+  t=135s ov_health=200 backend_health=
+  t=140s ov_health=200 backend_health=
+  t=145s ov_health=200 backend_health=
+  t=150s ov_health=200 backend_health=
+  t=155s ov_health=200 backend_health=
+  t=160s ov_health=200 backend_health=
+  t=165s ov_health=200 backend_health=
+  t=170s ov_health=200 backend_health=
+  t=175s ov_health=200 backend_health=
+  GATE_READY=2026-09-29T06:12:24Z ov_started=2026-09-29T06:08:55.817269253Z
+
+############ [5c-a] opencode.json apiKey provenance (host LLM provider, value never printed) ############
+  host config path = /host-opencode/opencode.json
+    provider volces-gateway apiKey_len=36   head=21a57a baseURL=https://st8tp3ajl0df3n8b8l8qu.apigateway-cn-beijing.volceapi.com/v1
+
+############ [5c-b] clean credential scan inside container A ############
+  staged lens: root=64 B=119 secret_key=64
+  staged: KROOT_len=64 SK_len=64 KB_len=119
+  ROOT_OV_KEY        len=64   env_hits=0  fs_files=0 []
+  AGENT_SECRET_KEY   len=64   env_hits=0  fs_files=0 []
+  USER_B_OV_KEY      len=119  env_hits=0  fs_files=0 []
+  --- credential-shaped env in A ---
+    FASTK_API_KEY              len=100  head=gAAAAA
+    OPENCODE_SERVER_PASSWORD   len=43   head=VjJUHw
+    OPENVIKING_API_KEY         len=100  head=gAAAAA
+  --- is FASTK_API_KEY == OPENVIKING_API_KEY? ---
+    identical = False
+
+############ [4b] MCP tools/list inputSchema (props / required) ############
+  tool_count=15
+    add_resource   required=[]                     props=['path', 'temp_file_id', 'add_type', 'description', 'watch_interval', 'processing_mode', 'to', 'parent', 'tags', 'tag_mode', 'args']
+    cancel_watch   required=['to_uri']             props=['to_uri']
+    edit           required=['uri', 'old_string', 'new_string'] props=['uri', 'old_string', 'new_string', 'replace_all', 'wait', 'timeout']
+    find           required=['query']              props=['query', 'target_uri', 'limit', 'min_score', 'level', 'context_type', 'read_content']
+    forget         required=['uri']                props=['uri', 'recursive']
+    glob           required=['pattern']            props=['pattern', 'uri', 'node_limit']
+    grep           required=['uri', 'pattern']     props=['uri', 'pattern', 'case_insensitive', 'node_limit']
+    health         required=[]                     props=[]
+    list           required=['uri']                props=['uri', 'recursive', 'offset', 'limit', 'sort_by', 'sort_order']
+    list_watches   required=[]                     props=[]
+    read           required=['uris']               props=['uris', 'offset', 'limit']
+    remember       required=['messages']           props=['messages']
+    search         required=['query']              props=['query', 'target_uri', 'session_id', 'limit', 'min_score', 'level', 'context_type', 'mode', 'query_expansion', 'max_tokens', 'quotas', 'purpose', 'detail', 'detail_by_category', 'dedup_turns', 'exclude_uris', 'peer_scope', 'other_peer_penalty', 'other_peer_penalties', 'rewrite', 'rewrite_max_bullets', 'read_content']
+    tree           required=[]                     props=['uri', 'level_limit', 'node_limit', 'include_abstract', 'offset', 'limit']
+    write          required=['uri', 'content']     props=['uri', 'content', 'mode', 'wait', 'timeout']
+  done_utc=2026-09-29T06:12:42Z
+(end)

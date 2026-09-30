@@ -1,0 +1,131 @@
+  Traceback (most recent call last):
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 72, in map_httpcore_exceptions
+      yield
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 377, in handle_async_request
+      resp = await self._pool.handle_async_request(req)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+      raise exc from None
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+      response = await connection.handle_async_request(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+      raise exc
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+      stream = await self._connect(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+      stream = await self._network_backend.connect_tcp(**kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+      return await self._backend.connect_tcp(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+      with map_exceptions(exc_map):
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+      self.gen.throw(value)
+    File "/usr/local/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+      raise to_exc(exc) from exc
+  httpcore.ConnectError: All connection attempts failed
+  
+  The above exception was the direct cause of the following exception:
+  
+  Traceback (most recent call last):
+    File "/app/app/services/ov_access.py", line 167, in _admin_post
+      response = await client.post(url, json=body, headers=headers)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1905, in post
+      return await self.request(
+             ^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1585, in request
+      return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1674, in send
+      response = await self._send_handling_auth(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1702, in _send_handling_auth
+      response = await self._send_handling_redirects(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1739, in _send_handling_redirects
+      response = await self._send_single_request(request)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_client.py", line 1776, in _send_single_request
+      response = await transport.handle_async_request(request)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 376, in handle_async_request
+      with map_httpcore_exceptions():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+      self.gen.throw(value)
+    File "/usr/local/lib/python3.12/site-packages/httpx/_transports/default.py", line 89, in map_httpcore_exceptions
+      raise mapped_exc(message) from exc
+  httpx.ConnectError: All connection attempts failed
+  
+  The above exception was the direct cause of the following exception:
+  
+  Traceback (most recent call last):
+    File "<stdin>", line 9, in <module>
+    File "/usr/local/lib/python3.12/asyncio/runners.py", line 195, in run
+      return runner.run(main)
+             ^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/asyncio/runners.py", line 118, in run
+      return self._loop.run_until_complete(task)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "/usr/local/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+      return future.result()
+             ^^^^^^^^^^^^^^^
+    File "<stdin>", line 5, in main
+    File "/app/app/services/ov_access.py", line 269, in user_api_key
+      await _register_user(user_id)
+    File "/app/app/services/ov_access.py", line 225, in _register_user
+      await ensure_account()
+    File "/app/app/services/ov_access.py", line 207, in ensure_account
+      status, payload = await _admin_post(
+                        ^^^^^^^^^^^^^^^^^^
+    File "/app/app/services/ov_access.py", line 169, in _admin_post
+      raise OvUnavailable(f"cannot reach OpenViking at {url}: {exc}") from exc
+  app.services.ov_access.OvUnavailable: cannot reach OpenViking at http://openviking:1933/api/v1/admin/accounts: All connection attempts failed
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/p5k.json'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/p5k.json'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/p5k.json'
+
+############ [5b] clean re-test: root key / AGENT_SECRET_KEY / B's key inside the container ############
+  ROOT_KEY             len=0    env_hits_excluding_probe_vars=27  fs_files=34774
+  AGENT_SECRET_KEY     len=0    env_hits_excluding_probe_vars=27  fs_files=34774
+  USER_B_OV_KEY        len=0    env_hits_excluding_probe_vars=27  fs_files=34774
+  --- which env var holds what (fingerprint only, values redacted) ---
+    FASTK_API_KEY              len=100  head=gAAAAA
+    OPENCODE_SERVER_PASSWORD   len=43   head=VjJUHw
+    OPENVIKING_API_KEY         len=100  head=gAAAAA
+  --- opencode.json: which credential is the apiKey field? ---
+    apiKey len=36 head=21a57a
+    fastk_head=gAAAAA ov_head=gAAAAA
+  --- ovcli.conf full text (106 bytes, no secrets expected) ---
+    {"plugin": {"opencode": {"mcpEnabled": false, "repoContext": false, "dataDir": "/data/state/openviking"}}}
+############ [1e-redo] MCP read/list with the CORRECT argument names ############
+  -- tool input schemas for read / list / grep / glob --
+Traceback (most recent call last):
+  File "<string>", line 7, in <module>
+  File "/usr/lib/python3.11/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  -- cross-user read with uris[] --
+  read uris=[B/memories/identity.md]             event: messagedata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"Access denied for viking://user/ovzh-eval/memories/identity.md"}],"isError":false}}
+  read uris=[own identity.md] (ctrl)             event: messagedata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"# identity.md - Who Am I?\n\n_Fill this in during your first conversation. Make it yours._\n\n- **Name:** \n- **Creature:** AI assistant\n- **Vibe:** \n- **Emoji:** \n- **Avatar:** \n\n---\n\nThe start of figuring out who you are."}],"isError":false}}
+  read uris=[B pref .overview.md]                event: messagedata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"Access denied for viking://user/ovzh-eval/memories/preferences/.overview.md"}],"isError":false}}
+  search query + target_uri=B                    event: messagedata: {"jsonrpc":"2.0","id":9,"result":{"content":[{"type":"text","text":"Error executing tool search: Access denied for viking://user/ovzh-eval"}],"isError":true}}
+  done_utc=2026-09-29T06:05:22Z
+(end)

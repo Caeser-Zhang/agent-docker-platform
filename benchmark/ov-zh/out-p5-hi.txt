@@ -1,0 +1,74 @@
+=== P5-10/P5-11 driver at=2026-09-29T07:26:51Z key_len=100
+gate_round=1 local_ov=000 via_proxy=503
+gate_round=2 local_ov=200 via_proxy=200
+GATE_OK=1 gate_rounds=2
+--- R25 stack state
+/agent-p2probe created=2026-09-28T08:07:46.663464467Z started=2026-09-29T07:26:38.900454675Z restarts=0 status=running
+/agent-docker-demo-openviking-1 created=2026-09-28T17:22:47.11218534Z started=2026-09-29T07:26:38.943465123Z restarts=0 status=running
+/agent-docker-demo-backend-1 created=2026-09-29T02:35:13.312654014Z started=2026-09-29T07:26:38.947417888Z restarts=0 status=running
+/agent-docker-demo-frontend-1 created=2026-09-20T09:24:47.045674337Z started=2026-09-29T07:26:41.027749935Z restarts=1 status=running
+kernel_uptime_sec=105712.28
+=== P5-10 coexistence probe
+S1.mcp_keys = ["demo-mcp", "openviking", "web_search"]
+S1.mcp.demo-mcp = {"all_keys": ["enabled", "type", "url"], "command": null, "enabled": true, "environment": {}, "header_keys": [], "headers": {}, "type": "remote", "url": "http://demo-mcp:8080/mcp"}
+S1.mcp.openviking = {"all_keys": ["enabled", "headers", "type", "url"], "command": null, "enabled": true, "environment": {}, "header_keys": ["X-API-Key"], "headers": {"X-API-Key": "<len=100 head=gAAAAA>"}, "type": "remote", "url": "http://backend:8000/ov/mcp"}
+S1.mcp.web_search = {"all_keys": ["command", "enabled", "environment", "type"], "command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "header_keys": [], "headers": {}, "type": "local", "url": null}
+S1.plugin = ["/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "/opt/agent/builtin-plugins/present-file"]
+S1.permission = {"bash": "allow", "edit": "allow", "external_directory": "allow", "glob": "allow", "grep": "allow", "list": "allow", "openviking_*": "allow", "present_file": "allow", "read": "allow", "skill": "allow", "task": "allow", "todowrite": "allow", "web_search*": "allow", "webfetch": "allow"}
+S1.permission_keys = ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "webfetch"]
+S1.mcp_perm_rules = {"openviking_*": "allow"}
+S1.enabled_providers = ["volces-gateway"]
+S1.model = "volces-gateway/deepseek-v4-pro"
+S1.small_model = "volces-gateway/deepseek-v4-pro"
+S1.agents_keys = []
+S1.agent_keys = []
+S1.top_keys = ["$schema", "autoupdate", "enabled_providers", "mcp", "model", "permission", "plugin", "provider", "share", "small_model"]
+S2.plugins = {"oh-my-opencode-slim": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "node_modules": true, "pkg_exists": true, "pkg_main": "dist/index.js", "pkg_name": "oh-my-opencode-slim", "pkg_type": "module", "pkg_version": "2.2.15", "readable_files": ["LICENSE", "README.ja-JP.md", "README.ko-KR.md", "README.md", "README.zh-CN.md", "dist", "node_modules", "oh-my-opencode-slim.schema.json", "package.json", "src"]}, "openviking": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "node_modules": false, "pkg_exists": true, "pkg_main": "index.mjs", "pkg_name": "@openviking/opencode-plugin", "pkg_type": "module", "pkg_version": "2026.9.25-2", "readable_files": ["INSTALL-ZH.md", "INSTALL.md", "README.md", "index.mjs", "lib", "package.json", "scripts", "servers"]}, "present-file": {"dir_exists": true, "manifest": true, "manifest_path": "/opt/agent/builtin-plugins/present-file", "node_modules": true, "pkg_exists": true, "pkg_main": "index.js", "pkg_name": "opencode-present-file", "pkg_type": "module", "pkg_version": "1.0.0", "readable_files": ["index.js", "manifest.json", "node_modules", "package-lock.json", "package.json"]}}
+S2.web_search = {"interpreter_resolved": "/usr/bin/python3", "mcp_root_listing": ["fastk", "openviking", "web_search"], "script_isfile": true, "script_path": "/opt/agent/builtin-mcp/web_search/web_search_mcp.py", "script_size": 8808}
+S3.plugin_config_keys = ["agents", "autoUpdate", "preset", "presets"]
+S3.preset = "container"
+S3.autoUpdate = false
+S3.disabled_skills = null
+S3.presets.container.designer = {"mcps": [], "skills": []}
+S3.presets.container.explorer = {"mcps": [], "skills": []}
+S3.presets.container.fixer = {"mcps": [], "skills": []}
+S3.presets.container.librarian = {"mcps": ["web_search"], "skills": []}
+S3.presets.container.oracle = {"mcps": [], "skills": []}
+S3.presets.container.orchestrator = {"mcps": ["*"], "skills": ["*"]}
+S3.agents = {"council": {"model": "volces-gateway/deepseek-v4-pro"}, "councillor": {"model": "volces-gateway/deepseek-v4-pro"}, "designer": {"model": "volces-gateway/deepseek-v4-pro"}, "explorer": {"model": "volces-gateway/deepseek-v4-pro"}, "fixer": {"model": "volces-gateway/deepseek-v4-pro"}, "librarian": {"model": "volces-gateway/deepseek-v4-pro"}, "observer": {"model": "volces-gateway/deepseek-v4-pro"}, "oracle": {"model": "volces-gateway/deepseek-v4-pro"}, "orchestrator": {"model": "volces-gateway/deepseek-v4-pro"}}
+S4.web_search.initialize = {"name": "web-search-mcp", "version": "1.0.0"}
+S4.web_search.protocolVersion = "2024-11-05"
+S4.web_search.tools = ["search"]
+S4.web_search.stderr = ""
+S5.openviking.initialize.status = 200
+S5.openviking.session_id_present = false
+S5.openviking.serverInfo = {"name": "openviking", "version": "1.27.0"}
+S5.openviking.tools = ["find", "search", "read", "list", "tree", "remember", "write", "edit", "add_resource", "list_watches", "cancel_watch", "grep", "glob", "forget", "health"]
+S5.openviking.tool_count = 15
+S6.raw_name_overlap = ["search"]
+S6.prefixed_overlap = []
+S6.prefixed_ws = ["web_search_search"]
+S6.prefixed_ov_count = 15
+S6.permission_rule_covers_ws = false
+S6.permission_rule_covers_ov = true
+S7.present-file = {"entry":"/opt/agent/builtin-plugins/present-file/index.js","exports":["default"],"functions":[],"arity":[]}
+S7.oh-my-opencode-slim = {"entry":"/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim/dist/index.js","exports":["OhMyOpenCodeLite","default"],"functions":["OhMyOpenCodeLite"],"arity":[1]}
+S7.openviking = {"entry":"/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin/index.mjs","exports":["OpenVikingPlugin","default"],"functions":["OpenVikingPlugin"],"arity":[0]}
+S7_DONE
+S7.rc = 0
+S7.stderr = ""
+S8.body./api/config = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.body./api/mcp = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.body./api/tool = "<!doctype html>\n<html lang=\"en\" style=\"background-color: var(--v2-background-bg-deep, #fafafa)\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover\"\n    />\n    <title>OpenCode</title>\n    <link rel=\"icon\" type=\"image/png\" href=\"/favicon-96x96-v3.png\" sizes=\"96x96\" />\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon-v3.svg\" />\n    <link rel=\"shortcut icon\" href=\"/favicon-v3.ico\" />\n    <link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"/apple-touch-icon-v3.png\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest\" />\n    <meta name=\"theme-color\" content=\"#fafafa\" />\n    <meta name=\"mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black-translucent\" />\n    <meta property=\"og:image\" content=\"/social-share.png\" />\n    <meta property=\"twitter:image\" content=\"/social-share.png\" />\n    <script id=\"oc-theme-preload-script\">;(function () {\n  var key = \"opencode-theme-id\"\n  var themeId = localStorage.getItem(key) || \"oc-2\"\n\n  if (themeId === \"oc-1\") {\n    themeId = \"oc-2\"\n    localStorage.setItem(key, themeId)\n    localStorage.removeItem(\"opencode-theme-css-light\")\n    localStorage.removeItem(\"opencode-theme-css-dark\")\n  }\n\n  var scheme = localStorage.getItem(\"opencode-color-scheme\") || \"system\"\n  var isDark = scheme === \"dark\" || (scheme"
+S8.opencode_api = {"/api/agent": "200 len=91", "/api/app": "200 len=2884", "/api/config": "200 len=2884", "/api/health": "200 len=16", "/api/mcp": "200 len=2884", "/api/permission": "200 len=2884", "/api/provider": "200 len=91", "/api/session": "200 len=50", "/api/tool": "200 len=2884"}
+S9.searxng_url = "http://searxng:8080"
+S9.searxng_healthz = 200
+PROBE_DONE
+P5-10 rc=0
+=== P5-11 toggle probe
+Traceback (most recent call last):
+  File "/tmp/p5i.py", line 18, in <module>
+    from app.services import container_manager, opencode_config as oc, visibility
+ModuleNotFoundError: No module named 'app'
+P5-11 rc=1
+DONE_P5HI at=2026-09-29T07:27:02Z

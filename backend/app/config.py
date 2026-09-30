@@ -87,6 +87,53 @@ class Settings(BaseSettings):
     # it enumerate and read every database straight off the host gateway.
     kb_catalog_key: str = ""
 
+    # --- OpenViking (shared agent-memory service) ---
+    # See docs/openviking-integration-test-plan.md. One OpenViking instance on
+    # agent-net serves every user container; isolation is per-user, enforced by
+    # a User API Key minted per platform user — never by separate deployments.
+    #
+    # Master switch. When false the built-in `openviking` MCP server is dropped
+    # from container configs and /ov/* returns 503, so the platform runs fine
+    # without the service (compose has no depends_on for it).
+    openviking_enabled: bool = False
+
+    # Backend-facing base URL of the service. Used for BOTH the Admin API
+    # (/api/v1/admin/*, key minting) and as the upstream for routers/ov_proxy.py.
+    # "openviking" resolves on agent-net via the compose service name.
+    openviking_url: str = "http://openviking:1933"
+
+    # Container-facing URL of the MCP endpoint, resolved into the built-in MCP
+    # manifest's `${OPENVIKING_MCP_URL}` placeholder. Points at THIS app's
+    # /ov/mcp proxy, never at openviking_url: agent containers must not be able
+    # to reach the memory service except through the per-user proxy.
+    # (_resolve_placeholders only matches a whole-string ${VAR}, so the path is
+    # baked into the setting rather than appended in the manifest.)
+    openviking_mcp_url: str = "http://backend:8000/ov/mcp"
+
+    # Container-facing base URL for the plugin's own REST calls, injected as
+    # OPENVIKING_URL. The plugin appends /api/v1/... and /health to it, so this
+    # is openviking_mcp_url minus the /mcp — same /ov proxy prefix, second
+    # channel. Kept as its own setting rather than derived by string surgery so
+    # the two can be pointed elsewhere independently.
+    openviking_rest_url: str = "http://backend:8000/ov"
+
+    # Server root key. Minted into the root .env as OV_ROOT_API_KEY and injected
+    # into the backend's environment by docker-compose — deliberately NOT stored
+    # in the committed backend/.env.
+    # BACKEND ONLY — never injected into an agent container. It buys the Admin
+    # API (create account, mint/rotate/list user keys) and nothing else: in
+    # OpenViking's `api_key` auth mode a ROOT key is path-restricted to the admin
+    # plane and X-OpenViking-* identity headers are stripped, so it cannot read
+    # any user's memories even if it leaks.
+    openviking_root_api_key: str = ""
+
+    # The single OpenViking account (tenant) the whole platform lives in, plus
+    # the admin user created alongside it. Both must match OpenViking's
+    # identifier grammar ^[a-zA-Z0-9_.@-]+$ and the account must not start with
+    # "_". Created idempotently by services/ov_access.py on first use.
+    openviking_account_id: str = "agent-platform"
+    openviking_admin_user_id: str = "platform-admin"
+
     # Directory containing built-in MCP server manifests (mounted read-only
     # into the backend from the agent image source). Each subdirectory has a
     # manifest.json declaring the server's mcp config; these are discovered

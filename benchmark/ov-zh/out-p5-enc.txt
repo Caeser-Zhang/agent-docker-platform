@@ -1,0 +1,30 @@
+--- size / encoding validity ---
+12147 /mnt/d/Project/agent-docker-demo/benchmark/ov-zh/out-p5-b.txt
+  iconv UTF-8 -> FAILED; locating the first bad byte
+  first bad byte at offset 6853 (0xe5) reason=invalid continuation byte
+  context bytes: b'bstract":"- \xe6\x97\xa5\xe5\xbf\x97\xe4\xbf\x9d\xe7\x95\x99\xe9\x87\x87\xe7\x94\xa8\xe7\x83\xad/\xe6\xb8\xa9/\xe5\x86\xb7\xe4\xb8\x89\xe7\xba\xa7\xe7\xad\x96\xe7\x95\xa5\xef\xbc\x9a\xe7\x83\xad\xe6\x95\xb0\xe6\x8d\xae\xe4\xbf\x9d\xe7\x95\x99 7 \xe5\xa4\xa9\xef\xbc\x8c\xe6\xb8\xa9\xe6\x95\xb0\xe6\x8d\xae\xe4\xbf\x9d\xe7\x95\x99 90 \xe5\xa4\xa9\xef\xbc\x8c\xe5\x86\xb7\xe6\x95\xb0\xe6\x8d\xae\xe5\xbd\x92\xe6\xa1\xa3\xe5\n  SECTION1 window=2026-09-29T05:53:31Z..2026-09-29T05:53:3'
+  on line 36
+
+--- does the [1g] search hit contain correct UTF-8 Chinese or mojibake? ---
+  raw bytes around [1g]:
+    b'1g] semantic search: does B\'s distinctive corpus surface for A? --\n  A search B-only marker                       http=200  {"status":"ok","result":{"memories":[{"context_type":"memory","uri":"viking://user/p2probe/memories/preferences/user/\xe6\x97\xa5\xe5\xbf\x97\xe4\xbf\x9d\xe7\x95\x99\xe7\xad\x96\xe7\x95\xa5.md","level":2,"score":0.8368158936500549,"abstract":"- \xe6\x97\xa5\xe5\xbf\x97\xe4\xbf\x9d\xe7\x95\x99\xe9\x87\x87\xe7\x94\xa8\xe7\x83\xad/\xe6\xb8\xa9/\xe5\x86\xb7\xe4\xb8\x89\xe7\xba\xa7\xe7\xad\x96\xe7\x95\xa5\xef\xbc\x9a\xe7\x83\xad\xe6\x95\xb0\xe6\x8d\xae\xe4\xbf\x9d\xe7\x95\x99 7 \xe5\xa4\xa9\xef\xbc\x8c\xe6\xb8\xa9\xe6\x95\xb0\xe6\x8d\xae\xe4\xbf\x9d\xe7\x95\x99 90 \xe5\xa4\xa9\xef\xbc\x8c\xe5\x86\xb7\xe6\x95\xb0\xe6\x8d\xae\xe5\xbd\x92\xe6\xa1\xa3\xe5\n  SECTION1 window=2026-09-29T05:53:31Z..2026-09-29T05:53:33Z  post_gate_health=200  VALID=yes\n\n############ [3c] foreign keys used DIRECTLY against openviking:1933 ############\n    key material staged: B_len=119 admin_len=126 root_len=64 account=agent-platform admin_uid=plat'
+
+  decoded as UTF-8:
+    1g] semantic search: does B's distinctive corpus surface for A? --
+  A search B-only marker                       http=200  {"status":"ok","result":{"memories":[{"context_type":"memory","uri":"viking://user/p2probe/memories/preferences/user/日志保留策略.md","level":2,"score":0.8368158936500549,"abstract":"- 日志保留采用热/温/冷三级策略：热数据保留 7 天，温数据保留 90 天，冷数据归档�
+  SECTION1 window=2026-09-29T05:53:31Z..2026-09-29T05:53:33Z  post_gate_health=200  VALID=yes
+
+############ [3c] foreign keys used DIRECTLY against openviking:1933 ############
+    key material staged: B_len=119 admin_len=126 root_len=64 account=agent-p
+
+  decoded as GBK:
+    1g] semantic search: does B's distinctive corpus surface for A? --
+  A search B-only marker                       http=200  {"status":"ok","result":{"memories":[{"context_type":"memory","uri":"viking://user/p2probe/memories/preferences/user/鏃ュ織淇濈暀绛栫暐.md","level":2,"score":0.8368158936500549,"abstract":"- 鏃ュ織淇濈暀閲囩敤鐑�/娓�/鍐蜂笁绾х瓥鐣ワ細鐑�鏁版嵁淇濈暀 7 澶╋紝娓╂暟鎹�淇濈暀 90 澶╋紝鍐锋暟鎹�褰掓。�
+  SECTION1 window=2026-09-29T05:53:31Z..2026-09-29T05:53:33Z  post_gate_health=200  VALID=yes
+
+############ [3c] foreign keys used DIRECTLY against openviking:1933 ############
+    key material staged: B_len=119 admin_len=126 root_
+
+--- ground truth straight from the server, bypassing PowerShell entirely ---
+  bytes=72  valid_utf8=True
+(end)

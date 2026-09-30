@@ -1,0 +1,73 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T10:07:20Z
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage 1: seed marker + opencode health + baseline session (OV up) ##########
+{
+ "seed_marker": 200
+}
+  opencode_local_health=200
+  -- baseline session with OV up:
+[base] opencode health status=200 dt=0.01s
+[base] session id=ses_f135dac24ffeC7RU1fIsHPPom8
+[base] message status=200 dt=8.36s role=assistant parts=3
+[base] assistant_text="基线正常"
+[base] VERDICT OK total=8.37s
+  baseline_rc=0
+VALID stage1
+
+########## stage 2: stop OpenViking ##########
+agent-docker-demo-openviking-1
+  OV state after stop: exited (exit 143)
+VALID stage2
+
+########## stage 3: degradation evidence ##########
+  -- /ov/health through the backend proxy (expect fast non-200, not a hang):
+  proxy_health_code=502 time=1.094803s
+{"error":{"message":"记忆服务不可达，请稍后重试。"}}
+  -- MCP read of the marker through the proxy (expect an error result, fast):
+  mcp_read_code=502 time=0.082957s
+{"error":{"message":"记忆服务不可达，请稍后重试。"}}
+  -- two full sessions while OV is DOWN:
+[degr1] opencode health status=200 dt=0.02s
+[degr1] session id=ses_f135d7febffe7tFglByiA2X68L
+[degr1] message status=200 dt=5.70s role=assistant parts=3
+[degr1] assistant_text="降级正常"
+[degr1] VERDICT OK total=5.70s
+  degr1_rc=0
+[degr2] opencode health status=200 dt=0.00s
+[degr2] session id=ses_f135d6850ffeBtQVsmARyy6Ido
+[degr2] message status=200 dt=3.88s role=assistant parts=3
+[degr2] assistant_text="降级仍正常"
+[degr2] VERDICT OK total=3.88s
+  degr2_rc=0
+  -- plugin-side evidence in container logs (last 15m, openviking mentions):
+VALID stage3
+
+########## stage 4: bring OV back + gate ##########
+agent-docker-demo-openviking-1
+  gate round 1 local_ov=000 via_proxy=502
+  gate round 2 local_ov=000 via_proxy=502
+  gate round 3 local_ov=200 via_proxy=200
+VALID stage4
+
+########## stage 5: memory recovered + post-recovery session ##########
+  -- MCP read of the marker through the proxy (expect 200 + content):
+  mcp_read_code=200 time=0.028820s
+  marker_found=都江堰水利工程由李冰父子主持修建
+
+  -- post-recovery session:
+[recov] opencode health status=200 dt=0.00s
+[recov] session id=ses_f135d2720fferxAcvSfVH4H4Iw
+[recov] message status=200 dt=2.31s role=assistant parts=3
+[recov] assistant_text="恢复正常"
+[recov] VERDICT OK total=2.31s
+  recov_rc=0
+VALID stage5
+
+########## stage 6: cleanup ##########
+{"delete_marker": 200}
+VALID stage6
+DONE_P5GF at=2026-09-29T10:08:13Z

@@ -1,0 +1,47 @@
+--- pwd/ls
+/app
+app
+bin
+boot
+builtin-mcp
+builtin-plugins
+builtin-skills
+dev
+etc
+home
+host-opencode
+lib
+lib64
+library
+library-seed
+media
+mnt
+opt
+proc
+root
+run
+sbin
+srv
+sys
+tmp
+usr
+var
+---APP---
+app
+data
+requirements.txt
+--- python
+/usr/local/bin/python
+/usr/local/bin/python3
+Python 3.12.14
+--- syspath
+/app
+['', '/usr/local/lib/python312.zip', '/usr/local/lib/python3.12', '/usr/local/lib/python3.12/lib-dynload', '/usr/local/lib/python3.12/site-packages']
+--- import app
+/app/app/__init__.py
+--- import app.services
+oh-my-opencode-slim.json
+--- find app dir
+/app/app
+/srv
+DONE

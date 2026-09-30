@@ -1,0 +1,120 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T10:08:50Z
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage 1: baseline — marker + tree + old seed/token capture ##########
+{
+ "write_marker_status": 200,
+ "read_marker": {
+  "status": 200,
+  "identical": false
+ }
+}
+  tree leaf count (baseline): 17
+  old container id = 3779a848d288cbc7ec2efab624e259dc2861572dca834621ae4a9f200f2e6c44
+  old created      = 2026-09-29T09:58:22.027075242Z
+  old proxy token captured: len=100
+  old seed captured: len=64
+VALID stage1
+
+########## stage 2: rotate AGENT_SECRET_KEY in backend/.env ##########
+  AGENT_SECRET_KEY rotated to a fresh 64-hex secret (backup: /tmp/p5gg.env.bak)
+  secret lines after rotate: 1
+VALID stage2
+
+########## stage 3: recreate the backend container (compose env_file reload) ##########
+ Container agent-docker-demo-postgres-1 Running 
+ Container agent-docker-demo-backend-1 Recreate 
+ Container agent-docker-demo-backend-1 Recreated 
+ Container agent-docker-demo-backend-1 Starting 
+ Container agent-docker-demo-backend-1 Started 
+  wait round 1 backend_http=000
+  wait round 2 backend_http=200
+VALID stage3
+
+########## stage 4: stale evidence in the NEW backend ##########
+{
+ "old_token_verifies_now": null,
+ "container_present": true,
+ "ov_env_stale": true,
+ "seed_rotated_in_backend": true,
+ "new_key_direct_read_expect_401": 401
+}
+STAGE4_EXPECTATIONS MET
+VALID stage4
+
+########## stage 5: R12 runbook — reauthorize() re-mints the server key ##########
+{
+ "reauthorize_key_matches_derivation": true,
+ "read_after_realign": {
+  "status": 200,
+  "identical": true
+ }
+}
+VALID stage5 (server key re-minted with the NEW seed; memory intact)
+
+########## stage 6: ensure_container auto-recreates the agent container ##########
+Running container agent-p2probe bypasses the KB whitelist (stale fastk env) — recreating
+  ensure_container: name=agent-p2probe config_ok=True
+  new container id = c45a24e49f85d6ecc934f0f2f9dde5a9c366b44f6de4f96f78984f0899541be4
+  identity_changed = yes (stale env triggered recreation)
+  env OPENVIKING_AUTH_MODE len=7
+  env OPENVIKING_API_KEY len=100
+  env OPENVIKING_CLI_CONFIG_FILE len=48
+  env OPENVIKING_URL len=22
+  env OPENVIKING_MCP_URL len=26
+  new token decodes to ovproxy:p2probe: True
+  -- agent channel MCP read of the marker (via backend /ov/mcp):
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"# 密钥轮换记忆存续探针 P5-08\n\n莫高窟坐落于甘肃敦煌鸣沙山东麓，现存洞窟七百三十五个。\n敦煌遗书与石窟艺术是丝路文明交流互鉴的实物见证。"}],"isError":false}}
+
+
+VALID stage6
+
+########## stage 7: restore the ORIGINAL secret and recreate the backend ##########
+  backend/.env restored byte-identical
+ Container agent-docker-demo-postgres-1 Running 
+ Container agent-docker-demo-backend-1 Recreate 
+ Container agent-docker-demo-backend-1 Recreated 
+ Container agent-docker-demo-backend-1 Starting 
+ Container agent-docker-demo-backend-1 Started 
+  wait round 1 backend_http=000
+  wait round 2 backend_http=200
+VALID stage7
+
+########## stage 8: rotation back — lazy registration 409 -> 401 -> self-heal ##########
+{
+ "k2_token_verifies_after_restore": null,
+ "ov_env_stale_after_restore": true,
+ "k1_direct_read_expect_401": 401
+}
+Running container agent-p2probe bypasses the KB whitelist (stale fastk env) — recreating
+  third rebuild: name=agent-p2probe config_ok=True
+  -- agent MCP read: 401 self-heal chain end-to-end (realign + retry):
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"# 密钥轮换记忆存续探针 P5-08\n\n莫高窟坐落于甘肃敦煌鸣沙山东麓，现存洞窟七百三十五个。\n敦煌遗书与石窟艺术是丝路文明交流互鉴的实物见证。"}],"isError":false}}
+
+
+http_code=200 time=0.094435s
+{
+ "k1_direct_read_after_selfheal": {
+  "status": 200,
+  "identical": true
+ }
+}
+VALID stage8
+
+########## stage 9: terminal state + cleanup ##########
+  /ov/health via proxy: 200
+  tree leaf count (final): 17
+  tree leaf set identical to baseline
+  container state: running
+  backend/.env equals the original (rotation fully undone)
+{
+ "delete_marker": 200,
+ "read_after_delete": 404
+}
+VALID stage9
+DONE_P5GG at=2026-09-29T10:09:31Z

@@ -1,0 +1,12 @@
+{
+ "label": "seed",
+ "corpus_n": 40,
+ "queries_n": 30,
+ "seed": {
+  "written": 40,
+  "total": 40,
+  "mismatch": [],
+  "errors": []
+ },
+ "vector_count": 141
+}

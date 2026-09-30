@@ -1,0 +1,6 @@
+{
+  "name": "openviking",
+  "type": "remote",
+  "url": "${OPENVIKING_MCP_URL}",
+  "enabled": true
+}

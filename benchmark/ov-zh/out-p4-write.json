@@ -1,0 +1,59 @@
+{
+ "async_wait_false": {
+  "http_codes": {
+   "200": 40
+  },
+  "per_call_ms": {
+   "max": 130.2,
+   "mean": 48.3,
+   "min": 17.3,
+   "n": 40,
+   "p50": 39.4,
+   "p95": 81.4,
+   "p99": 130.2
+  },
+  "wall_seconds": 1.93,
+  "writes_per_second": 20.7
+ },
+ "checks": {
+  "P4-05 write_per_sec>=20 (API accept, wait=false)": [
+   20.7,
+   "PASS"
+  ],
+  "P4-05 write_per_sec>=20 (indexed, wait=true)": [
+   1.76,
+   "FAIL"
+  ]
+ },
+ "direct_url": "http://openviking:1933",
+ "docs": 40,
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"p4-perf",
+  "http": 200
+ },
+ "label": "p4-write",
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "suite": "write",
+ "sync_wait_true": {
+  "http_codes": {
+   "200": 40
+  },
+  "per_call_ms": {
+   "max": 1962.9,
+   "mean": 567.5,
+   "min": 361.4,
+   "n": 40,
+   "p50": 489.0,
+   "p95": 778.9,
+   "p99": 1962.9
+  },
+  "wall_seconds": 22.7,
+  "writes_per_second": 1.76
+ },
+ "ts": "2026-09-29T03:34:39",
+ "user": "p4-perf-write",
+ "vector_count_after": 310,
+ "vector_count_before": 229
+}

@@ -1,0 +1,118 @@
+############ restart forensics (R25)
+agent-p2probe started=2026-09-29T06:58:42.445993241Z restarts=0 status=running health=healthy
+agent-docker-demo-openviking-1 started=2026-09-29T06:58:42.499861369Z restarts=0 status=running health=starting
+agent-docker-demo-backend-1 started=2026-09-29T06:58:42.495326914Z restarts=0 status=running health=n/a
+agent-docker-demo-frontend-1 started=2026-09-29T06:58:44.623194391Z restarts=1 status=running health=n/a
+now_utc=2026-09-29T06:58:57Z
+-- uptime inside A
+104030.77 1226511.19
+host_boot_of_container_pid1:
+2026-09-29 06:58:42.682470660 +0000
+############ does the plugin log at all? (utils.mjs gating)
+import fs from "fs"
+import path from "path"
+
+import { createOvHttp } from "./shared/ov-http.mjs"
+
+let logFilePath = null
+
+export function initLogger(dataDir) {
+  fs.mkdirSync(dataDir, { recursive: true })
+  logFilePath = path.join(dataDir, "openviking-memory.log")
+}
+
+export function safeStringify(value) {
+  if (value === null || value === undefined) return value
+  if (typeof value !== "object") return value
+  if (Array.isArray(value)) return value.map((item) => safeStringify(item))
+
+  const result = {}
+  for (const key of Object.keys(value)) {
+    const item = value[key]
+    if (typeof item === "function") {
+      result[key] = "[Function]"
+    } else if (typeof item === "object" && item !== null) {
+      try {
+        result[key] = safeStringify(item)
+      } catch {
+        result[key] = "[Circular or Non-serializable]"
+      }
+    } else {
+      result[key] = item
+    }
+  }
+  return result
+}
+
+export function log(level, toolName, message, data) {
+  const normalizedLevel = String(level || "INFO").toUpperCase()
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level: normalizedLevel,
+    tool: toolName,
+    message,
+    ...(data ? { data: safeStringify(data) } : {}),
+  }
+
+  if (!logFilePath) {
+    if (normalizedLevel === "ERROR") console.error(message, data ?? "")
+    return
+  }
+
+  try {
+    fs.appendFileSync(logFilePath, `${JSON.stringify(entry)}\n`, "utf8")
+  } catch (error) {
+    console.error("Failed to write OpenViking plugin log:", error)
+  }
+}
+
+export function makeToast(client) {
+  return (message, variant = "warning") => {
+    const request = client?.tui?.showToast?.({
+############ force the plugin to write, then see exactly which paths appear
+logger initialised at /data/state/openviking
+-- files after forced log write
+/data/state/openviking/openviking-memory.log
+/data/state/openviking/state/ws-identity-c52ddf65534b.json
+/home/agent/.openviking/state/ws-identity-c52ddf65534b.json
+[counts] data=2 home=1
+total 16
+drwxr-xr-x 3 agent agent 4096 Sep 29 06:58 .
+drwxr-xr-x 4 agent agent 4096 Sep 29 06:47 ..
+-rw-r--r-- 1 agent agent  115 Sep 29 06:58 openviking-memory.log
+drwxr-xr-x 2 agent agent 4096 Sep 29 06:49 state
+--- head of log
+{"timestamp":"2026-09-29T06:58:58.940Z","level":"INFO","tool":"p5probe","message":"forced write from P5-14 probe"}
+
+############ trigger workspace-identity write via the real code path
+exports: CONFIG_DIR_NAME,LOCAL_FILE,TEAM_FILE,findWorkspaceRoot,legacySanitize,normalizeGitRemote,readGitRemoteUrl,resolveWorkspaceIdentity,sanitizePeerId,stateDir
+resolved: {"cwd":"/workspace","root":"","rootKind":"","isGit":false,"gitKind":"","gitCommonDir":"","gitRoot":"","remote":"","vars":{"git_remote":"","git_root":"","cwd":"-workspace","dir":""}}
+/home/agent/.openviking/state/ws-identity-c52ddf65534b.json
+[tmpfs state files] 1
+############ pending queue: where would a failed capture land?
+listPending= [{"filename":"c417a7fdd7b851b6bb0e3a291702df769c8c8e1f734c99ea0a322cfadc24ae8a_0.json","entry":{"type":"p5probe","sessionId":"sid-p5-14","payload":{"probe":true},"createdAt":1790665142555,"retries":0,"dedupKey":"c417a7fdd7b851b6bb0e3a291702df769c8c8e1f734c99ea0a322cfadc24ae8a"}}]
+[/home/agent/.openviking tree]
+/home/agent/.openviking
+/home/agent/.openviking/pending
+/home/agent/.openviking/pending/c417a7fdd7b851b6bb0e3a291702df769c8c8e1f734c99ea0a322cfadc24ae8a_0.json
+/home/agent/.openviking/state
+/home/agent/.openviking/state/ws-identity-c52ddf65534b.json
+[/data/state tree]
+/data/state
+/data/state/openviking
+/data/state/openviking/openviking-memory.log
+/data/state/openviking/state
+/data/state/openviking/state/ws-identity-c52ddf65534b.json
+/data/state/opencode
+/data/state/opencode/locks
+-- cleanup the probe payload
+/home/agent/.openviking
+/home/agent/.openviking/state
+/home/agent/.openviking/state/ws-identity-c52ddf65534b.json
+/data/state
+/data/state/openviking
+/data/state/openviking/state
+/data/state/openviking/state/ws-identity-c52ddf65534b.json
+/data/state/opencode
+/data/state/opencode/locks
+DONE_P5F3 at=2026-09-29T06:59:04Z

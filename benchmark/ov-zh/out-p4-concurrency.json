@@ -1,0 +1,39 @@
+{
+ "checks": {
+  "P4-08 p95_ratio<=2.0": [
+   1.38,
+   "PASS"
+  ]
+ },
+ "concurrent_ms": {
+  "max": 773.9,
+  "mean": 199.6,
+  "min": 108.3,
+  "n": 200,
+  "p50": 156.1,
+  "p95": 435.5,
+  "p99": 555.9
+ },
+ "direct_url": "http://openviking:1933",
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"ovzh-ev",
+  "http": 200
+ },
+ "http_codes": {
+  "200": 200
+ },
+ "label": "p4-conc10",
+ "p95_degradation_ratio": 1.38,
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "serial_p95_ms": 314.8,
+ "suite": "concurrency",
+ "throughput_rps": 45.8,
+ "total_requests": 200,
+ "ts": "2026-09-29T03:34:34",
+ "vector_count_after": 229,
+ "vector_count_before": 229,
+ "wall_seconds": 4.4,
+ "workers": 10
+}

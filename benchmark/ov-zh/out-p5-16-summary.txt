@@ -1,0 +1,59 @@
+baseline (real container env)                            -> NO CHANGE
+recallLimit=999 (over max 50)                            -> {"recallLimit": [10, 50]}
+                                                            configuredWatch=['recallLimit', 'authMode']
+recallLimit=-5 (under min 1)                             -> {"recallLimit": [10, 1]}
+                                                            configuredWatch=['recallLimit', 'authMode']
+recallLimit=0                                            -> {"recallLimit": [10, 1]}
+                                                            configuredWatch=['recallLimit', 'authMode']
+recallLimit=abc (unparseable)                            -> NO CHANGE
+                                                            configuredWatch=['authMode']
+recallLimit='' (empty)                                   -> NO CHANGE
+                                                            configuredWatch=['authMode']
+recallLimit=7.6 (float->int)                             -> {"recallLimit": [10, 8]}
+                                                            configuredWatch=['recallLimit', 'authMode']
+recallLimit=1e9                                          -> {"recallLimit": [10, 50]}
+                                                            configuredWatch=['recallLimit', 'authMode']
+scoreThreshold=7 (max 1)                                 -> {"scoreThreshold": [0.35, 1]}
+scoreThreshold=-1 (min 0)                                -> {"scoreThreshold": [0.35, 0]}
+scoreThreshold=nan                                       -> NO CHANGE
+minQueryLength=0 (min 1)                                 -> {"minQueryLength": [3, 1]}
+minQueryLength=9999 (max 64)                             -> {"minQueryLength": [3, 64]}
+recallTokenBudget=1 (min 200)                            -> {"recallTokenBudget": [2000, 200]}
+recallTokenBudget=99999999 (max 50000)                   -> {"recallTokenBudget": [2000, 50000]}
+recallMaxContentChars=10 (min 100)                       -> {"recallMaxContentChars": [500, 100]}
+recallMaxContentChars=999999 (max 5000)                  -> {"recallMaxContentChars": [500, 5000]}
+timeoutMs=10 (min 1000)                                  -> {"timeoutMs": [30000, 1000]}
+timeoutMs=999999999 (max 300000)                         -> {"timeoutMs": [30000, 300000]}
+captureMaxLength=1 (min 200)                             -> {"captureMaxLength": [24000, 200]}
+captureMaxLength=99999999 (max 100000)                   -> {"captureMaxLength": [24000, 100000]}
+authMode=bogus (enum)                                    -> {"authMode": ["api_key", ""]}
+                                                            configuredWatch=[]
+authMode=API_KEY (enum case)                             -> {"authMode": ["api_key", ""]}
+captureMode=bogus (enum)                                 -> NO CHANGE
+                                                            configuredWatch=['authMode']
+logLevel=verbose (enum)                                  -> NO CHANGE
+                                                            configuredWatch=['authMode']
+recallPeerScope=root (enum)                              -> NO CHANGE
+                                                            configuredWatch=['authMode']
+enabled=maybe (bool)                                     -> NO CHANGE
+                                                            configuredWatch=['authMode']
+enabled=off (bool FALSE_WORD)                            -> {"enabled": [true, false]}
+                                                            configuredWatch=['authMode', 'enabled']
+recallQueryFilters='a, b ,c' (list)                      -> {"recallQueryFilters": [[], ["a", "b", "c"]]}
+recallMaxTokens=1 (min 64, sendOnlyWhenConfigured)       -> {"recallMaxTokens": [1600, 64]}
+                                                            configuredWatch=['authMode', 'recallMaxTokens']
+recallCompressMaxBullets=0 (min 1, sendOnlyWhenConfigured) -> {"recallCompressMaxBullets": [6, 1]}
+                                                            configuredWatch=['authMode', 'recallCompressMaxBullets']
+layer(ws-file recallLimit=5,score=0.9) + env(recallLimit=999) -> {"recallLimit": [10, 50], "scoreThreshold": [0.35, 0.9]}
+                                                            sources={'recallLimit': 'env', 'scoreThreshold': 'ws-file'}
+layer(ws-file recallLimit=99999, minQueryLength=-3, peerScope=nope) -> {"recallLimit": [10, 50], "minQueryLength": [3, 1]}
+
+BASELINE: {"recallLimit": 10, "scoreThreshold": 0.35, "minQueryLength": 3, "recallTokenBudget": 2000, "recallMaxContentChars": 500, "timeoutMs": 30000, "captureMaxLength": 24000, "authMode": "api_key", "captureMode": "semantic", "logLevel": "error", "recallPeerScope": "all", "enabled": true, "recallQueryFilters": [], "recallMaxTokens": 1600, "recallCompressMaxBullets": 6}
+
+==== end-to-end loadConfig ====
+---- end-to-end loadConfig() ----
+{"over":{"OPENVIKING_RECALL_LIMIT":"999"},"recallLimit":50,"recallLimitConfigured":true,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_RECALL_LIMIT":"abc"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_TIMEOUT_MS":"1"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":1000,"captureTimeoutMs":30000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_CAPTURE_MODE":"bogus"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+

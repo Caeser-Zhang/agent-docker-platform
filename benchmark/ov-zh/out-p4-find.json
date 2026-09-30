@@ -1,0 +1,42 @@
+{
+ "avg_hits": 5.0,
+ "checks": {
+  "P4-04 find_p95<=500ms": [
+   382.6,
+   "PASS"
+  ]
+ },
+ "direct_url": "http://openviking:1933",
+ "endpoint": "/api/v1/search/find",
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"ovzh-ev",
+  "http": 200
+ },
+ "http_codes": {
+  "200": 200
+ },
+ "label": "p4-find",
+ "latency_ms": {
+  "max": 701.4,
+  "mean": 178.8,
+  "min": 115.1,
+  "n": 200,
+  "p50": 145.0,
+  "p95": 382.6,
+  "p99": 514.0
+ },
+ "levels_returned": {
+  "0": 42,
+  "1": 215,
+  "2": 743
+ },
+ "n": 200,
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "suite": "find",
+ "total_hits": 1000,
+ "ts": "2026-09-29T03:33:13",
+ "vector_count_after": 229,
+ "vector_count_before": 229
+}

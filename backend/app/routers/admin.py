@@ -20,6 +20,9 @@ Endpoints:
                                                     (keeps volumes)
   POST /api/admin/containers/{user_id}/destroy   — remove container AND volumes
   GET  /api/admin/audit                          — recent lifecycle audit events
+  GET  /api/admin/ov/memory-access               — per-user OpenViking memory
+                                                    credentials (username/工号 →
+                                                    user key, for the Studio)
 """
 import asyncio
 import logging
@@ -31,6 +34,7 @@ from ..auth import require_admin
 from ..config import settings
 from ..database import async_session
 from ..models import AgentContainer, User
+from ..services import ov_access
 from ..services.agent_controller import agent_controller
 from ..services.audit import list_audit
 from ..services.container_manager import container_manager
@@ -153,6 +157,63 @@ async def admin_containers(stats: bool = Query(True, description="Include CPU/me
 
     rows.sort(key=lambda r: (r["username"] is None, r["username"] or "", r["container_name"]))
     return {"containers": rows}
+
+
+@router.get("/ov/memory-access")
+async def admin_ov_memory_access(
+    q: str | None = Query(None, description="按 用户名/工号/用户ID 过滤（大小写不敏感子串）"),
+):
+    """打通「用户名/工号 → user_id → OV user key」链路，供管理页「记忆访问」Tab。
+
+    key 走 Admin API ``include_credentials=true`` 读回（ov_access 里的设计
+    决定：读回而非本地派生，避免为从未使用记忆服务的用户产生注册副作
+    用）。未在 OV 注册的用户 ov_registered=false —— 该用户从未用过记忆
+    服务，Studio 里也没有内容可看。
+    """
+    if not ov_access.enabled():
+        return {"enabled": False, "account_id": settings.openviking_account_id, "users": []}
+
+    try:
+        ov_users = await ov_access.list_ov_users_with_keys()
+    except ov_access.OvUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ov_access.OvAdminError as exc:
+        raise HTTPException(status_code=502, detail=f"OpenViking Admin API 拒绝: {exc}") from exc
+
+    ov_by_user = {row["user_id"]: row for row in ov_users}
+
+    async with async_session() as db:
+        users = (await db.execute(select(User))).scalars().all()
+        records = (await db.execute(select(AgentContainer))).scalars().all()
+    record_by_user = {r.user_id: r for r in records}
+
+    needle = (q or "").strip().lower()
+    rows: list[dict] = []
+    for u in users:
+        if needle:
+            haystacks = ((u.username or "").lower(), (u.uid or "").lower(), u.id.lower())
+            if not any(needle in h for h in haystacks):
+                continue
+        ov_row = ov_by_user.get(u.id)
+        rec = record_by_user.get(u.id)
+        rows.append({
+            "user_id": u.id,
+            "username": u.username,
+            "uid": u.uid,
+            "role": u.role,
+            "container_status": rec.status if rec else None,
+            "container_name": rec.container_name if rec else None,
+            "ov_registered": ov_row is not None,
+            "ov_role": ov_row["role"] if ov_row else None,
+            "api_key": ov_row["api_key"] if ov_row else None,
+        })
+
+    rows.sort(key=lambda r: (r["username"] is None, r["username"] or ""))
+    return {
+        "enabled": True,
+        "account_id": settings.openviking_account_id,
+        "users": rows,
+    }
 
 
 async def _require_record(user_id: str) -> AgentContainer:

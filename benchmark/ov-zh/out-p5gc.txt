@@ -1,0 +1,242 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T08:30:38Z
+  agent-docker-demo-backend-1=Up 14 seconds
+  agent-docker-demo-openviking-1=Up 14 seconds (health: starting)
+  agent-p2probe=Up 14 seconds (healthy)
+  agent-docker-demo-frontend-1=Up 12 seconds
+  agent-docker-demo-searxng-1=Up 14 seconds
+  agent-docker-demo-demo-mcp-1=Up 14 seconds
+  agent-docker-demo-postgres-1=Up 14 seconds
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage 1: P5-18 derived-key consistency (backend python) ##########
+{
+ "register_p5gc-a": {
+  "status": 200,
+  "returned_equals_derived": true,
+  "returned_len": 115,
+  "derived_len": 115
+ },
+ "register_p5gc-b": {
+  "status": 200,
+  "returned_equals_derived": true,
+  "returned_len": 115,
+  "derived_len": 115
+ },
+ "re_register_p5gc-a_status": 409,
+ "realign_p5gc-a": {
+  "status": 200,
+  "returned_equals_derived": true
+ },
+ "realign_p5gc-b": {
+  "status": 200,
+  "returned_equals_derived": true
+ },
+ "user_api_key_p5gc-a_equals_derived": true,
+ "user_api_key_p5gc-b_equals_derived": true,
+ "fallback_error_logged": true,
+ "fallback_override_set": true,
+ "fallback_serves_override": true,
+ "overrides_for_real_users": [],
+ "health_p5gc-a": {
+  "status": 200,
+  "user_id": "p5gc-a",
+  "role": "user",
+  "account_id": "agent-platform"
+ },
+ "health_p5gc-b": {
+  "status": 200,
+  "user_id": "p5gc-b",
+  "role": "user",
+  "account_id": "agent-platform"
+ }
+}
+VALID stage1
+
+########## stage 1b: P5-18 live key — A-container env vs backend derivation ##########
+  P5_18_LIVE_KEY = MISMATCH live_len=100 derived_len=117 err=
+VALID stage1b
+
+########## stage 2: P5-19 counting endpoints are account-level aggregates ##########
+{
+ "stats_p2probe": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"total_memories\":651,\"by_category\":{\"profile\":5,\"preferences\":15,\"entities\":7,\"events\":10,\"cases\":598,\"patterns\":5,\"tools\":6,\"skills\":5},\"hotness_distribution\":{\"cold\":0,\"warm\":651,\"hot\":0},\"staleness\":{\"not_accessed_7d\":0,\"not_accessed_30d\":0,\"oldest_memory_age_days\":1.0}},\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "stats_ovzh-eval": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"total_memories\":651,\"by_category\":{\"profile\":5,\"preferences\":15,\"entities\":7,\"events\":10,\"cases\":598,\"patterns\":5,\"tools\":6,\"skills\":5},\"hotness_distribution\":{\"cold\":0,\"warm\":651,\"hot\":0},\"staleness\":{\"not_accessed_7d\":0,\"not_accessed_30d\":0,\"oldest_memory_age_days\":1.0}},\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "stats_p5gc-a": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"total_memories\":651,\"by_category\":{\"profile\":5,\"preferences\":15,\"entities\":7,\"events\":10,\"cases\":598,\"patterns\":5,\"tools\":6,\"skills\":5},\"hotness_distribution\":{\"cold\":0,\"warm\":651,\"hot\":0},\"staleness\":{\"not_accessed_7d\":0,\"not_accessed_30d\":0,\"oldest_memory_age_days\":1.0}},\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "stats_identical_across_users": true,
+ "vector_count_user": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"count\":837},\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "vector_count_root": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ },
+ "ls_home_p2probe": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p2probe/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:24:55.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\"},{\"uri\":\"viking://user/p2probe/peers\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:20:07.000Z\",\"abstract\":\"User peer memory root. Stores t"
+ },
+ "ls_home_ovzh-eval": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/ovzh-eval/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T12:55:56.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\"},{\"uri\":\"viking://user/ovzh-eval/peers\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T12:36:10.000Z\",\"abstract\":\"User peer memory root. Stor"
+ },
+ "ls_home_p5gc-a": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p5gc-a/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T08:30:53.000Z\",\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\"},{\"uri\":\"viking://user/p5gc-a/peers\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-29T08:30:53.000Z\",\"abstract\":\"User peer memory root. Stores the"
+ },
+ "ls_ovzh-eval_memories_status": 200,
+ "ovzh-eval_sample_uri": null
+}
+VALID stage2
+
+########## stage 3a: P5-20 proxy refusal re-confirm (A container -> /ov/mcp) ##########
+{"jsonrpc":"2.0","id":9,"error":{"code":-32601,"message":"平台未开放记忆工具 forget。"}}
+VALID stage3a
+
+########## stage 3b: P5-20 server-side forget isolation (direct MCP, backend python) ##########
+{
+ "seed_write": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://user/p5gc-a/memories/p5gc/forget-target.md\",\"root_uri\":\"viking://user/p5gc-a/memories/p5gc\",\"context_type\":\"memory\",\"mode\":\"replace\",\"written_bytes\":88,\"conten"
+ },
+ "mcp_init_a": 200,
+ "mcp_init_b": 200,
+ "direct_mcp_tools": [
+  "add_resource",
+  "cancel_watch",
+  "edit",
+  "find",
+  "forget",
+  "glob",
+  "grep",
+  "health",
+  "list",
+  "list_watches",
+  "read",
+  "remember",
+  "search",
+  "tree",
+  "write"
+ ],
+ "forget_cross": {
+  "status": 200,
+  "resp": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error executing tool forget: Access denied for viking://user/p5gc-a/memories/p5gc/forget-target.md\"}], \"isError\": true}}"
+ },
+ "forget_cross_recursive": {
+  "status": 200,
+  "resp": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Error executing tool forget: Access denied for viking://user/p5gc-a\"}], \"isError\": true}}"
+ },
+ "marker_after_cross_forget": 200,
+ "forget_own": {
+  "status": 200,
+  "resp": "{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": {\"content\": [{\"type\": \"text\", \"text\": \"Deleted: viking://user/p5gc-a/memories/p5gc/forget-target.md\"}], \"structuredContent\": {\"result\": \"Deleted: viking://user/p5gc-a/memories/p5gc/forget-target.md\"}, \"isError\": false}}"
+ },
+ "marker_after_own_forget": 404,
+ "DELETE /api/v1/content/write": 405,
+ "DELETE /api/v1/content/read": 405,
+ "DELETE /api/v1/fs/ls": 405,
+ "DELETE /api/v1/fs/rm": 404,
+ "DELETE /api/v1/content/delete": 404,
+ "DELETE /api/v1/memories": 404,
+ "DELETE /api/v1/skills": 405,
+ "DELETE /api/v1/sessions/x": 404,
+ "openapi_status_root": 200,
+ "openapi_path_count": 126,
+ "openapi_delete_paths": [
+  "/api/v1/acl",
+  "/api/v1/admin/accounts/{account_id}",
+  "/api/v1/admin/accounts/{account_id}/groups/{group_id}",
+  "/api/v1/admin/accounts/{account_id}/groups/{group_id}/members/{user_id}",
+  "/api/v1/admin/accounts/{account_id}/memory-templates/{memory_type}",
+  "/api/v1/admin/accounts/{account_id}/users/{user_id}",
+  "/api/v1/fs",
+  "/api/v1/sessions/{session_id}",
+  "/api/v1/skills/{skill_name}",
+  "/api/v1/snapshot/ignore",
+  "/api/v1/user-settings/add-locations",
+  "/api/v1/watches",
+  "/api/v1/watches/{task_id}",
+  "/webdav/resources",
+  "/webdav/resources/{resource_path}"
+ ],
+ "openapi_all_methods": [
+  "DELETE",
+  "GET",
+  "HEAD",
+  "MKCOL",
+  "MOVE",
+  "OPTIONS",
+  "PATCH",
+  "POST",
+  "PROPFIND",
+  "PUT"
+ ]
+}
+VALID stage3b
+
+########## stage 4: P5-21 write paths stay in user scope ##########
+{
+ "ls_resources_before": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ },
+ "ls_agent_before": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ },
+ "tree_p2probe": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://user/p2probe/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:24:55.000Z\",\"rel_path\":\"memories\",\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\"},{\"uri\":\"viking://user/p2probe/memories/preferences\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:24:55.000Z\",\"rel_path\":\"memories/preferences\",\"abstract\":\"# viking://user/p2probe/memories/preferences [Directory abstract is not ready]\"},{\"uri\":\"viking://user/p2probe/memories/identity.md\",\"size\":439,\"isDir\":false,\"m"
+ },
+ "write_own": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://user/p5gc-a/memories/p5gc/scope-marker.md\",\"root_uri\":\"viking://user/p5gc-a/memories/p5gc\",\"context_type\":\"memory\",\"mode\":\"replace\",\"written_bytes\":67,\"content"
+ },
+ "write viking://resources/p5gc-marker.md": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://resources/p5gc-marker.md\",\"root_uri\":\"viking://resources\",\"context_type\":\"resource\",\"mode\":\"create\",\"written_bytes\":18,\"content_updated\":true,\"semantic_status\""
+ },
+ "write viking://agent/p5gc-marker.md": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://agent/p5gc-marker.md\",\"root_uri\":\"viking://agent\",\"context_type\":\"resource\",\"mode\":\"create\",\"written_bytes\":18,\"content_updated\":true,\"semantic_status\":\"comple"
+ },
+ "ls_resources_after": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ },
+ "ls_agent_after": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ },
+ "root_write_resources": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted"
+ }
+}
+VALID stage4
+
+########## stage 5: cleanup + residue ##########
+{
+ "cleanup_forget_scope_marker": false,
+ "scope_marker_gone": 404,
+ "cleanup_root_forget_blackhole": "{\"jsonrpc\": \"2.0\", \"id\": null, \"error\": {\"code\": -32001, \"message\": \"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for ",
+ "blackhole_marker_gone": 403,
+ "admin_delete_p5gc-a": 202,
+ "admin_delete_p5gc-b": 202,
+ "ls_viking_user_root": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.\",\"details\":{}},\"telemetry\":null,\"profile\":null}"
+ }
+}
+VALID stage5
+DONE_P5GC at=2026-09-29T08:31:42Z

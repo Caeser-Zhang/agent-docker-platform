@@ -1,0 +1,62 @@
+== docker ps ==
+agent-docker-demo-backend-1	Up 13 seconds	5 hours ago
+agent-docker-demo-openviking-1	Up 13 seconds (health: starting)	14 hours ago
+agent-p2probe	Up 13 seconds (healthy)	23 hours ago
+agent-docker-demo-frontend-1	Up 11 seconds	8 days ago
+agent-docker-demo-searxng-1	Up 13 seconds	9 days ago
+agent-docker-demo-demo-mcp-1	Up 13 seconds	9 days ago
+agent-docker-demo-postgres-1	Up 13 seconds	5 weeks ago
+== now_utc=2026-09-29T07:06:51Z
+== A container exists? ==
+created=2026-09-28T08:07:46.663464467Z started=2026-09-29T07:06:38.12653822Z status=running
+== OV direct /health from inside OV ==
+ov_local_health=000
+ov_local_health=000
+ov_local_health=200
+== OV logs tail ==
+2026-09-29 06:59:00.992 | INFO     | openviking.telemetry.tracer:init_tracer_from_server_config:233 - [TRACER] disabled in server.observability.traces
+[09/29/26 06:59:00] INFO     StreamableHTTP       streamable_http_manager.py:128
+                             session manager                                    
+                             started                                            
+[openviking-entrypoint] openviking-server is healthy
+Bot API proxy enabled, forwarding to http://127.0.0.1:18790
+Starting vikingbot gateway...
+Vikingbot logs will be written to: /app/.openviking/data/bot/logs/vikingbot.log
+Vikingbot gateway started (PID: 53)
+2026-09-29 07:05:07,903 - openviking.server.auth.plugins.ldap - WARNING - LDAP library not available. LDAP authentication will not work. Install with: uv pip install python-ldap
+2026-09-29 07:05:09.145 | INFO     | openviking.telemetry.tracer:init_tracer_from_server_config:233 - [TRACER] disabled in server.observability.traces
+[09/29/26 07:05:09] INFO     StreamableHTTP       streamable_http_manager.py:128
+                             session manager                                    
+                             started                                            
+[openviking-entrypoint] openviking-server is healthy
+Bot API proxy enabled, forwarding to http://127.0.0.1:18790
+Starting vikingbot gateway...
+Vikingbot logs will be written to: /app/.openviking/data/bot/logs/vikingbot.log
+Vikingbot gateway started (PID: 51)
+2026-09-29 07:06:53,763 - openviking.server.auth.plugins.ldap - WARNING - LDAP library not available. LDAP authentication will not work. Install with: uv pip install python-ldap
+2026-09-29 07:06:55.099 | INFO     | openviking.telemetry.tracer:init_tracer_from_server_config:233 - [TRACER] disabled in server.observability.traces
+[09/29/26 07:06:55] INFO     StreamableHTTP       streamable_http_manager.py:128
+                             session manager                                    
+                             started                                            
+[openviking-entrypoint] openviking-server is healthy
+== backend -> OV proxy health ==
+via_proxy=401
+== backend -> OV direct (no key) ==
+direct_ov=200
+== backend logs tail ==
+INFO:     Finished server process [1]
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+2026-09-29 07:06:42,679 [app.main] INFO: === Agent Docker Platform starting ===
+2026-09-29 07:06:42,971 [app.main] INFO: Database initialized
+2026-09-29 07:06:51,494 [app.services.container_manager] INFO: agent-net network already exists
+2026-09-29 07:06:51,494 [app.main] INFO: Docker network ready: agent-net
+2026-09-29 07:06:51,513 [app.main] INFO: PPTX library ready at /library/pptx — seed: 0 scanned, 0 ingested, 0 already present, 2 sample(s) skipped
+2026-09-29 07:06:51,514 [app.services.agent_controller] INFO: Scanning for running containers to recover...
+2026-09-29 07:06:51,528 [app.services.agent_controller] INFO: Recovery complete: 0 containers re-attached
+2026-09-29 07:06:51,528 [app.main] INFO: === Platform ready on 0.0.0.0:8000 ===
+2026-09-29 07:06:51,528 [app.services.agent_controller] INFO: Idle reclaim task started (interval=300s, threshold=1800s)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     172.19.0.4:39538 - "GET /ov/health HTTP/1.1" 401 Unauthorized
+DONE_DIAG at=2026-09-29T07:07:02Z

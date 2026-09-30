@@ -1,0 +1,148 @@
+== docker cp plugin tree
+== file inventory (excluding bundled deps)
+INSTALL-ZH.md
+INSTALL.md
+README.md
+index.mjs
+lib/config.mjs
+lib/mcp-config.mjs
+lib/memory-recall.mjs
+lib/memory-session.mjs
+lib/plugin-runtime.mjs
+lib/repo-context.mjs
+lib/runtime.mjs
+lib/session-inject.mjs
+lib/shared/batch-send.mjs
+lib/shared/capture-utils.mjs
+lib/shared/config-schema.mjs
+lib/shared/credentials.mjs
+lib/shared/debug-log.mjs
+lib/shared/input-filters.mjs
+lib/shared/mcp-proxy-config.mjs
+lib/shared/mcp-proxy-core.mjs
+lib/shared/ov-http.mjs
+lib/shared/pending-queue.mjs
+lib/shared/plugin-config.mjs
+lib/shared/profile-inject.mjs
+lib/shared/recall-compress-core.mjs
+lib/shared/recall-core.mjs
+lib/shared/retryable.mjs
+lib/shared/session-model.mjs
+lib/shared/setup-wizard.mjs
+lib/shared/uri-guard.mjs
+lib/shared/workspace-config.mjs
+lib/shared/workspace-identity.mjs
+lib/shared/workspace-peer.mjs
+lib/shared/workspace-registry.mjs
+lib/utils.mjs
+lib/v2-events.mjs
+lib/v2-plugin.mjs
+lib/viking-uri-guard.mjs
+package.json
+scripts/setup.mjs
+servers/mcp-proxy.mjs
+== bundled deps
+== line counts
+     8 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/scripts/setup.mjs
+     9 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/retryable.mjs
+    26 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/servers/mcp-proxy.mjs
+    27 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/runtime.mjs
+    35 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/mcp-config.mjs
+    49 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/config.mjs
+    51 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/plugin-runtime.mjs
+    56 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/viking-uri-guard.mjs
+    57 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/session-model.mjs
+    58 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/debug-log.mjs
+    67 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/repo-context.mjs
+    81 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/memory-recall.mjs
+    81 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/session-inject.mjs
+    87 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/workspace-registry.mjs
+   102 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/v2-events.mjs
+   106 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/index.mjs
+   112 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/ov-http.mjs
+   114 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/setup-wizard.mjs
+   121 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/batch-send.mjs
+   124 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/utils.mjs
+   197 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/workspace-peer.mjs
+   206 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/recall-compress-core.mjs
+   219 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/input-filters.mjs
+   276 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/mcp-proxy-config.mjs
+   283 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/uri-guard.mjs
+   306 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/plugin-config.mjs
+   334 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/workspace-identity.mjs
+   352 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/v2-plugin.mjs
+   375 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/credentials.mjs
+   386 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/config-schema.mjs
+   433 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/workspace-config.mjs
+   487 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/pending-queue.mjs
+   495 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/profile-inject.mjs
+   524 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/mcp-proxy-core.mjs
+   536 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/memory-session.mjs
+   700 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/capture-utils.mjs
+   772 /mnt/d/Project/agent-docker-demo/_scratch_plugin/pkg/lib/shared/recall-core.mjs
+  8252 total
+== package.json
+{
+  "name": "@openviking/opencode-plugin",
+  "version": "2026.9.25-2",
+  "author": "@openviking",
+  "description": "Unified OpenCode plugin for OpenViking repository retrieval and long-term memory",
+  "type": "module",
+  "main": "index.mjs",
+  "oc-plugin": [
+    "server",
+    "tui"
+  ],
+  "exports": {
+    ".": "./index.mjs",
+    "./servers/mcp-proxy.mjs": "./servers/mcp-proxy.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "lib/",
+    "servers/",
+    "scripts/",
+    "README.md",
+    "INSTALL.md",
+    "INSTALL-ZH.md"
+  ],
+  "scripts": {
+    "prepack": "node ../memory-plugin-shared/sync.mjs",
+    "check": "node --check index.mjs && node --check lib/config.mjs && node --check lib/mcp-config.mjs && node --check lib/runtime.mjs && node --check lib/plugin-runtime.mjs && node --check lib/v2-events.mjs && node --check lib/v2-plugin.mjs && node --check lib/repo-context.mjs && node --check lib/memory-session.mjs && node --check lib/memory-recall.mjs && node --check lib/session-inject.mjs && node --check lib/viking-uri-guard.mjs && node --check lib/utils.mjs && node --check lib/shared/*.mjs && node --check servers/mcp-proxy.mjs && node --check scripts/setup.mjs && node --check tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {},
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/volcengine/OpenViking.git",
+    "directory": "examples/opencode-plugin"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "openviking",
+    "memory",
+    "rag",
+    "code-search"
+  ],
+  "license": "Apache-2.0",
+  "openvikingSourceCommit": "3e02c6ac29842be214fa1560dfaf6ea39a69322c"
+}
+== opencode version in container
+/usr/local/bin/opencode
+1.18.25
+== mounts / read-only rootfs
+ReadonlyRootfs=true
+Tmpfs={"/home/agent":"size=512m,uid=1000,gid=1000","/tmp":"size=256m"}
+MOUNT volume src=/var/lib/docker/volumes/agent-data-p2probe/_data dst=/data rw=true
+MOUNT volume src=/var/lib/docker/volumes/agent-pptx-lib/_data dst=/library/pptx rw=false
+MOUNT volume src=/var/lib/docker/volumes/agent-ws-p2probe/_data dst=/workspace rw=true
+
+== ov service image identity
+ImageID=sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05 Image=ghcr.io/volcengine/openviking@sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05
+ghcr.io/volcengine/openviking:latest <none> 569193efd49a
+openviking-cn-beijing.cr.volces.com/volcengine/openviking:latest sha256:569193efd49ad15a818c98ca66bfb566d1726713f1f3ec9c488b97fa66757d05 569193efd49a
+DONE

@@ -1,0 +1,59 @@
+{
+ "async_wait_false": {
+  "http_codes": {
+   "200": 6
+  },
+  "per_call_ms": {
+   "max": 88.2,
+   "mean": 44.8,
+   "min": 27.8,
+   "n": 6,
+   "p50": 34.8,
+   "p95": 88.2,
+   "p99": 88.2
+  },
+  "wall_seconds": 0.27,
+  "writes_per_second": 22.3
+ },
+ "checks": {
+  "P4-05 write_per_sec>=20 (API accept, wait=false)": [
+   22.3,
+   "PASS"
+  ],
+  "P4-05 write_per_sec>=20 (indexed, wait=true)": [
+   1.85,
+   "FAIL"
+  ]
+ },
+ "direct_url": "http://openviking:1933",
+ "docs": 6,
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"p4-smok",
+  "http": 200
+ },
+ "label": "smoke-write",
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "suite": "write",
+ "sync_wait_true": {
+  "http_codes": {
+   "200": 6
+  },
+  "per_call_ms": {
+   "max": 1100.1,
+   "mean": 541.7,
+   "min": 234.4,
+   "n": 6,
+   "p50": 487.3,
+   "p95": 1100.1,
+   "p99": 1100.1
+  },
+  "wall_seconds": 3.25,
+  "writes_per_second": 1.85
+ },
+ "ts": "2026-09-29T03:27:33",
+ "user": "p4-smoke",
+ "vector_count_after": 227,
+ "vector_count_before": 227
+}

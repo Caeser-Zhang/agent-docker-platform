@@ -1,0 +1,54 @@
+############ container env (values redacted)
+env_count=27
+  AGENT_USER_ID = p2probe
+  AGENT_WORKDIR = /workspace
+  BUN_JSC_numberOfGCMarkers = 1
+  FASTDB_BASE_URL = http://backend:8000
+  FASTK_API_KEY = <redacted len=100 head=gAAAAA>
+  HOME = /home/agent
+  HOSTNAME = cfe833e00e4c
+  LC_CTYPE = C.UTF-8
+  OPENCODE_DISABLE_AUTOUPDATE = 1
+  OPENCODE_PORT = 4096
+  OPENCODE_SERVER_PASSWORD = <redacted len=43 head=VjJUHw>
+  OPENCODE_SERVER_USERNAME = opencode
+  OPENVIKING_API_KEY = <redacted len=100 head=gAAAAA>
+  OPENVIKING_AUTH_MODE = api_key
+  OPENVIKING_CLI_CONFIG_FILE = /opt/agent/builtin-plugins/openviking/ovcli.conf
+  OPENVIKING_MCP_URL = http://backend:8000/ov/mcp
+  OPENVIKING_URL = http://backend:8000/ov
+  PATH = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  PIP_BREAK_SYSTEM_PACKAGES = 1
+  PIP_INDEX_URL = https://pypi.tuna.tsinghua.edu.cn/simple
+  PIP_USER = 1
+  PPTX_LIBRARY_DIR = /library/pptx
+  PPTX_STYLES_DIR = /library/pptx/styles
+  XDG_CACHE_HOME = /data/cache
+  XDG_CONFIG_HOME = /data/config
+  XDG_DATA_HOME = /data/share
+  XDG_STATE_HOME = /data/state
+############ is the plugin actually live in this container?
+
+-- opencode server health
+{"healthy":true}
+-- ws-identity file content
+FILE /home/agent/.openviking/state/*.json
+cat: '/home/agent/.openviking/state/*.json': No such file or directory
+
+-- any recall ledger / pending queue / logs anywhere?
+--- counts
+0
+0
+############ pendingDir + recall ledger resolution, real export names
+pending-queue exports: claimForReplay,cleanStale,dequeue,enqueue,incrementRetry,listPending,releaseClaim,replayPending
+recall-core exports: buildContextSearchBody,buildRecallBlock,buildRecallBlockDetailed,buildRecallEndpointBody,buildServerAssembledBlock,contextRequestTimeoutMs,downgradeToRecallBody,estimateTokens,fetchAssembledContext,isContextFaceLegacy,isRecallEnabled,markContextFaceLegacy,markPeerScopeDowngrade,normalizeContextEntry,peerScopeMemoPath,postRecall,readPeerScopeDowngrade,selectRecallContent
+############ effectivePeer under the real workspace cwd
+/workspace => {"peerId":"","effectivePeer":{"peerId":"","source":"none","origin":"unresolved","legacyPeerId":"-workspace"},"workspacePeer":true}
+/tmp => {"peerId":"","effectivePeer":{"peerId":"","source":"none","origin":"unresolved","legacyPeerId":"-tmp"},"workspacePeer":true}
+############ OPENVIKING_STATE_DIR / PENDING_DIR relocation check
+{
+ "dataDir": "/data/state/openviking",
+ "workspaceStateDir": "/data/state/openviking/state",
+ "debugLogPath": "/home/agent/.openviking/logs/opencode-plugin.log"
+}
+DONE_P5F2 at=2026-09-29T06:49:51Z

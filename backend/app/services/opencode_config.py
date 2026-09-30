@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
+from . import ov_access
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,15 @@ logger = logging.getLogger(__name__)
 # injected into the container as opencode config keys — build_container_config
 # translates them into permission deny rules instead.
 HOST_ONLY_KEYS = ("plugin", "builtin_mcp", "builtin_skills")
+
+# The memory service is the one built-in with a platform-wide kill switch
+# (AGENT_OPENVIKING_ENABLED), and it ships as two halves that must be switched
+# together: an MCP server (the tools) and an opencode plugin (auto-recall,
+# auto-capture, profile injection). Both are named "openviking". Manifest
+# discovery cannot honour the switch — the manifests are read-only files baked
+# into the agent image — so it is applied to each half here, and to the
+# per-user credential stamp in build_container_config.
+OPENVIKING_MCP_NAME = "openviking"
 
 # Any of these appearing inside a URL means "the machine running Docker", which
 # from the container's point of view is reachable as host.docker.internal.
@@ -79,6 +89,10 @@ CONTAINER_DEFAULTS: dict[str, Any] = {
         "external_directory": "allow",
         "skill": "allow",
         "web_search*": "allow",
+        # The memory service's MCP tools (find / search / read / remember / ...),
+        # keyed the same way build_container_config keys the deny rule it writes
+        # when a user hides the server, so hiding and un-hiding stay symmetric.
+        "openviking_*": "allow",
         # The built-in present-file plugin's delivery-signaling tool. opencode's
         # registry does not permission-gate custom plugin tools, but the explicit
         # allow keeps it out of any future deny-by-default ruleset and documents
@@ -322,6 +336,11 @@ def builtin_mcp_servers() -> dict[str, dict]:
     inject them) and by the /api/config router (to list / toggle them).
     """
     servers = _discover_builtin_mcp()
+    if not settings.openviking_enabled:
+        # Filtering here rather than in build_container_config keeps the switch
+        # honest everywhere: /api/config neither lists nor toggles a server that
+        # will never be injected, so no dead control reaches the UI.
+        servers.pop(OPENVIKING_MCP_NAME, None)
     source, _ = load_source_config()
     overrides = (source.get("builtin_mcp") or {}) if isinstance(source, dict) else {}
     return _apply_builtin_overrides(servers, overrides)
@@ -357,6 +376,14 @@ def _discover_builtin_plugins() -> list[str]:
             logger.warning("Skipping unreadable plugin manifest: %s", manifest_path)
             continue
         if not manifest.get("enabled", True):
+            continue
+        if manifest.get("name") == OPENVIKING_MCP_NAME and not settings.openviking_enabled:
+            # The plugin half of the memory service's kill switch. Dropping the
+            # MCP entry alone is not enough: the plugin is what makes the
+            # REST calls (auto-recall, auto-capture, profile injection), and
+            # with the service switched off _openviking_env provisions no
+            # credentials, so a loaded plugin would spend every agent boot
+            # failing calls to something that is not there.
             continue
         path = manifest.get("path")
         if not path:
@@ -654,6 +681,23 @@ def build_container_config(
     builtin_mcp = builtin_mcp_servers()
     if builtin_mcp:
         sanitized.setdefault("mcp", {}).update(builtin_mcp)
+
+    # Stamp the memory service's per-user credential. It cannot come from the
+    # manifest: ${VAR} placeholders resolve against GLOBAL settings only, so a
+    # placeholder here would hand every user the same token — or, since no such
+    # setting exists, stay verbatim and authenticate as nobody. The token is an
+    # opaque ovproxy:<uid> seal, not an OpenViking key; routers/ov_proxy swaps
+    # it for the user's real derived key when forwarding.
+    injected_mcp = sanitized.get("mcp")
+    ov_entry = injected_mcp.get(OPENVIKING_MCP_NAME) if isinstance(injected_mcp, dict) else None
+    if ov_entry is not None:
+        if user_id:
+            ov_entry.setdefault("headers", {})["X-API-Key"] = ov_access.issue_proxy_token(user_id)
+        else:
+            # The legacy no-arg fallback (container_manager's config_json=None
+            # path) has no user to stamp for. An entry that can only fail its
+            # MCP handshake on every session start is worse than no entry.
+            injected_mcp.pop(OPENVIKING_MCP_NAME, None)
 
     # Inject built-in plugins (pre-baked into the read-only agent image at
     # build time, so users cannot remove them). The user's own plugin entries

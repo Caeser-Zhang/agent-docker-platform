@@ -1,0 +1,40 @@
+{"id":"C01","category":"profile","slug":"职业背景","content":"我的职业是后端工程师，主要写 Go 和 Python，负责订单中心服务，团队规模十二人。"}
+{"id":"C02","category":"profile","slug":"工作环境","content":"我的开发机是 macOS，远程连到杭州机房的跳板机，日常用 VS Code 和 IntelliJ IDEA。"}
+{"id":"C03","category":"profile","slug":"语言偏好","content":"我习惯用中文交流，技术文档可以看英文，但回复请一律用中文。"}
+{"id":"C04","category":"profile","slug":"作息习惯","content":"我一般上午十点到岗，晚上七点下班，周末不处理非紧急工单。"}
+{"id":"C05","category":"profile","slug":"技术栈背景","content":"我熟悉 Kubernetes 和 Docker，对前端只了解基础的 React，不熟 CSS 布局。"}
+{"id":"C06","category":"preferences","slug":"回复风格偏好","content":"回答要简短直接，先给结论再给理由，不要输出客套话和多余的铺垫。"}
+{"id":"C07","category":"preferences","slug":"代码风格偏好","content":"代码注释用中文，变量名用英文小驼峰，禁止使用 any 类型，缩进四个空格。"}
+{"id":"C08","category":"preferences","slug":"日志格式偏好","content":"日志一律输出 JSON 结构化格式，时间戳用 ISO8601 带时区，级别字段名统一为 level。"}
+{"id":"C09","category":"preferences","slug":"错误提示偏好","content":"报错信息要带上请求 ID 和具体参数值，不要只抛出一个笼统的内部错误。"}
+{"id":"C10","category":"preferences","slug":"依赖升级偏好","content":"不要自动升级主版本依赖，安全补丁可以直接打，功能更新需要我确认。"}
+{"id":"C11","category":"entities","slug":"订单中心服务","content":"订单中心服务 order-center 部署在 Kubernetes 集群 prod-hz-01，副本数八个，对外端口 8080。"}
+{"id":"C12","category":"entities","slug":"主数据库实例","content":"主数据库是 PostgreSQL 15，实例名 pg-order-master，地址 10.20.3.11:5432，最大连接数两百。"}
+{"id":"C13","category":"entities","slug":"缓存集群","content":"缓存用 Redis 7 集群，三个主节点三个从节点，名称是 redis-order，内存上限每节点 16GB。"}
+{"id":"C14","category":"entities","slug":"消息队列主题","content":"订单状态变更走 Kafka 主题 order-status-changed，分区数十二，保留期七天。"}
+{"id":"C15","category":"entities","slug":"监控看板","content":"核心监控看板在 Grafana，地址 grafana.internal，仪表盘编号 4021，展示 QPS 与 P99 延迟。"}
+{"id":"C16","category":"events","slug":"2026年3月数据库故障","content":"2026 年 3 月 14 日凌晨两点，pg-order-master 主从切换失败，订单写入中断 47 分钟，根因是复制槽堆积撑满磁盘。"}
+{"id":"C17","category":"events","slug":"2026年5月版本发布","content":"2026 年 5 月 9 日发布了订单中心 v2.8.0，引入了拆单逻辑，灰度比例从百分之五逐步放到百分之百。"}
+{"id":"C18","category":"events","slug":"2026年6月安全演练","content":"2026 年 6 月 20 日进行了红蓝对抗演练，发现网关未限制内网横向访问，已在 6 月 25 日修复。"}
+{"id":"C19","category":"events","slug":"2026年7月容量扩容","content":"2026 年 7 月 3 日把 order-center 副本从八个扩到十六个，应对大促流量，CPU 峰值下降三成。"}
+{"id":"C20","category":"events","slug":"2026年8月依赖漏洞","content":"2026 年 8 月 11 日收到日志组件的高危漏洞通告，两天内完成了全量升级和回归验证。"}
+{"id":"C21","category":"cases","slug":"网关重试策略","content":"网关重试采用指数退避：初始间隔 200ms，最多重试 6 次，总耗时上限 8 秒，仅对 502、503、504 重试。"}
+{"id":"C22","category":"cases","slug":"连接池耗尽案例","content":"连接池耗尽的表现是大量请求卡在获取连接阶段，解决办法是把上限从 50 提到 200，并加上获取超时 3 秒。"}
+{"id":"C23","category":"cases","slug":"缓存穿透案例","content":"缓存穿透导致数据库压力骤增，处理方式是给不存在的键写入空值并设置 60 秒过期，同时启用布隆过滤器。"}
+{"id":"C24","category":"cases","slug":"消息重复消费案例","content":"Kafka 消费者重复处理同一批消息，原因是提交位点在业务处理之后，改为幂等落库加先处理后提交已解决。"}
+{"id":"C25","category":"cases","slug":"慢查询案例","content":"订单列表查询耗时超过 3 秒，通过给 created_at 和 user_id 建复合索引，把耗时降到 120 毫秒以内。"}
+{"id":"C26","category":"patterns","slug":"超时设置规律","content":"所有外部调用都必须设置超时，默认连接超时 1 秒、读取超时 3 秒，禁止使用无超时的默认客户端。"}
+{"id":"C27","category":"patterns","slug":"幂等设计模式","content":"写接口一律用业务唯一键做幂等，重复请求返回首次结果而不是报错，键的有效期至少 24 小时。"}
+{"id":"C28","category":"patterns","slug":"熔断降级模式","content":"下游错误率超过百分之二十时触发熔断，熔断窗口 30 秒，期间走本地兜底数据，半开状态放一个探测请求。"}
+{"id":"C29","category":"patterns","slug":"限流模式","content":"对外接口按用户维度限流，单用户每秒 20 次，超出返回 429 并在响应头带上重试等待秒数。"}
+{"id":"C30","category":"patterns","slug":"日志留存策略","content":"日志保留策略是热数据 7 天、温数据 30 天、冷数据归档到对象存储保留一年，超期自动清理。"}
+{"id":"C31","category":"tools","slug":"压测工具wrk","content":"压测用 wrk，常用命令是 wrk -t8 -c200 -d60s，配合 lua 脚本发 POST，结果重点看 P99 和错误率。"}
+{"id":"C32","category":"tools","slug":"链路追踪工具","content":"链路追踪用 Jaeger，通过 traceId 查询完整调用链，采样率在生产环境设置为百分之十。"}
+{"id":"C33","category":"tools","slug":"数据库客户端","content":"连生产库必须走 bastion 跳板，客户端用 DBeaver，只读账号是 ro_order，禁止直连主库做写操作。"}
+{"id":"C34","category":"tools","slug":"部署工具链","content":"部署走 Argo CD，镜像推到 harbor.internal，生产发布需要两个人工审批节点。"}
+{"id":"C35","category":"tools","slug":"本地调试工具","content":"本地调试用 dlv 打断点，配合 docker compose 起依赖服务，日志用 lnav 过滤查看。"}
+{"id":"C36","category":"skills","slug":"Kubernetes排障技能","content":"我能够排查 Pod 反复重启的问题，流程是先看 events，再看上一次容器日志，最后检查探针配置和资源限制。"}
+{"id":"C37","category":"skills","slug":"SQL调优技能","content":"我可以用 EXPLAIN ANALYZE 分析执行计划，识别全表扫描和错误的连接顺序，并给出索引建议。"}
+{"id":"C38","category":"skills","slug":"性能剖析技能","content":"我熟悉用 pprof 抓 CPU 和内存火焰图，定位热点函数，一般先采样 30 秒再对比改动前后。"}
+{"id":"C39","category":"skills","slug":"故障复盘技能","content":"我能主持故障复盘，按时间线还原过程，输出根因、影响面和三条可执行的改进项。"}
+{"id":"C40","category":"skills","slug":"接口文档编写技能","content":"我可以按照 OpenAPI 3.0 规范补全接口文档，包含请求示例、错误码表和字段中文说明。"}

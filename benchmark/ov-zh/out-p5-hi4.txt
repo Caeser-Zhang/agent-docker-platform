@@ -1,0 +1,73 @@
+=== P5-10/P5-11 driver at=2026-09-29T07:45:15Z key_len=100
+gate_round=1 local_ov=000 via_proxy=503
+gate_round=2 local_ov=200 via_proxy=200
+GATE_OK=1 gate_rounds=2
+--- R25 stack state
+/agent-p2probe created=2026-09-28T08:07:46.663464467Z started=2026-09-29T07:45:01.968491614Z restarts=0 status=running
+/agent-docker-demo-openviking-1 created=2026-09-28T17:22:47.11218534Z started=2026-09-29T07:45:02.011498285Z restarts=0 status=running
+/agent-docker-demo-backend-1 created=2026-09-29T02:35:13.312654014Z started=2026-09-29T07:45:02.007488826Z restarts=0 status=running
+/agent-docker-demo-frontend-1 created=2026-09-20T09:24:47.045674337Z started=2026-09-29T07:45:04.07064585Z restarts=1 status=running
+kernel_uptime_sec=106817.77
+=== P5-10 skipped (SKIP10=1)
+=== P5-11 toggle probe
+PW_len=43
+L0.source_origin = "/host-opencode/opencode.json"
+L0.source_top_keys = ["$schema", "autoupdate", "builtin_mcp", "mcp", "permission", "provider", "share"]
+L0.source_builtin_mcp = {"fastk": {"enabled": true}, "web_search": {"enabled": true}}
+L0.source_builtin_skills = null
+L0.settings.openviking_enabled = true
+L0.discovered_builtin_mcp = {"openviking": {"enabled": true, "type": "remote", "url": "http://backend:8000/ov/mcp"}, "web_search": {"command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "type": "local"}}
+L0.discovered_builtin_plugins = ["/opt/agent/builtin-plugins/oh-my-opencode-slim/node_modules/oh-my-opencode-slim", "/opt/agent/builtin-plugins/openviking/node_modules/@openviking/opencode-plugin", "/opt/agent/builtin-plugins/present-file"]
+L0.builtin_mcp_servers_baseline = {"openviking": {"enabled": true, "type": "remote", "url": "http://backend:8000/ov/mcp"}, "web_search": {"command": ["python3", "/opt/agent/builtin-mcp/web_search/web_search_mcp.py"], "enabled": true, "environment": {"SEARXNG_URL": "http://searxng:8080"}, "type": "local"}}
+L0.hidden_mcp_servers_baseline = []
+L0.hidden_builtin_skills_baseline = []
+L1.C0_baseline = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": [], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": [], "skill_perm": "allow"}
+L1.C1_host_ov_disabled = {"builtin_mcp_servers": {"openviking": false, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C2_host_ov_enabled = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": [], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": [], "skill_perm": "allow"}
+L1.C3_host_websearch_disabled = {"builtin_mcp_servers": {"openviking": true, "web_search": false}, "disabled_skills": null, "hidden_mcps": ["web_search"], "hidden_skills": [], "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "allow", "web_search_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!web_search"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["web_search"], "skill_perm": "allow"}
+L1.C4_user_hides_ov = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C5_platform_visible_user_hides = {"builtin_mcp_servers": {"openviking": true, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C6_platform_hidden_user_empty = {"builtin_mcp_servers": {"openviking": false, "web_search": true}, "disabled_skills": null, "hidden_mcps": ["openviking"], "hidden_skills": [], "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking"], "skill_perm": "allow"}
+L1.C7_both_hidden = {"builtin_mcp_servers": {"openviking": true, "web_search": false}, "disabled_skills": null, "hidden_mcps": ["openviking", "web_search"], "hidden_skills": [], "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "mcp_keys": ["demo-mcp", "openviking", "web_search"], "mcp_perm_rules": {"openviking_*": "deny", "web_search_*": "deny"}, "mcp_types": {"demo-mcp": "remote", "openviking": "remote", "web_search": "local"}, "orchestrator_mcps": ["*", "!openviking", "!web_search"], "orchestrator_skills": ["*"], "ov_entry_present": true, "ov_header_stamped": true, "plugin_list_len": 3, "roundtrip_hidden_from_doc": ["openviking", "web_search"], "skill_perm": "allow"}
+L1.C8_host_remote_disabled.hidden = ["p5-remote-probe"]
+L1.C8_host_remote_enabled.hidden = []
+L1.C9_host_local_disabled.hidden = []
+L1.listvis.idempotent = ["*"]
+L1.listvis.hide = ["*", "!openviking"]
+L1.listvis.hide_twice = ["*", "!openviking"]
+L1.listvis.whitelist_hide = []
+L1.listvis.whitelist_keep = ["web_search"]
+L1.sanitize = {"a b": "a_b", "a-b": "a-b", "a.b": "a_b", "openviking": "openviking", "web_search": "web_search", "中文": "__"}
+L1_DONE
+L2.gate_unpatched = {"password_len": 0, "running": false}
+L2.gate_patched = {"stdin_password_len": 43, "target": "p2probe"}
+L2.before = {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "orchestrator_mcps": ["*"], "ov_mcp_enabled": true, "roundtrip_hidden": [], "ws_mcp_enabled": true}
+L2.before_container_side = {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "perm_key_count": 14, "perm_mcp_rules": {"openviking_*": "allow"}, "plugin_list_len": 3}
+L2.patch_shape.hide = {"permission": {"openviking_*": "deny"}}
+L2.patch_shape.show = {"permission": {"openviking_*": "allow"}}
+L2.patch_shape.skill_hide = {"permission": {"skill": {"*": "allow", "pptx-generator": "deny"}}}
+L2.hide_ov = {"after": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "orchestrator_mcps": ["*", "!openviking"], "ov_mcp_enabled": true, "roundtrip_hidden": ["openviking"], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*", "!openviking"], "perm_key_count": 14, "perm_mcp_rules": {"openviking_*": "deny"}, "plugin_list_len": 3}, "effective_hidden": ["openviking"], "push_ok": true, "target": "openviking"}
+L2.unhide_ov = {"after": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_perm_rules": {"openviking_*": "allow"}, "orchestrator_mcps": ["*"], "ov_mcp_enabled": true, "roundtrip_hidden": [], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "perm_key_count": 14, "perm_mcp_rules": {"openviking_*": "allow"}, "plugin_list_len": 3}, "effective_hidden": [], "push_ok": true, "target": "openviking"}
+L2.hide_ov_again = {"after": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_perm_rules": {"openviking_*": "deny"}, "orchestrator_mcps": ["*", "!openviking"], "ov_mcp_enabled": true, "roundtrip_hidden": ["openviking"], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": ["web_search"], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*", "!openviking"], "perm_key_count": 14, "perm_mcp_rules": {"openviking_*": "deny"}, "plugin_list_len": 3}, "effective_hidden": ["openviking"], "push_ok": true, "target": "openviking"}
+L2.hide_ws = {"after": {"disabled_skills": null, "librarian_mcps": [], "mcp_perm_rules": {"openviking_*": "deny", "web_search_*": "deny"}, "orchestrator_mcps": ["*", "!web_search"], "ov_mcp_enabled": true, "roundtrip_hidden": ["openviking", "web_search"], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*", "!web_search"], "perm_key_count": 15, "perm_mcp_rules": {"openviking_*": "deny", "web_search_*": "deny"}, "plugin_list_len": 3}, "effective_hidden": ["web_search"], "push_ok": true, "target": "web_search"}
+L2.restore_ws = {"after": {"disabled_skills": null, "librarian_mcps": [], "mcp_perm_rules": {"openviking_*": "deny", "web_search_*": "allow"}, "orchestrator_mcps": ["*"], "ov_mcp_enabled": true, "roundtrip_hidden": ["openviking"], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "perm_key_count": 15, "perm_mcp_rules": {"openviking_*": "deny", "web_search_*": "allow"}, "plugin_list_len": 3}, "effective_hidden": [], "push_ok": true, "target": "web_search"}
+L2.final_restore = {"after": {"disabled_skills": null, "librarian_mcps": [], "mcp_perm_rules": {"openviking_*": "allow", "web_search_*": "allow"}, "orchestrator_mcps": ["*"], "ov_mcp_enabled": true, "roundtrip_hidden": [], "ws_mcp_enabled": true}, "container_side": {"disabled_skills": null, "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "perm_key_count": 15, "perm_mcp_rules": {"openviking_*": "allow", "web_search_*": "allow"}, "plugin_list_len": 3}, "effective_hidden": [], "push_ok": true, "target": "openviking"}
+L2.after = {"disabled_skills": null, "librarian_mcps": [], "mcp_perm_rules": {"openviking_*": "allow", "web_search_*": "allow"}, "orchestrator_mcps": ["*"], "ov_mcp_enabled": true, "roundtrip_hidden": [], "ws_mcp_enabled": true}
+L2.after_container_side = {"disabled_skills": null, "librarian_mcps": [], "mcp_enabled": {"demo-mcp": true, "openviking": true, "web_search": true}, "orchestrator_mcps": ["*"], "perm_key_count": 15, "perm_mcp_rules": {"openviking_*": "allow", "web_search_*": "allow"}, "plugin_list_len": 3}
+L2.residue_perm_keys = ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "web_search_*", "webfetch"]
+L2.restored_to_baseline = false
+L2_DONE
+PROBE_DONE
+P5-11 rc=0
+--- P5-11 post-state (read from inside the agent container)
+container_side_perm_mcp= {"openviking_*": "allow", "web_search_*": "allow"}
+container_side_perm_keys= ["bash", "edit", "external_directory", "glob", "grep", "list", "openviking_*", "present_file", "read", "skill", "task", "todowrite", "web_search*", "web_search_*", "webfetch"]
+container_side_mcp= {"demo-mcp": true, "openviking": true, "web_search": true}
+container_side_plugin_len= 3
+container_side_pcfg_keys= ["agents", "autoUpdate", "preset", "presets"]
+container_side_orchestrator= {"model": "volces-gateway/deepseek-v4-pro", "skills": ["*"], "mcps": ["*"]}
+container_side_librarian= {"model": "volces-gateway/deepseek-v4-pro", "skills": [], "mcps": []}
+container_side_disabled_skills= null
+CONTAINER_SIDE_DONE
+poststate rc=0
+DONE_P5HI at=2026-09-29T07:45:33Z

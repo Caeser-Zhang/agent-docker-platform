@@ -1,0 +1,901 @@
+############ P5-16 out-of-range knob clamping (shipped resolveKnobs, no network needed)
+121 /tmp/p5clamp.mjs
+[
+ {
+  "label": "baseline (real container env)",
+  "over": {},
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=999 (over max 50)",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "999"
+  },
+  "picked": {
+   "recallLimit": 50,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallLimit",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=-5 (under min 1)",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "-5"
+  },
+  "picked": {
+   "recallLimit": 1,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallLimit",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=0",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "0"
+  },
+  "picked": {
+   "recallLimit": 1,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallLimit",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=abc (unparseable)",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "abc"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit='' (empty)",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": ""
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=7.6 (float->int)",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "7.6"
+  },
+  "picked": {
+   "recallLimit": 8,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallLimit",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallLimit=1e9",
+  "over": {
+   "OPENVIKING_RECALL_LIMIT": "1e9"
+  },
+  "picked": {
+   "recallLimit": 50,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallLimit",
+   "authMode"
+  ]
+ },
+ {
+  "label": "scoreThreshold=7 (max 1)",
+  "over": {
+   "OPENVIKING_SCORE_THRESHOLD": "7"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 1,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "scoreThreshold",
+   "authMode"
+  ]
+ },
+ {
+  "label": "scoreThreshold=-1 (min 0)",
+  "over": {
+   "OPENVIKING_SCORE_THRESHOLD": "-1"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "scoreThreshold",
+   "authMode"
+  ]
+ },
+ {
+  "label": "scoreThreshold=nan",
+  "over": {
+   "OPENVIKING_SCORE_THRESHOLD": "nan"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "minQueryLength=0 (min 1)",
+  "over": {
+   "OPENVIKING_MIN_QUERY_LENGTH": "0"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 1,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "minQueryLength",
+   "authMode"
+  ]
+ },
+ {
+  "label": "minQueryLength=9999 (max 64)",
+  "over": {
+   "OPENVIKING_MIN_QUERY_LENGTH": "9999"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 64,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "minQueryLength",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallTokenBudget=1 (min 200)",
+  "over": {
+   "OPENVIKING_RECALL_TOKEN_BUDGET": "1"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 200,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallTokenBudget",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallTokenBudget=99999999 (max 50000)",
+  "over": {
+   "OPENVIKING_RECALL_TOKEN_BUDGET": "99999999"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 50000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallTokenBudget",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallMaxContentChars=10 (min 100)",
+  "over": {
+   "OPENVIKING_RECALL_MAX_CONTENT_CHARS": "10"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 100,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallMaxContentChars",
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallMaxContentChars=999999 (max 5000)",
+  "over": {
+   "OPENVIKING_RECALL_MAX_CONTENT_CHARS": "999999"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 5000,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "recallMaxContentChars",
+   "authMode"
+  ]
+ },
+ {
+  "label": "timeoutMs=10 (min 1000)",
+  "over": {
+   "OPENVIKING_TIMEOUT_MS": "10"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 1000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "timeoutMs",
+   "authMode"
+  ]
+ },
+ {
+  "label": "timeoutMs=999999999 (max 300000)",
+  "over": {
+   "OPENVIKING_TIMEOUT_MS": "999999999"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 300000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "timeoutMs",
+   "authMode"
+  ]
+ },
+ {
+  "label": "captureMaxLength=1 (min 200)",
+  "over": {
+   "OPENVIKING_CAPTURE_MAX_LENGTH": "1"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 200,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "captureMaxLength",
+   "authMode"
+  ]
+ },
+ {
+  "label": "captureMaxLength=99999999 (max 100000)",
+  "over": {
+   "OPENVIKING_CAPTURE_MAX_LENGTH": "99999999"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 100000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "captureMaxLength",
+   "authMode"
+  ]
+ },
+ {
+  "label": "authMode=bogus (enum)",
+  "over": {
+   "OPENVIKING_AUTH_MODE": "bogus"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": []
+ },
+ {
+  "label": "authMode=API_KEY (enum case)",
+  "over": {
+   "OPENVIKING_AUTH_MODE": "API_KEY"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": []
+ },
+ {
+  "label": "captureMode=bogus (enum)",
+  "over": {
+   "OPENVIKING_CAPTURE_MODE": "bogus"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "logLevel=verbose (enum)",
+  "over": {
+   "OPENVIKING_LOG_LEVEL": "verbose"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "recallPeerScope=root (enum)",
+  "over": {
+   "OPENVIKING_RECALL_PEER_SCOPE": "root"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "enabled=maybe (bool)",
+  "over": {
+   "OPENVIKING_MEMORY_ENABLED": "maybe"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode"
+  ]
+ },
+ {
+  "label": "enabled=off (bool FALSE_WORD)",
+  "over": {
+   "OPENVIKING_MEMORY_ENABLED": "off"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": false,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode",
+   "enabled"
+  ]
+ },
+ {
+  "label": "recallQueryFilters='a, b ,c' (list)",
+  "over": {
+   "OPENVIKING_RECALL_QUERY_FILTERS": "a, b ,c"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [
+    "a",
+    "b",
+    "c"
+   ],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode",
+   "recallQueryFilters"
+  ]
+ },
+ {
+  "label": "recallMaxTokens=1 (min 64, sendOnlyWhenConfigured)",
+  "over": {
+   "OPENVIKING_RECALL_MAX_TOKENS": "1"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 64,
+   "recallCompressMaxBullets": 6
+  },
+  "configuredWatch": [
+   "authMode",
+   "recallMaxTokens"
+  ]
+ },
+ {
+  "label": "recallCompressMaxBullets=0 (min 1, sendOnlyWhenConfigured)",
+  "over": {
+   "OPENVIKING_RECALL_COMPRESS_MAX_BULLETS": "0"
+  },
+  "picked": {
+   "recallLimit": 10,
+   "scoreThreshold": 0.35,
+   "minQueryLength": 3,
+   "recallTokenBudget": 2000,
+   "recallMaxContentChars": 500,
+   "timeoutMs": 30000,
+   "captureMaxLength": 24000,
+   "authMode": "api_key",
+   "captureMode": "semantic",
+   "logLevel": "error",
+   "recallPeerScope": "all",
+   "enabled": true,
+   "recallQueryFilters": [],
+   "recallMaxTokens": 1600,
+   "recallCompressMaxBullets": 1
+  },
+  "configuredWatch": [
+   "authMode",
+   "recallCompressMaxBullets"
+  ]
+ },
+ {
+  "label": "layer(ws-file recallLimit=5,score=0.9) + env(recallLimit=999)",
+  "picked": {
+   "recallLimit": 50,
+   "scoreThreshold": 0.9,
+   "sources": {
+    "recallLimit": "env",
+    "scoreThreshold": "ws-file"
+   }
+  }
+ },
+ {
+  "label": "layer(ws-file recallLimit=99999, minQueryLength=-3, peerScope=nope)",
+  "picked": {
+   "recallLimit": 50,
+   "minQueryLength": 1,
+   "recallPeerScope": "all"
+  }
+ }
+]
+---- end-to-end loadConfig() ----
+{"over":{"OPENVIKING_RECALL_LIMIT":"999"},"recallLimit":50,"recallLimitConfigured":true,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_RECALL_LIMIT":"abc"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_TIMEOUT_MS":"1"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":1000,"captureTimeoutMs":30000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+{"over":{"OPENVIKING_CAPTURE_MODE":"bogus"},"recallLimit":10,"recallLimitConfigured":false,"timeoutMs":30000,"captureTimeoutMs":60000,"captureMode":"semantic","recallCompressTimeoutMs":110000}
+PROBE_DONE
+VALID=p5-16
+############ R25 gate: OV-local /health 200 AND proxy /ov/health 200 (with key)
+  waiting round=1 ov_local=000 via_proxy=503
+gate_rounds=2 ov_local=200 via_proxy=200 at=2026-09-29T07:10:05Z
+GATE_OK=1
+############ P5-17 multimodal scope: full tools/list schemas
+16271 /tmp/p5tools.sse
+tool_count=15
+tool_names=add_resource,cancel_watch,edit,find,forget,glob,grep,health,list,list_watches,read,remember,search,tree,write
+---- per-tool input schema ----
+  add_resource(path:string, temp_file_id:string, add_type:string, description:string, watch_interval:number, processing_mode:string, to:string, parent:string, tags:array<string>, tag_mode:string, args:object)
+      desc: Add a resource to OpenViking. Asynchronous — processing happens in the background.  Remote URL: pass ``path`` as an http(s)://, git@, ssh://, or git:// URL. A sitemap / RSS / Atom URL ingests the WHOLE site as one resour
+  cancel_watch(to_uri:string*)
+      desc: Cancel a watch task by its target URI (e.g. "viking://resources/volcengine/OpenViking").
+  edit(uri:string*, old_string:string*, new_string:string*, replace_all:boolean, wait:boolean, timeout:number)
+      desc: Replace an exact string with new text in an existing viking:// file. Use this for targeted changes instead of rewriting the whole file with the write tool. old_string must match the file's current content exactly, includ
+  find(query:string*, target_uri:string, limit:integer, min_score:number, level:array<integer>, context_type:array<string>, read_content:boolean)
+      desc: Fast semantic retrieval without session context. Returns ranked memories, resources, and skills with URI, abstract, and score.
+  forget(uri:string*, recursive:boolean)
+      desc: Permanently delete a viking:// URI from OpenViking. Irreversible — confirm with user before calling.
+  glob(pattern:string*, uri:string, node_limit:integer)
+      desc: Find viking:// files matching a glob pattern (e.g. **/*.md, *.py). Use this for filename matching; use the search tool for content-based retrieval.
+  grep(uri:string*, pattern:array<string>*, case_insensitive:boolean, node_limit:integer)
+      desc: Search content in viking:// files using regex patterns (like grep). Supports multiple patterns searched concurrently. Use this for exact text matching; use the search tool for semantic retrieval.
+  health()
+      desc: Check whether the OpenViking server is healthy.
+  list(uri:string*, recursive:boolean, offset:integer, limit:integer, sort_by:string, sort_order:string)
+      desc: List one sorted page under a viking:// directory URI.  Args:     uri: Directory URI to list.     recursive: Whether to recursively list descendants.     offset: Number of visible entries to skip.     limit: Optional maxi
+  list_watches()
+      desc: List watch tasks (auto-refresh subscriptions) visible to the current user.
+  read(uris:array<string>*, offset:integer, limit:integer)
+      desc: Read one or more viking:// file URIs. Text reads accept line-based offset/limit. Raster images and supported audio return native MCP content blocks. For directory listing, use the list tool instead.
+  remember(messages:array<object>*)
+      desc: Store information into OpenViking long-term memory. Use when the user says 'remember this', shares preferences, important facts, or decisions worth persisting.
+  search(query:string*, target_uri:string, session_id:string, limit:integer, min_score:number, level:array<integer>, context_type:array<string>, mode:string, query_expansion:string, max_tokens:integer, quotas:object, purpose:string, detail:string, detail_by_category:object, dedup_turns:integer, exclude_uris:array<string>, peer_scope:string, other_peer_penalty:number, other_peer_penalties:object, rewrite:string, rewrite_max_bullets:integer, read_content:boolean)
+      desc: Deep semantic retrieval with optional session context and intent analysis.  ``mode="list"`` returns ranked memories, resources, and skills with URI, abstract, and score. ``mode="context"`` returns an injection-ready, tok
+  tree(uri:string, level_limit:integer, node_limit:integer, include_abstract:boolean, offset:integer, limit:integer)
+      desc: Show one visible page from a recursive directory tree.  Args:     uri: Directory URI to traverse.     level_limit: Maximum traversal depth.     node_limit: Existing default result limit.     include_abstract: Whether to 
+  write(uri:string*, content:string*, mode:string, wait:boolean, timeout:number)
+      desc: Write text to a viking:// file. Use this to save files (notes, profiles, knowledge, state) in OpenViking the same way you would use a working directory. To change part of an existing file, prefer the edit tool over a ful
+---- multimodal-keyword property hits = 1 ----
+  HIT add_resource.temp_file_id
+PARSE_DONE
+VALID=p5-17-mcp
+############ cleanup probe artifacts
+opencode
+DONE_P5G at=2026-09-29T07:10:05Z

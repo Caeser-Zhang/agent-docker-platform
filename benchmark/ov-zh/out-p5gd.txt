@@ -1,0 +1,239 @@
+########## stage 0: dual liveness gate ##########
+at=2026-09-29T08:42:28Z
+  gate round 1 local_ov=000 via_proxy=503
+  gate round 2 local_ov=200 via_proxy=200
+VALID stage0
+
+########## stage A: register p5gd-a/b + decode container proxy token ##########
+{
+ "register_p5gd-a": {
+  "status": 200,
+  "returned_equals_derived": true
+ },
+ "register_p5gd-b": {
+  "status": 200,
+  "returned_equals_derived": true
+ },
+ "container_token_decodes_to": "ovproxy:p2probe...",
+ "container_token_is_ovproxy_p2probe": true
+}
+VALID stageA
+
+########## stage B: shared-scope writes as p5gd-a + cross-user write attempt ##########
+{
+ "write_res_marker": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://resources/p5gd-res-marker.md\",\"root_uri\":\"viking://resources\",\"context_type\":\"resource\",\"mode\":\"create\",\"written_bytes\":102,\"content_updated\":true,\"semantic_status\":\"complete\",\"ve"
+ },
+ "write_agent_marker": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://agent/p5gd-agent-marker.md\",\"root_uri\":\"viking://agent\",\"context_type\":\"resource\",\"mode\":\"create\",\"written_bytes\":86,\"content_updated\":true,\"semantic_status\":\"complete\",\"vector_st"
+ },
+ "write_cross_user": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Access denied for viking://user/p5gd-b/memories/p5gd-inject.md\",\"details\":{\"resource\":\"viking://user/p5gd-b/memories/p5gd-inject.md\"}},\"telem"
+ },
+ "self_search_res_marker": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"memories\":[{\"context_type\":\"memory\",\"uri\":\"viking://user/p5gd-a/memories/.overview.md\",\"level\":1,\"score\":0.1988280564546585,\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\",\"tags\":[]}],\"resources\":[{\"context_type\":\"resource\",\"uri\":\"viking://resources/p5gd-res-marker.md\",\"level\":2,\"score\":0.7777548432350159,\"abstract\":\"该文档是一篇内容极为简短的Markdown文件，标题为“共享作用域写入探针A”，属于测试或占位性质的文档。文档仅包含一个一级标题和一句"
+ }
+}
+VALID stageB
+
+########## stage C: can ANOTHER user see the injected shared content? ##########
+{
+ "b_search_res": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"memories\":[{\"context_type\":\"memory\",\"uri\":\"viking://user/p5gd-b/memories/.overview.md\",\"level\":1,\"score\":0.1988280564546585,\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\",\"tags\":[]}],\"resources\":[{\"context_type\":\"resource\",\"uri\":\"viking://resources/p5gd-res-marker.md\",\"level\":2,\"score\":0.7777548432350159,\"abstract\":\"该文档是一篇内容极为简短的Markdown文件，标题为“共享作用域写入探针A”，属于测试或占位性质的文档。文档仅包含一个一级标题和一句"
+ },
+ "b_search_agent": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"memories\":[],\"resources\":[{\"context_type\":\"resource\",\"uri\":\"viking://resources/p5gd-res-marker.md\",\"level\":2,\"score\":0.36554601788520813,\"abstract\":\"该文档是一篇内容极为简短的Markdown文件，标题为“共享作用域写入探针A”，属于测试或占位性质的文档。文档仅包含一个一级标题和一句陈述性内容：杭州湾跨海大桥全长三十六公里，双向六车道设计。标题中的“共享作用域写入探针”字样暗示该文件可能用于测试共享作用域写入功能，而正文内容与此标题无直接关联，仅为一段独立的桥梁介绍信息。文档没有章节层级结构、概念定义、教程步骤或目标读者说明。关键词包括：共享作用域、写入探针、杭州湾跨海大桥、三十六公里、双向六车道。适用于需要理解文件标记与内容关系的检索或测试场景，读者无需预备知识即可阅读。\",\"tags\":[]},{\"context_type\":\"resource\",\"uri\":\"viking://res"
+ },
+ "b_read viking://resources/p5gd-res-marker.md": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":\"# 共享作用域写入探针A\\n\\n杭州湾跨海大桥全长三十六公里，双向六车道设计。\\n\",\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "b_read viking://agent/p5gd-agent-marker.md": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":\"# 共享agent作用域探针A\\n\\n舟山群岛拥有大小岛屿一千三百九十个。\\n\",\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "b_ls viking://resources": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://resources/p5gc-marker.md\",\"size\":18,\"isDir\":false,\"modTime\":\"2026-09-29T08:30:58.000Z\",\"abstract\":\"\"},{\"uri\":\"viking://resources/p5gd-res-marker.md\",\"size\":102,\"isDir\":false,\"modTime\":\"2026-09-29T08:42:43.000Z\",\"abstract\":\"\"}],\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "b_ls viking://agent": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://agent/endpoints\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T06:40:04.000Z\",\"abstract\":\"Shared communication endpoint configuration for agent capabilities.\"},{\"uri\":\"viking://agent/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:07:03.000Z\",\"abstract\":\"这是名为 memories 的目录，其内容以持久化探针相关的运维参考文档为主。目录中的资料重点围绕持久化层的部署与连接配置展开，涵盖了部署拓扑架构模式、数据库连接池参数设定、以及运维团队的问题"
+ },
+ "studio-debug_role": "user",
+ "adm_ls viking://resources": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://resources/p5gc-marker.md\",\"size\":18,\"isDir\":false,\"modTime\":\"2026-09-29T08:30:58.000Z\",\"abstract\":\"\"},{\"uri\":\"viking://resources/p5gd-res-marker.md\",\"size\":102,\"isDir\":false,\"modTime\":\"2026-09-29T08:42:43.000Z\",\"abstract\":\"\"}],\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "adm_ls viking://agent": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://agent/endpoints\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T06:40:04.000Z\",\"abstract\":\"Shared communication endpoint configuration for agent capabilities.\"},{\"uri\":\"viking://agent/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:07:03.000Z\",\"abstract\":\"这是名为 memories 的目录，其内容以持久化探针相关的运维参考文档为主。目录中的资料重点围绕持久化层的部署与连接配置展开，涵盖了部署拓扑架构模式、数据库连接池参数设定、以及运维团队的问题"
+ },
+ "ovzh-eval_sample_uri": "viking://user/ovzh-eval/memories/cases/慢查询案例.md",
+ "cross_user_read": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Access denied for viking://user/ovzh-eval/memories/cases/慢查询案例.md\",\"details\":{\"resource\":\"viking://user/ovzh-eval/memorie"
+ }
+}
+VALID stageC
+
+########## stage D: agent-path write via the PROXY (A container -> /ov/mcp) ##########
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Wrote 116 bytes to viking://resources/p5gd-proxy-marker.md (mode=create).\nIndexing: semantic=queued, vector=queued. Search indexes update in the background; pass wait=true if a follow-up search must see this change immediately."}],"structuredContent":{"result":"Wrote 116 bytes to viking://resources/p5gd-proxy-marker.md (mode=create).\nIndexing: semantic=queued, vector=queued. Search indexes update in the b
+VALID stageD
+
+########## stage D2: does user b see the proxy-written marker? ##########
+{
+ "b_search_proxy_marker": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"memories\":[{\"context_type\":\"memory\",\"uri\":\"viking://user/p5gd-b/memories/.overview.md\",\"level\":1,\"score\":0.2086378037929535,\"abstract\":\"User's long-term memory storage. Contains memory types like preferences, entities, events, managed hierarchically by type.\",\"tags\":[]}],\"resources\":[{\"context_type\":\"resource\",\"uri\":\"viking://resources/p5gd-proxy-marker.md\",\"level\":2,\"score\":0.7356095314025879,\"abstract\":\"该文档标题为“经代理写入共享作用域探针”，仅包含一个标题和一句话内容：“港珠澳大桥全长五十五公里，设计使用寿命一百二十年。”文档类"
+ },
+ "b_read_proxy_marker": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":\"# 经代理写入共享作用域探针\\n\\n港珠澳大桥全长五十五公里，设计使用寿命一百二十年。\\n\",\"error\":null,\"telemetry\":null,\"profile\":null}"
+ }
+}
+VALID stageD2
+
+########## stage E: DELETE /api/v1/fs semantics + isolation ##########
+{
+ "spec DELETE /api/v1/fs": {
+  "summary": "Rm",
+  "params": [
+   {
+    "name": "uri",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "recursive",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "wait",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "timeout",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "X-OpenViking-Actor-Peer",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "X-API-Key",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "Authorization",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "x-api-key",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "authorization",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "X-OpenViking-Account",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "X-OpenViking-User",
+    "in": "header",
+    "required": false
+   }
+  ]
+ },
+ "spec DELETE /api/v1/sessions/{session_id}": {
+  "summary": "Delete Session",
+  "params": [
+   {
+    "name": "session_id",
+    "in": "path",
+    "required": true
+   },
+   {
+    "name": "X-API-Key",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "Authorization",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "x-api-key",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "authorization",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "X-OpenViking-Account",
+    "in": "header",
+    "required": false
+   },
+   {
+    "name": "X-OpenViking-User",
+    "in": "header",
+    "required": false
+   }
+  ]
+ },
+ "seed_del_target": 200,
+ "delete_own_query": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":{\"uri\":\"viking://user/p5gd-a/memories/p5gd/del-target.md\",\"estimated_deleted_count\":1},\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "del_target_after": 404,
+ "delete_cross_user": {
+  "status": 403,
+  "body": "{\"status\":\"error\",\"result\":null,\"error\":{\"code\":\"PERMISSION_DENIED\",\"message\":\"Access denied for viking://user/p5gd-a/memories/p5gd/del-target2.md\",\"details\":{\"resource\":\"viking://user/p5gd-a/memories"
+ },
+ "cleanup_own2": 200
+}
+VALID stageE
+
+########## stage F: cleanup shared-scope residue + delete probe users ##########
+{
+ "a_delete viking://resources/p5gd-res-marker.md": 200,
+ "a_delete viking://agent/p5gd-agent-marker.md": 200,
+ "p2probe_delete_proxy_marker": 200,
+ "adm_delete viking://resources/p5gc-marker.md": 200,
+ "adm_delete viking://agent/p5gc-marker.md": 200,
+ "final_ls viking://resources": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[],\"error\":null,\"telemetry\":null,\"profile\":null}"
+ },
+ "final_ls viking://agent": {
+  "status": 200,
+  "body": "{\"status\":\"ok\",\"result\":[{\"uri\":\"viking://agent/endpoints\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T06:40:04.000Z\",\"abstract\":\"Shared communication endpoint configuration for agent capabilities.\"},{\"uri\":\"viking://agent/memories\",\"size\":0,\"isDir\":true,\"modTime\":\"2026-09-28T07:07:03.000Z\",\"abstract\":\"这是名为 memories 的目录，其内容以持久化探针相关的运维参考文档为主。目录中的资料重点围绕持久化层的部署与连接配置展开，涵盖了部署拓扑架构模式、数据库连接池参数设定、以及运维团队的问题"
+ },
+ "admin_delete_p5gd-a": 202,
+ "admin_delete_p5gd-b": 202
+}
+VALID stageF
+DONE_P5GD at=2026-09-29T08:43:53Z

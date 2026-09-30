@@ -1,0 +1,60 @@
+﻿===== now / container state / health =====
+2026-09-29T04:32:57Z
+started=2026-09-29T04:32:49.760739754Z health=starting restarts=0 oom=false
+health=000
+ready=000
+===== retry storm still live? 3 x 60s windows =====
+w1 t=04:33:08 429=0 breaker=0 reenqueue=0 embed_fail=0 ok_hint=0 stats=110.66% 410.2MiB / 15.51GiB
+w2 t=04:34:10 429=0 breaker=0 reenqueue=0 embed_fail=0 ok_hint=0 stats=2.21% 623.7MiB / 15.51GiB
+w3 t=04:35:13 429=0 breaker=0 reenqueue=0 embed_fail=0 ok_hint=0 stats=2.80% 624.4MiB / 15.51GiB
+===== all-time error code histogram (whole log) =====
+     99 Error code: 429
+-- last 429 timestamp / first 429 timestamp --
+2026-09-29T03:35:41.215037169Z 2026-09-2
+2026-09-29T04:03:04.098960330Z 2026-09-2
+-- total log lines --
+3084
+===== queue contents: whose messages are in there? (read-only) =====
+total 6984
+drwxr-xr-x 2 root root    4096 Sep 28 04:56 .
+drwxr-xr-x 4 root root    4096 Sep 28 04:56 ..
+-rw-r--r-- 1 root root 1716224 Sep 29 04:06 queue.db
+-rw-r--r-- 1 root root   32768 Sep 29 04:33 queue.db-shm
+-rw-r--r-- 1 root root 5384872 Sep 29 04:06 queue.db-wal
+-- sizes --
+6.9M	/app/.openviking/data/_system/queue
+-- uri owners in queue.db* --
+[/app/.openviking/data/_system/queue/queue.db]
+[/app/.openviking/data/_system/queue/queue.db-wal]
+-- non-viking uri hints (peers/sessions) --
+===== p4-scale residue on disk: content landed but index lagged? =====
+-- total p4-scale paths --
+523
+-- breakdown by kind --
+bash : sed: -e expression #1, char 16: unterminated `s' command
+At line:15 char:3142
++ ... node_modules\@vscode\ripgrep\bin'; bash _scratch_p412.sh 2>&1 | tee b ...
++                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (sed: -e express...ted `s' command:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+-- top-level dirs under p4-scale --
+/app/.openviking/data/viking/agent-platform/user/p4-scale
+/app/.openviking/data/viking/agent-platform/user/p4-scale/skills
+/app/.openviking/data/viking/agent-platform/user/p4-scale/resources
+/app/.openviking/data/viking/agent-platform/user/p4-scale/privacy
+/app/.openviking/data/viking/agent-platform/user/p4-scale/memories
+/app/.openviking/data/viking/agent-platform/user/p4-scale/memories/cases
+/app/.openviking/data/viking/agent-platform/user/p4-scale/peers
+/app/.openviking/data/viking/agent-platform/user/p4-scale/sessions
+-- data dir total --
+63M	/app/.openviking/data
+===== vector_count now (frozen at 463, or resumed?) =====
+{"status":"error","result":null,"error":{"code":"PERMISSION_DENIED","message":"ROOT API keys cannot access tenant-scoped data APIs in api_key mode. Use a user/admin API key for data access, or trusted mode for upstream identity assertion.","details":{}},"telemetry":null,"profile":null}
+===== rerank gauge (must stay 0.0 = OFF) =====
+# HELP openviking_model_usage_available OpenViking metric.
+# TYPE openviking_model_usage_available gauge
+openviking_model_usage_available{model_type="vlm",valid="1"} 1.0
+openviking_model_usage_available{model_type="embedding",valid="1"} 1.0
+openviking_model_usage_available{model_type="rerank",valid="1"} 0.0
+===== P412-DONE =====

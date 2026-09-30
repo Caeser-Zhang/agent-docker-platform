@@ -1,0 +1,58 @@
+{
+ "checks": {
+  "P4-01 search_p50<=300ms": [
+   172.5,
+   "PASS"
+  ],
+  "P4-02 search_p95<=800ms": [
+   399.7,
+   "PASS"
+  ],
+  "P4-03 search_p99<=1500ms": [
+   556.2,
+   "PASS"
+  ]
+ },
+ "cold_first_http": 200,
+ "cold_first_ms": 195.3,
+ "direct_url": "http://openviking:1933",
+ "endpoint": "/api/v1/search/search",
+ "errors": 0,
+ "eval_user": "ovzh-eval",
+ "health": {
+  "body": "{\"status\":\"ok\",\"healthy\":true,\"version\":\"v0.4.21\",\"auth_mode\":\"api_key\",\"account_id\":\"agent-platform\",\"user_id\":\"ovzh-ev",
+  "http": 200
+ },
+ "http_codes": {
+  "200": 200
+ },
+ "label": "p4-latency-context",
+ "latency_ms": {
+  "max": 670.3,
+  "mean": 209.6,
+  "min": 133.6,
+  "n": 200,
+  "p50": 172.5,
+  "p95": 399.7,
+  "p99": 556.2
+ },
+ "mode": "context",
+ "n_requested": 200,
+ "proxy_url": "http://127.0.0.1:8000/ov",
+ "queries_n": 30,
+ "suite": "latency",
+ "target": "direct",
+ "ts": "2026-09-29T03:32:29",
+ "used_tokens": {
+  "max": 875.0,
+  "mean": 763.1,
+  "min": 672.0,
+  "n": 200,
+  "p50": 761.0,
+  "p95": 861.0,
+  "p99": 875.0
+ },
+ "vector_count_after": 229,
+ "vector_count_before": 229,
+ "warmup_discarded": 10
+}
